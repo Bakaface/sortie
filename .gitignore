@@ -1,0 +1,13 @@
+# Binary
+ralph-tamer-kit
+
+# RTK data directory
+.rtk/
+
+# Legacy data directory
+.ralph-tamer-kit/
+
+# Test files
+TEST_PRD.md
+
+bin/

@@ -1,0 +1,60 @@
+package workflow
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+)
+
+type TaskVars struct {
+	ID          int64
+	Title       string
+	Description string
+	Slug        string
+	Branch      string
+}
+
+type GitVars struct {
+	BaseBranch string
+	RepoRoot   string
+}
+
+type TemplateContext struct {
+	Task      TaskVars
+	Artifacts map[string]string
+	Git       GitVars
+}
+
+var templatePattern = regexp.MustCompile(`\{\{([a-zA-Z0-9_.]+)\}\}`)
+
+// ResolveTemplate replaces {{dotted.path}} placeholders in the template string.
+func ResolveTemplate(tmpl string, ctx *TemplateContext) string {
+	return templatePattern.ReplaceAllStringFunc(tmpl, func(match string) string {
+		key := match[2 : len(match)-2] // strip {{ and }}
+
+		switch {
+		case key == "task.id":
+			return fmt.Sprintf("%d", ctx.Task.ID)
+		case key == "task.title":
+			return ctx.Task.Title
+		case key == "task.description":
+			return ctx.Task.Description
+		case key == "task.slug":
+			return ctx.Task.Slug
+		case key == "task.branch":
+			return ctx.Task.Branch
+		case key == "git.base_branch":
+			return ctx.Git.BaseBranch
+		case key == "git.repo_root":
+			return ctx.Git.RepoRoot
+		case strings.HasPrefix(key, "artifacts."):
+			artifactName := key[len("artifacts."):]
+			if val, ok := ctx.Artifacts[artifactName]; ok {
+				return val
+			}
+			return ""
+		default:
+			return match // leave unknown placeholders as-is
+		}
+	})
+}
