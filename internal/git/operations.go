@@ -87,6 +87,27 @@ func Push(workDir, branch string) error {
 	return nil
 }
 
+func CreatePR(workDir, branch, baseBranch, title, body string) error {
+	args := []string{"pr", "create",
+		"--head", branch,
+		"--base", baseBranch,
+		"--title", title,
+		"--body", body,
+	}
+
+	cmd := exec.Command("gh", args...)
+	cmd.Dir = workDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("gh pr create failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return nil
+}
+
 func GetLastCommitMessage(workDir string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--pretty=%B")
 	cmd.Dir = workDir

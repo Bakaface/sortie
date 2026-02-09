@@ -69,13 +69,14 @@ func (db *DB) CreateTasksBatch(inputs []TaskInput) ([]*task.Task, error) {
 		ids = append(ids, id)
 	}
 
-	// Insert dependencies — BlockedBy indices are 0-based references into the inputs slice
+	// Insert dependencies — BlockedBy indices are 1-based references into the inputs slice
 	for i, input := range inputs {
 		for _, depIdx := range input.BlockedBy {
-			if depIdx < 0 || int(depIdx) >= len(ids) {
+			actualIdx := depIdx - 1 // Convert 1-based to 0-based
+			if actualIdx < 0 || int(actualIdx) >= len(ids) {
 				continue
 			}
-			if _, err := depStmt.Exec(ids[i], ids[depIdx]); err != nil {
+			if _, err := depStmt.Exec(ids[i], ids[actualIdx]); err != nil {
 				return nil, fmt.Errorf("insert dependency for task %d: %w", ids[i], err)
 			}
 		}
@@ -196,6 +197,24 @@ func (db *DB) getTasksByStatus(status task.Status) ([]*task.Task, error) {
 	defer rows.Close()
 
 	return scanTasks(rows)
+}
+
+// ClaimTask atomically transitions a task from pending to running.
+// Returns true if the claim succeeded, false if the task was not in pending state.
+func (db *DB) ClaimTask(id int64) (bool, error) {
+	now := time.Now()
+	result, err := db.Exec(
+		"UPDATE tasks SET status = ?, started_at = ?, updated_at = ? WHERE id = ? AND status = ?",
+		task.StatusRunning, now, now, id, task.StatusPending,
+	)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
 
 func (db *DB) UpdateTaskStatus(id int64, status task.Status) error {

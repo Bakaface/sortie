@@ -33,6 +33,15 @@ func New(cfg *config.Config, database *db.DB) *Planner {
 }
 
 func (p *Planner) PlanFromPRD(prdPath string, force bool) ([]*task.Task, error) {
+	// Check for existing tasks before proceeding
+	existing, err := p.db.GetAllTasks()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing tasks: %w", err)
+	}
+	if len(existing) > 0 && !force {
+		return nil, fmt.Errorf("tasks already exist (%d tasks). Use --force to re-plan", len(existing))
+	}
+
 	// Delete existing tasks if force flag is set
 	if force {
 		if err := p.db.DeleteAllTasks(); err != nil {

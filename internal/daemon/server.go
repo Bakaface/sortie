@@ -282,6 +282,11 @@ func (s *Server) handleStartAgent(conn net.Conn, req StartAgentRequest) {
 		return
 	}
 
+	if t.Status != task.StatusPending && t.Status != task.StatusAwaitingApproval {
+		s.sendError(conn, fmt.Sprintf("task is not startable (status: %s)", t.Status))
+		return
+	}
+
 	if err := s.startTaskAgent(t); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
 		return
@@ -495,6 +500,9 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		}
 		s.notifier.AgentCompleted(a.ID, taskTitle)
 
+		// Check if all tasks are now terminal
+		s.checkAllTasksDone()
+
 	case agent.StateFailed:
 		log.Printf("Agent %s failed task #%d: %s", a.ID, a.Task.ID, a.Error)
 		if err := s.database.UpdateTaskError(a.Task.ID, a.Error); err != nil {
@@ -502,9 +510,28 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		}
 		s.notifier.AgentFailed(a.ID, taskTitle, a.Error)
 
+		// Check if all tasks are now terminal
+		s.checkAllTasksDone()
+
 	case agent.StateWaitingForInput:
 		s.notifier.AgentWaitingForInput(a.ID, taskTitle)
 	}
+}
+
+func (s *Server) checkAllTasksDone() {
+	tasks, err := s.database.GetAllTasks()
+	if err != nil || len(tasks) == 0 {
+		return
+	}
+	for _, t := range tasks {
+		switch t.Status {
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval:
+			return // Still active work
+		}
+	}
+	// All tasks are in a terminal state (completed, failed, or stopped)
+	log.Println("All tasks completed")
+	s.notifier.AllTasksCompleted()
 }
 
 func (s *Server) broadcastToSubscribers(msgType MessageType, payload any) {
@@ -582,6 +609,17 @@ func (s *Server) checkPendingTasks() {
 }
 
 func (s *Server) startTaskAgent(t *task.Task) error {
+	// Atomically claim the task (pending -> running) to prevent double-starts
+	if t.Status == task.StatusPending {
+		claimed, err := s.database.ClaimTask(t.ID)
+		if err != nil {
+			return fmt.Errorf("failed to claim task: %w", err)
+		}
+		if !claimed {
+			return agent.ErrTaskAlreadyTracked
+		}
+	}
+
 	// The workflow engine handles worktree creation, so we just need a workdir placeholder.
 	// Use the expected worktree path so the agent tracks it.
 	workDir := t.WorktreePath
@@ -596,10 +634,6 @@ func (s *Server) startTaskAgent(t *task.Task) error {
 
 	if _, err := s.manager.StartAgent(t, workDir, runner); err != nil {
 		return err
-	}
-
-	if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
-		log.Printf("Warning: failed to update task status in database: %v", err)
 	}
 
 	return nil
@@ -621,25 +655,52 @@ func (s *Server) recoverOrphanedTasks() error {
 		}
 	}
 
+	// Log awaiting_approval tasks so users know they exist
+	allTasks, err := s.database.GetAllTasks()
+	if err != nil {
+		return nil // Non-critical, don't fail
+	}
+	for _, t := range allTasks {
+		if t.Status == task.StatusAwaitingApproval {
+			log.Printf("Task #%d is awaiting approval (use 'approve' or 'reject' command)", t.ID)
+		}
+	}
+
 	return nil
 }
 
 func (s *Server) Shutdown() {
 	log.Println("Shutting down daemon...")
 
-	s.cancel()
-
+	// Stop accepting new connections first
 	if s.listener != nil {
 		s.listener.Close()
 	}
+
+	// Mark running tasks as failed before stopping agents
+	if s.database != nil {
+		runningTasks, err := s.database.GetRunningTasks()
+		if err == nil {
+			for _, t := range runningTasks {
+				log.Printf("Marking task #%d as failed (daemon shutdown)", t.ID)
+				if err := s.database.UpdateTaskError(t.ID, "daemon shutdown"); err != nil {
+					log.Printf("Failed to mark task #%d as failed: %v", t.ID, err)
+				}
+			}
+		}
+	}
+
+	// Shutdown agents with grace period
+	s.manager.Shutdown(30 * time.Second)
+
+	// Now cancel context to stop poller and accept loop
+	s.cancel()
 
 	s.mu.Lock()
 	for conn := range s.clients {
 		conn.Close()
 	}
 	s.mu.Unlock()
-
-	s.manager.Shutdown()
 
 	if s.database != nil {
 		s.database.Close()

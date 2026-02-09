@@ -66,6 +66,18 @@ func (n *Notifier) AgentFailed(taskID, description, errMsg string) error {
 	)
 }
 
+func (n *Notifier) AllTasksCompleted() error {
+	if !n.cfg.OnComplete {
+		return nil
+	}
+
+	return n.Send(
+		"All Tasks Completed",
+		"All tasks have finished processing.",
+		UrgencyNormal,
+	)
+}
+
 func (n *Notifier) AgentWaitingForInput(taskID, description string) error {
 	if !n.cfg.OnWaitingInput {
 		return nil

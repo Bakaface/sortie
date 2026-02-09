@@ -17,6 +17,13 @@ var (
 
 type StateChangeCallback func(agent *Agent, oldState, newState State)
 
+// stateTransition captures a state change to fire after releasing the mutex.
+type stateTransition struct {
+	agent    *Agent
+	oldState State
+	newState State
+}
+
 type Manager struct {
 	mu             sync.RWMutex
 	agents         map[string]*Agent
@@ -50,13 +57,14 @@ func (m *Manager) SetStateChangeCallback(cb StateChangeCallback) {
 
 func (m *Manager) StartAgent(t *task.Task, workDir string, runner func(ctx context.Context) error) (*Agent, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if m.knownTasks[t.ID] {
+		m.mu.Unlock()
 		return nil, ErrTaskAlreadyTracked
 	}
 
 	if workDir == "" {
+		m.mu.Unlock()
 		return nil, ErrNoWorkDir
 	}
 
@@ -65,12 +73,16 @@ func (m *Manager) StartAgent(t *task.Task, workDir string, runner func(ctx conte
 	m.agents[agent.ID] = agent
 	m.knownTasks[t.ID] = true
 
+	var transitions []stateTransition
 	if m.canStartMore() {
-		return agent, m.startAgentLocked(agent, runner)
+		transitions = m.startAgentLocked(agent, runner)
+	} else {
+		m.pendingRunners[agent.ID] = runner
+		m.pendingQueue = append(m.pendingQueue, agent.ID)
 	}
 
-	m.pendingRunners[agent.ID] = runner
-	m.pendingQueue = append(m.pendingQueue, agent.ID)
+	m.mu.Unlock()
+	m.fireTransitions(transitions)
 	return agent, nil
 }
 
@@ -89,28 +101,24 @@ func (m *Manager) canStartMore() bool {
 	return activeCount < m.maxConcurrent
 }
 
-func (m *Manager) startAgentLocked(agent *Agent, runner func(ctx context.Context) error) error {
+func (m *Manager) startAgentLocked(agent *Agent, runner func(ctx context.Context) error) []stateTransition {
+	var transitions []stateTransition
+
 	oldState := agent.GetState()
 	agent.SetState(StateStarting)
 	agent.StartedAt = time.Now()
-
-	if m.onStateChange != nil {
-		m.onStateChange(agent, oldState, StateStarting)
-	}
+	transitions = append(transitions, stateTransition{agent, oldState, StateStarting})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancelFuncs[agent.ID] = cancel
 
 	agent.SetState(StateRunning)
-	if m.onStateChange != nil {
-		m.onStateChange(agent, StateStarting, StateRunning)
-	}
+	transitions = append(transitions, stateTransition{agent, StateStarting, StateRunning})
 
 	go func() {
 		err := runner(ctx)
 
 		m.mu.Lock()
-		defer m.mu.Unlock()
 
 		oldState := agent.GetState()
 		if err != nil {
@@ -120,27 +128,31 @@ func (m *Manager) startAgentLocked(agent *Agent, runner func(ctx context.Context
 		}
 		delete(m.cancelFuncs, agent.ID)
 
-		if m.onStateChange != nil {
-			m.onStateChange(agent, oldState, agent.GetState())
-		}
+		newState := agent.GetState()
+		queueTransitions := m.processQueueLocked()
 
-		m.processQueueLocked()
+		m.mu.Unlock()
+
+		// Fire callbacks outside the lock
+		m.fireTransitions([]stateTransition{{agent, oldState, newState}})
+		m.fireTransitions(queueTransitions)
 	}()
 
-	return nil
+	return transitions
 }
 
 func (m *Manager) StopAgent(agentID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	agent, exists := m.agents[agentID]
 	if !exists {
+		m.mu.Unlock()
 		return ErrAgentNotFound
 	}
 
 	oldState := agent.GetState()
 	if oldState.IsTerminal() {
+		m.mu.Unlock()
 		return nil
 	}
 
@@ -151,18 +163,19 @@ func (m *Manager) StopAgent(agentID string) error {
 
 	agent.SetState(StateStopped)
 
-	if m.onStateChange != nil {
-		m.onStateChange(agent, oldState, StateStopped)
-	}
+	var transitions []stateTransition
+	transitions = append(transitions, stateTransition{agent, oldState, StateStopped})
+	transitions = append(transitions, m.processQueueLocked()...)
 
-	m.processQueueLocked()
+	m.mu.Unlock()
+	m.fireTransitions(transitions)
 
 	return nil
 }
 
-func (m *Manager) processQueueLocked() {
+func (m *Manager) processQueueLocked() []stateTransition {
 	if len(m.pendingQueue) == 0 || !m.canStartMore() {
-		return
+		return nil
 	}
 
 	agentID := m.pendingQueue[0]
@@ -172,9 +185,20 @@ func (m *Manager) processQueueLocked() {
 		if agent.GetState() == StatePending {
 			if runner, ok := m.pendingRunners[agentID]; ok {
 				delete(m.pendingRunners, agentID)
-				m.startAgentLocked(agent, runner)
+				return m.startAgentLocked(agent, runner)
 			}
 		}
+	}
+	return nil
+}
+
+// fireTransitions fires state change callbacks outside the mutex.
+func (m *Manager) fireTransitions(transitions []stateTransition) {
+	if m.onStateChange == nil {
+		return
+	}
+	for _, t := range transitions {
+		m.onStateChange(t.agent, t.oldState, t.newState)
 	}
 }
 
@@ -222,14 +246,34 @@ func (m *Manager) RecoverSessions() error {
 	return nil
 }
 
-func (m *Manager) Shutdown() {
+// Shutdown cancels all agents and waits up to gracePeriod for them to finish.
+func (m *Manager) Shutdown(gracePeriod time.Duration) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	for id, cancel := range m.cancelFuncs {
 		cancel()
 		delete(m.cancelFuncs, id)
 	}
+	m.mu.Unlock()
+
+	// Poll until all agents are done or grace period expires
+	deadline := time.Now().Add(gracePeriod)
+	for time.Now().Before(deadline) {
+		if !m.hasActiveAgents() {
+			return
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
+func (m *Manager) hasActiveAgents() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, a := range m.agents {
+		if a.GetState().IsActive() {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) GetOutput(agentID string, fromLine int) ([]string, int, error) {

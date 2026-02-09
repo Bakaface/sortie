@@ -121,7 +121,11 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 
 	// Add blocked suffix for pending tasks
 	if task.Status == "pending" && len(task.BlockedBy) > 0 {
-		status += " (blocked)"
+		if l.hasFailedBlocker(task) {
+			status += " (deadlocked)"
+		} else {
+			status += " (blocked)"
+		}
 	}
 
 	// Show step info
@@ -139,7 +143,11 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 	}
 	title = truncate(title, 60)
 
-	stateStyled := stateStyle(task.Status).Render(fmt.Sprintf("%-20s", status))
+	statusStyle := stateStyle(task.Status)
+	if strings.Contains(status, "(deadlocked)") {
+		statusStyle = stateStyle("failed") // Render deadlocked in red
+	}
+	stateStyled := statusStyle.Render(fmt.Sprintf("%-20s", status))
 
 	line := fmt.Sprintf("  %-4s %s %-30s %s",
 		taskID, stateStyled, step, title)
@@ -167,6 +175,18 @@ func (l *listView) renderHelp() string {
 	}
 
 	return help.String()
+}
+
+// hasFailedBlocker checks if any of the task's blockers have failed status.
+func (l *listView) hasFailedBlocker(task daemon.TaskInfo) bool {
+	for _, blockerID := range task.BlockedBy {
+		for _, t := range l.tasks {
+			if t.ID == blockerID && t.Status == "failed" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func truncate(s string, maxLen int) string {

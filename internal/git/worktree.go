@@ -18,9 +18,13 @@ type Worktree struct {
 	WorktreDir string
 }
 
-func CreateWorktree(repoRoot string, taskID int64, baseBranch string) (*Worktree, error) {
-	branchName := fmt.Sprintf("%s%d", WorktreePrefix, taskID)
-	worktreePath := filepath.Join(repoRoot, ".rtk", "worktrees", branchName)
+func CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string) (*Worktree, error) {
+	if branchName == "" {
+		branchName = fmt.Sprintf("%s%d", WorktreePrefix, taskID)
+	}
+	// Sanitize branch name for use as directory name (replace / with -)
+	dirName := strings.ReplaceAll(branchName, "/", "-")
+	worktreePath := filepath.Join(repoRoot, ".rtk", "worktrees", dirName)
 
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create worktree directory: %w", err)
@@ -103,7 +107,7 @@ func ListWorktrees(repoRoot string) ([]string, error) {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "worktree ") {
 			path := strings.TrimPrefix(line, "worktree ")
-			if strings.Contains(path, WorktreePrefix) {
+			if strings.Contains(path, WorktreePrefix) || strings.Contains(path, "rtk-") {
 				worktrees = append(worktrees, path)
 			}
 		}

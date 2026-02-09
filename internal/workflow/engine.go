@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aface/ralph-tamer-kit/internal/claude"
@@ -43,7 +44,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 
 	// Create worktree if not already set
 	if t.WorktreePath == "" {
-		worktree, err := gitpkg.CreateWorktree(e.repoRoot, t.ID, e.cfg.Git.BaseBranch)
+		worktree, err := gitpkg.CreateWorktree(e.repoRoot, t.ID, e.cfg.Git.BaseBranch, t.Branch)
 		if err != nil {
 			return fmt.Errorf("failed to create worktree: %w", err)
 		}
@@ -113,8 +114,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 		}
 
 		// Spawn Claude process
-		logPath := LogPath(t.WorktreePath, step.Name)
-		exitCode, err := e.runClaudeStep(ctx, t, resolvedPrompt, logPath, env)
+		exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, resolvedPrompt, env)
 		if err != nil {
 			e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
 			return fmt.Errorf("step %q failed: %w", step.Name, err)
@@ -122,6 +122,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 
 		if exitCode != 0 {
 			errMsg := fmt.Sprintf("step %q exited with code %d", step.Name, exitCode)
+			if outputTail != "" {
+				errMsg += "\n" + outputTail
+			}
 			e.database.UpdateTaskExitCode(t.ID, exitCode, errMsg)
 			return fmt.Errorf("%s", errMsg)
 		}
@@ -139,8 +142,41 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 		}
 	}
 
-	// All steps completed
+	// All steps completed — execute on_complete action
+	if err := e.executeOnComplete(t); err != nil {
+		log.Printf("Warning: on_complete action failed for task #%d: %v", t.ID, err)
+	}
+
 	return nil
+}
+
+// executeOnComplete runs the configured on_complete action after all steps finish.
+func (e *Engine) executeOnComplete(t *task.Task) error {
+	action := e.cfg.Git.OnComplete
+	switch action {
+	case "", "none":
+		return nil
+
+	case "commit":
+		return gitpkg.Commit(t.WorktreePath, "rtk: "+t.Title)
+
+	case "commit+pr":
+		if err := gitpkg.Commit(t.WorktreePath, "rtk: "+t.Title); err != nil {
+			return fmt.Errorf("commit failed: %w", err)
+		}
+		if err := gitpkg.Push(t.WorktreePath, t.Branch); err != nil {
+			return fmt.Errorf("push failed: %w", err)
+		}
+		baseBranch := e.cfg.Git.BaseBranch
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
+		return gitpkg.CreatePR(t.WorktreePath, t.Branch, baseBranch, t.Title, t.Description)
+
+	default:
+		log.Printf("Unknown on_complete action: %s", action)
+		return nil
+	}
 }
 
 // ResumeAfterApproval resumes a task from its current step index.
@@ -148,8 +184,13 @@ func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task) error {
 	return e.RunTask(ctx, t)
 }
 
-func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, prompt, logPath string, envVars map[string]string) (int, error) {
+func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string) (int, string, error) {
 	proc := claude.NewProcess(fmt.Sprintf("%d", t.ID), t.WorktreePath, &e.cfg.Claude)
+
+	// Apply step timeout
+	timeout := e.cfg.GetStepTimeout(step)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	// Set up environment
 	for k, v := range envVars {
@@ -162,7 +203,7 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, prompt, logPat
 	}()
 
 	if err := proc.StartWithPrompt(prompt); err != nil {
-		return 1, fmt.Errorf("failed to start claude: %w", err)
+		return 1, "", fmt.Errorf("failed to start claude: %w", err)
 	}
 
 	// Wait for process to exit
@@ -173,10 +214,18 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, prompt, logPat
 		select {
 		case <-ctx.Done():
 			proc.Stop()
-			return 1, ctx.Err()
+			return 1, "", ctx.Err()
 		case <-ticker.C:
 			if proc.HasExited() {
-				return proc.ExitCode(), nil
+				exitCode := proc.ExitCode()
+				var outputTail string
+				if exitCode != 0 {
+					if lines, err := proc.CaptureOutput(20); err == nil && len(lines) > 0 {
+						// Take the last 20 lines as context
+						outputTail = strings.Join(lines, "\n")
+					}
+				}
+				return exitCode, outputTail, nil
 			}
 		}
 	}

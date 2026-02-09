@@ -17,12 +17,12 @@ Read the Product Requirements Document (PRD) below and extract a list of discret
 Output ONLY a JSON array of task objects. Each object must have:
 - "title": A brief, descriptive title (under 60 characters)
 - "description": Detailed implementation instructions
-- "blocked_by": Array of 0-based indices of tasks that must complete first (e.g., [0, 1] means this task depends on tasks 0 and 1)
+- "blocked_by": Array of 1-based indices of tasks that must complete first (e.g., [1, 2] means this task depends on tasks 1 and 2)
 
 Do not include any other text, markdown formatting, or explanation.
 
 Example output:
-[{"title":"Create auth endpoint","description":"Create user authentication endpoint with JWT tokens","blocked_by":[]},{"title":"Add password hashing","description":"Add password hashing with bcrypt","blocked_by":[0]},{"title":"Create login form","description":"Create login form component with validation","blocked_by":[0,1]}]
+[{"title":"Create auth endpoint","description":"Create user authentication endpoint with JWT tokens","blocked_by":[]},{"title":"Add password hashing","description":"Add password hashing with bcrypt","blocked_by":[1]},{"title":"Create login form","description":"Create login form component with validation","blocked_by":[1,2]}]
 %s
 ## PRD:
 %s

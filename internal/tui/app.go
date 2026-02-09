@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aface/ralph-tamer-kit/internal/client"
@@ -29,6 +30,10 @@ type Model struct {
 	height   int
 	err      error
 	quitting bool
+
+	// Confirmation state
+	confirmAction string // "approve" or "reject", empty if no confirmation pending
+	confirmTaskID int64
 }
 
 type taskUpdateMsg daemon.TaskInfo
@@ -161,6 +166,27 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle confirmation prompt if active
+	if m.confirmAction != "" {
+		switch msg.String() {
+		case "y":
+			action := m.confirmAction
+			taskID := m.confirmTaskID
+			m.confirmAction = ""
+			m.confirmTaskID = 0
+			if action == "approve" {
+				return m, m.approveTask(taskID)
+			}
+			return m, m.rejectTask(taskID)
+		case "n", "esc":
+			m.confirmAction = ""
+			m.confirmTaskID = 0
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		m.quitting = true
@@ -190,7 +216,19 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "awaiting_approval" {
-				return m, m.approveTask(task.ID)
+				m.confirmAction = "approve"
+				m.confirmTaskID = task.ID
+				return m, nil
+			}
+		}
+		return m, nil
+
+	case "x":
+		if task := m.list.Selected(); task != nil && m.client != nil {
+			if task.Status == "awaiting_approval" {
+				m.confirmAction = "reject"
+				m.confirmTaskID = task.ID
+				return m, nil
 			}
 		}
 		return m, nil
@@ -310,6 +348,18 @@ func (m Model) approveTask(taskID int64) tea.Cmd {
 	}
 }
 
+func (m Model) rejectTask(taskID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+		if err := m.client.RejectTask(taskID); err != nil {
+			return errorMsg(err)
+		}
+		return nil
+	}
+}
+
 func (m Model) retryTask(taskID int64) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
@@ -331,12 +381,20 @@ func (m Model) View() string {
 		return fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err)
 	}
 
+	var content string
 	switch m.view {
 	case viewDetail:
-		return m.detail.View()
+		content = m.detail.View()
 	default:
-		return m.list.View()
+		content = m.list.View()
 	}
+
+	// Show confirmation bar if active
+	if m.confirmAction != "" {
+		content += fmt.Sprintf("\n  %s task #%d? (y/n)", capitalize(m.confirmAction), m.confirmTaskID)
+	}
+
+	return content
 }
 
 func Run(cfg *config.Config) error {
@@ -348,6 +406,13 @@ func Run(cfg *config.Config) error {
 
 	_, err := p.Run()
 	return err
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 func init() {

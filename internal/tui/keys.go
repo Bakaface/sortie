@@ -10,6 +10,7 @@ type keyMap struct {
 	Enter    key.Binding
 	Stop     key.Binding
 	Approve  key.Binding
+	Reject   key.Binding
 	Retry    key.Binding
 	Refresh  key.Binding
 	Back     key.Binding
@@ -40,6 +41,10 @@ func newKeyMap() keyMap {
 		Approve: key.NewBinding(
 			key.WithKeys("a"),
 			key.WithHelp("a", "approve"),
+		),
+		Reject: key.NewBinding(
+			key.WithKeys("x"),
+			key.WithHelp("x", "reject"),
 		),
 		Retry: key.NewBinding(
 			key.WithKeys("r"),
@@ -73,13 +78,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Approve, k.Retry, k.Stop, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Approve, k.Reject, k.Retry, k.Stop, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter},
-		{k.Stop, k.Approve, k.Retry, k.Refresh},
+		{k.Stop, k.Approve, k.Reject, k.Retry, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

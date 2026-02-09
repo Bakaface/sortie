@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 
@@ -55,6 +56,7 @@ func (c *Client) readLoop() {
 	for scanner.Scan() {
 		msg, err := daemon.DecodeMessage(scanner.Bytes())
 		if err != nil {
+			log.Printf("IPC decode error: %v", err)
 			continue
 		}
 

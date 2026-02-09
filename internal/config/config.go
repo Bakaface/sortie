@@ -36,7 +36,20 @@ type StepConfig struct {
 	Name             string `yaml:"name"`
 	Prompt           string `yaml:"prompt"`
 	Mode             string `yaml:"mode"`
+	Timeout          string `yaml:"timeout"`
 	ApprovalRequired bool   `yaml:"approval_required"`
+}
+
+const DefaultStepTimeout = 30 * time.Minute
+
+// GetStepTimeout parses the step's timeout string or returns the default.
+func (c *Config) GetStepTimeout(step StepConfig) time.Duration {
+	if step.Timeout != "" {
+		if d, err := time.ParseDuration(step.Timeout); err == nil {
+			return d
+		}
+	}
+	return DefaultStepTimeout
 }
 
 // GlobalConfig from ~/.config/ralph-tamer-kit/config.yaml
@@ -78,6 +91,9 @@ type Config struct {
 
 	// Internal defaults (not in yaml)
 	Claude ClaudeConfig
+
+	// Whether a project config (.rtk.yaml) was found
+	ProjectConfigFound bool
 
 	// Computed paths (project-local)
 	ProjectDir   string
@@ -175,6 +191,7 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 		cfg.ProjectDir = filepath.Dir(projectPath)
+		cfg.ProjectConfigFound = true
 	}
 
 	cfg.computePaths()
@@ -199,6 +216,7 @@ func LoadForProject(projectDir string) (*Config, error) {
 		if err := loadProjectConfig(projectPath, cfg); err != nil {
 			return nil, err
 		}
+		cfg.ProjectConfigFound = true
 	}
 
 	cfg.ProjectDir = projectDir

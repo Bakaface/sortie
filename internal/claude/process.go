@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/aface/ralph-tamer-kit/internal/config"
 )
@@ -102,9 +103,27 @@ func (p *Process) Stop() error {
 
 	// Send SIGTERM for graceful shutdown
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		// If SIGTERM fails, try SIGKILL
 		return p.cmd.Process.Kill()
 	}
+
+	// Wait up to 5s for graceful exit, then SIGKILL
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		p.mu.RLock()
+		exited := p.exited
+		p.mu.RUnlock()
+		if exited {
+			return nil
+		}
+	}
+
+	// Still running — force kill
+	if err := p.cmd.Process.Kill(); err != nil {
+		return err
+	}
+
+	// Brief wait for kernel cleanup
+	time.Sleep(500 * time.Millisecond)
 	return nil
 }
 

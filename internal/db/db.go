@@ -28,6 +28,9 @@ func Open(path string) (*DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// SQLite is single-writer; limit connections to prevent contention
+	sqlDB.SetMaxOpenConns(1)
+
 	db := &DB{DB: sqlDB, path: path}
 
 	if err := db.migrate(); err != nil {
