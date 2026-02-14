@@ -37,6 +37,10 @@ type Model struct {
 	confirmTaskID int64
 }
 
+type clientConnectedMsg struct {
+	client *client.Client
+	tasks  []daemon.TaskInfo
+}
 type taskUpdateMsg daemon.TaskInfo
 type taskCreatedMsg daemon.TaskInfo
 type editorFinishedMsg struct{ path string }
@@ -65,13 +69,12 @@ func (m Model) Init() tea.Cmd {
 	)
 }
 
-func (m *Model) connectToDaemon() tea.Cmd {
+func (m Model) connectToDaemon() tea.Cmd {
 	return func() tea.Msg {
 		c := client.New(m.cfg)
 		if err := c.Connect(); err != nil {
 			return errorMsg(err)
 		}
-		m.client = c
 
 		if err := c.Subscribe(); err != nil {
 			return errorMsg(err)
@@ -82,21 +85,13 @@ func (m *Model) connectToDaemon() tea.Cmd {
 			return errorMsg(err)
 		}
 
-		go m.listenForUpdates()
+		// Drain subscription messages in background (picked up via tick refresh)
+		go func() {
+			for range c.Messages() {
+			}
+		}()
 
-		return tasksLoadedMsg(tasks)
-	}
-}
-
-func (m *Model) listenForUpdates() {
-	if m.client == nil {
-		return
-	}
-
-	for msg := range m.client.Messages() {
-		// Task updates will be picked up on next tick via refreshTasks
-		// Future: implement real-time task update broadcasting
-		_ = msg
+		return clientConnectedMsg{client: c, tasks: tasks}
 	}
 }
 
@@ -116,6 +111,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.list.SetSize(msg.Width, msg.Height)
 		m.detail.SetSize(msg.Width, msg.Height)
+		return m, nil
+
+	case clientConnectedMsg:
+		m.client = msg.client
+		m.list.SetTasks(msg.tasks)
 		return m, nil
 
 	case tasksLoadedMsg:

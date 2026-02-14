@@ -73,36 +73,40 @@ func HasChanges(workDir string) (bool, error) {
 	return strings.TrimSpace(stdout.String()) != "", nil
 }
 
-func Push(workDir, branch string) error {
-	cmd := exec.Command("git", "push", "-u", "origin", branch)
-	cmd.Dir = workDir
+func MergeBranch(repoRoot, branch, baseBranch string) error {
+	// Checkout base branch
+	checkoutCmd := exec.Command("git", "checkout", baseBranch)
+	checkoutCmd.Dir = repoRoot
 
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	checkoutCmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git push failed: %w (stderr: %s)", err, stderr.String())
+	if err := checkoutCmd.Run(); err != nil {
+		return fmt.Errorf("git checkout %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
+	}
+
+	// Merge the task branch
+	mergeCmd := exec.Command("git", "merge", "--no-ff", branch, "-m", fmt.Sprintf("Merge branch '%s'", branch))
+	mergeCmd.Dir = repoRoot
+	stderr.Reset()
+	mergeCmd.Stderr = &stderr
+
+	if err := mergeCmd.Run(); err != nil {
+		return fmt.Errorf("git merge failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	return nil
 }
 
-func CreatePR(workDir, branch, baseBranch, title, body string) error {
-	args := []string{"pr", "create",
-		"--head", branch,
-		"--base", baseBranch,
-		"--title", title,
-		"--body", body,
-	}
-
-	cmd := exec.Command("gh", args...)
-	cmd.Dir = workDir
+func DeleteBranch(repoRoot, branch string) error {
+	cmd := exec.Command("git", "branch", "-d", branch)
+	cmd.Dir = repoRoot
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("gh pr create failed: %w (stderr: %s)", err, stderr.String())
+		return fmt.Errorf("git branch -d failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	return nil

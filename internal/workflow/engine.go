@@ -160,18 +160,31 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 	case "commit":
 		return gitpkg.Commit(t.WorktreePath, "rtk: "+t.Title)
 
-	case "commit+pr":
+	case "merge":
+		// Commit any uncommitted changes first
 		if err := gitpkg.Commit(t.WorktreePath, "rtk: "+t.Title); err != nil {
 			return fmt.Errorf("commit failed: %w", err)
-		}
-		if err := gitpkg.Push(t.WorktreePath, t.Branch); err != nil {
-			return fmt.Errorf("push failed: %w", err)
 		}
 		baseBranch := e.cfg.Git.BaseBranch
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
-		return gitpkg.CreatePR(t.WorktreePath, t.Branch, baseBranch, t.Title, t.Description)
+		// Merge happens from the main repo, not the worktree
+		if err := gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch); err != nil {
+			return fmt.Errorf("merge failed: %w", err)
+		}
+		// Clean up worktree and branch
+		if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
+			log.Printf("Warning: failed to remove worktree: %v", err)
+		}
+		if err := gitpkg.DeleteBranch(e.repoRoot, t.Branch); err != nil {
+			log.Printf("Warning: failed to delete branch: %v", err)
+		}
+		// Clear worktree path in DB
+		if err := e.database.ClearWorktreePath(t.ID); err != nil {
+			log.Printf("Warning: failed to clear worktree path: %v", err)
+		}
+		return nil
 
 	default:
 		log.Printf("Unknown on_complete action: %s", action)
