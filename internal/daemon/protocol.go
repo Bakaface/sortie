@@ -22,6 +22,7 @@ const (
 	MsgRejectTask   MessageType = "reject_task"
 	MsgRetryTask    MessageType = "retry_task"
 	MsgGetLogs      MessageType = "get_logs"
+	MsgCreateTask   MessageType = "create_task"
 	MsgAgentList    MessageType = "agent_list"
 	MsgTaskList     MessageType = "task_list"
 	MsgAgentUpdate  MessageType = "agent_update"
@@ -102,6 +103,14 @@ type GetLogsRequest struct {
 	TaskID int64  `json:"task_id"`
 	Step   string `json:"step"`
 	Tail   int    `json:"tail"`
+}
+
+type CreateTaskRequest struct {
+	Description string `json:"description"`
+}
+
+type CreateTaskResponse struct {
+	Task TaskInfo `json:"task"`
 }
 
 type AgentState string

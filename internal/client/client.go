@@ -311,6 +311,26 @@ func (c *Client) RetryTask(id int64) error {
 	return nil
 }
 
+func (c *Client) CreateTask(description string) (*daemon.TaskInfo, error) {
+	msg, err := c.sendAndWait(daemon.MsgCreateTask, daemon.CreateTaskRequest{Description: description})
+	if err != nil {
+		return nil, err
+	}
+
+	if msg.Type == daemon.MsgError {
+		var errResp daemon.ErrorResponse
+		msg.DecodePayload(&errResp)
+		return nil, fmt.Errorf("%s", errResp.Message)
+	}
+
+	var resp daemon.CreateTaskResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+
+	return &resp.Task, nil
+}
+
 func (c *Client) GetLogs(id int64, step string, tail int) ([]string, error) {
 	msg, err := c.sendAndWait(daemon.MsgGetLogs, daemon.GetLogsRequest{
 		TaskID: id,

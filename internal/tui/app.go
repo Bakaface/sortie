@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -37,6 +38,8 @@ type Model struct {
 }
 
 type taskUpdateMsg daemon.TaskInfo
+type taskCreatedMsg daemon.TaskInfo
+type editorFinishedMsg struct{ path string }
 type tasksLoadedMsg []daemon.TaskInfo
 type outputLoadedMsg struct {
 	lines []string
@@ -126,6 +129,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.detail.SetTask(&task)
 		}
 		return m, nil
+
+	case editorFinishedMsg:
+		return m, m.handleEditorResult(msg.path)
+
+	case taskCreatedMsg:
+		m.list.UpdateTask(daemon.TaskInfo(msg))
+		return m, m.refreshTasks()
 
 	case outputLoadedMsg:
 		m.detail.SetOutput(msg.lines)
@@ -251,6 +261,12 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "n":
+		if m.client == nil {
+			return m, nil
+		}
+		return m, m.openEditorForNewTask()
+
 	case "?":
 		m.list.showHelp = !m.list.showHelp
 		return m, nil
@@ -357,6 +373,56 @@ func (m Model) rejectTask(taskID int64) tea.Cmd {
 			return errorMsg(err)
 		}
 		return nil
+	}
+}
+
+func (m Model) openEditorForNewTask() tea.Cmd {
+	f, err := os.CreateTemp("", "rtk-new-task-*.md")
+	if err != nil {
+		return func() tea.Msg { return errorMsg(fmt.Errorf("failed to create temp file: %w", err)) }
+	}
+	f.Close()
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	path := f.Name()
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			os.Remove(path)
+			return errorMsg(fmt.Errorf("editor exited with error: %w", err))
+		}
+		return editorFinishedMsg{path: path}
+	})
+}
+
+func (m Model) handleEditorResult(path string) tea.Cmd {
+	return func() tea.Msg {
+		defer os.Remove(path)
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to read temp file: %w", err))
+		}
+
+		description := strings.TrimSpace(string(data))
+		if description == "" {
+			return nil // User cancelled
+		}
+
+		if m.client == nil {
+			return nil
+		}
+
+		info, err := m.client.CreateTask(description)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to create task: %w", err))
+		}
+
+		return taskCreatedMsg(*info)
 	}
 }
 

@@ -1,7 +1,8 @@
 # Binary
-ralph-tamer-kit
+/rtk
 
-# RTK data directory
+# RTK config and data
+.rtk.yaml
 .rtk/
 
 # Legacy data directory

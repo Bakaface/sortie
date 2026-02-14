@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -241,6 +242,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleGetLogs(conn, req)
 
+	case MsgCreateTask:
+		var req CreateTaskRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleCreateTask(conn, req)
+
 	case MsgShutdown:
 		s.Shutdown()
 
@@ -470,6 +479,37 @@ func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {
 		Step:   step,
 		Lines:  lines,
 	})
+}
+
+func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
+	description := strings.TrimSpace(req.Description)
+	if description == "" {
+		s.sendError(conn, "description cannot be empty")
+		return
+	}
+
+	// Generate title from first line, truncated to 80 chars
+	title := description
+	if idx := strings.IndexByte(title, '\n'); idx != -1 {
+		title = title[:idx]
+	}
+	title = strings.TrimSpace(title)
+	if len(title) > 80 {
+		title = title[:80]
+	}
+
+	slug := task.Slugify(title)
+
+	t, err := s.database.CreateTask(title, description, slug, "")
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
+		return
+	}
+
+	// Broadcast to subscribers so TUI updates immediately
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: taskToInfo(t)})
+
+	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: taskToInfo(t)})
 }
 
 func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.State) {
