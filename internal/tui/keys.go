@@ -106,7 +106,6 @@ type detailKeyMap struct {
 	PageDown key.Binding
 	Stop     key.Binding
 	Back     key.Binding
-	Quit     key.Binding
 }
 
 func newDetailKeyMap() detailKeyMap {
@@ -132,53 +131,44 @@ func newDetailKeyMap() detailKeyMap {
 			key.WithHelp("ctrl+c", "stop agent"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "back to list"),
-		),
-		Quit: key.NewBinding(
-			key.WithKeys("q"),
-			key.WithHelp("q", "quit"),
+			key.WithKeys("esc", "q"),
+			key.WithHelp("esc/q", "back to list"),
 		),
 	}
 }
 
 func (k detailKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Back, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Back}
 }
 
 func (k detailKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown},
 		{k.Stop},
-		{k.Back, k.Quit},
+		{k.Back},
 	}
 }
 
 type detailFollowKeyMap struct {
 	Back key.Binding
 	Stop key.Binding
-	Quit key.Binding
 }
 
 func newDetailFollowKeyMap() detailFollowKeyMap {
 	return detailFollowKeyMap{
 		Back: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "normal mode"),
+			key.WithKeys("esc", "q"),
+			key.WithHelp("esc/q", "back to list"),
 		),
 		Stop: key.NewBinding(
 			key.WithKeys("ctrl+c"),
 			key.WithHelp("ctrl+c", "stop"),
 		),
-		Quit: key.NewBinding(
-			key.WithKeys("q"),
-			key.WithHelp("q", "quit"),
-		),
 	}
 }
 
 func (k detailFollowKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Back, k.Stop, k.Quit}
+	return []key.Binding{k.Back, k.Stop}
 }
 
 type detailNormalKeyMap struct {
@@ -191,7 +181,6 @@ type detailNormalKeyMap struct {
 	Follow     key.Binding
 	Back       key.Binding
 	Stop       key.Binding
-	Quit       key.Binding
 }
 
 func newDetailNormalKeyMap() detailNormalKeyMap {
@@ -225,16 +214,12 @@ func newDetailNormalKeyMap() detailNormalKeyMap {
 			key.WithHelp("enter", "follow"),
 		),
 		Back: key.NewBinding(
-			key.WithKeys("esc"),
-			key.WithHelp("esc", "back"),
+			key.WithKeys("esc", "q"),
+			key.WithHelp("esc/q", "back"),
 		),
 		Stop: key.NewBinding(
 			key.WithKeys("ctrl+c"),
 			key.WithHelp("ctrl+c", "stop"),
-		),
-		Quit: key.NewBinding(
-			key.WithKeys("q"),
-			key.WithHelp("q", "quit"),
 		),
 	}
 }
