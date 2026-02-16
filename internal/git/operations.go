@@ -126,6 +126,72 @@ func ForceDeleteBranch(repoRoot, branch string) error {
 	return nil
 }
 
+// HasMeaningfulChanges checks whether a worktree has any changes (committed or uncommitted)
+// beyond the given exclude list. It checks both:
+// - Committed changes vs the base (git diff HEAD --name-only)
+// - Uncommitted changes (git status --porcelain)
+func HasMeaningfulChanges(workDir string, excludeFiles []string) (bool, error) {
+	excludeSet := make(map[string]bool, len(excludeFiles))
+	for _, f := range excludeFiles {
+		excludeSet[f] = true
+	}
+
+	// Check uncommitted changes
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = workDir
+	var statusOut bytes.Buffer
+	statusCmd.Stdout = &statusOut
+	if err := statusCmd.Run(); err != nil {
+		return false, fmt.Errorf("git status failed: %w", err)
+	}
+	for _, line := range strings.Split(statusOut.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Status output format: "XY filename" — extract filename (last field)
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		filename := parts[len(parts)-1]
+		if !excludeSet[filename] {
+			return true, nil
+		}
+	}
+
+	// Check committed changes on this branch vs the merge base
+	// Use diff against the first parent to see what this branch added
+	diffCmd := exec.Command("git", "diff", "HEAD~1", "--name-only")
+	diffCmd.Dir = workDir
+	var diffOut, diffErr bytes.Buffer
+	diffCmd.Stdout = &diffOut
+	diffCmd.Stderr = &diffErr
+	if err := diffCmd.Run(); err != nil {
+		// If HEAD~1 doesn't exist (first commit), that's fine — check log instead
+		logCmd := exec.Command("git", "log", "--oneline", "-1")
+		logCmd.Dir = workDir
+		var logOut bytes.Buffer
+		logCmd.Stdout = &logOut
+		if logErr := logCmd.Run(); logErr != nil {
+			return false, nil
+		}
+		// If there's at least one commit, consider it has changes
+		return strings.TrimSpace(logOut.String()) != "", nil
+	}
+	for _, line := range strings.Split(diffOut.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if !excludeSet[line] {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
 func GetLastCommitMessage(workDir string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--pretty=%B")
 	cmd.Dir = workDir

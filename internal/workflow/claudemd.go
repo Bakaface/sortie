@@ -8,24 +8,44 @@ import (
 )
 
 // InjectClaudeMD writes a CLAUDE.md file in the worktree with the resolved prompt
-// and instructions for writing artifacts.
+// and structured directives to ensure Claude actually implements changes.
 func InjectClaudeMD(worktreePath, resolvedPrompt, stepName, artifactsDir string) error {
 	var sb strings.Builder
 
-	sb.WriteString("# Task Instructions\n\n")
+	sb.WriteString("# CRITICAL: Autonomous Execution Mode\n\n")
+	sb.WriteString("You are an autonomous coding agent. Work autonomously: **Do NOT ask for user input.**\n")
+	sb.WriteString("Do NOT describe what you would do — actually do it. Do NOT ask clarifying questions.\n")
+	sb.WriteString("Make decisions and implement them. If something is ambiguous, pick the best option and proceed.\n\n")
+
+	sb.WriteString("**You MUST make actual code changes. Do NOT just describe what you would do.**\n")
+	sb.WriteString("**Do NOT exit without writing code. An empty output is a failure.**\n\n")
+
+	sb.WriteString("---\n\n")
+	sb.WriteString("# Task\n\n")
 	sb.WriteString(resolvedPrompt)
 	sb.WriteString("\n\n")
 
-	sb.WriteString("## Artifact Output\n\n")
-	sb.WriteString("When you complete this step, write a summary of what you did to:\n")
-	fmt.Fprintf(&sb, "`%s/%s.md`\n\n", artifactsDir, stepName)
-	sb.WriteString("This file will be available to subsequent workflow steps.\n\n")
+	sb.WriteString("---\n\n")
+	sb.WriteString("# Workflow\n\n")
+	sb.WriteString("Follow these phases in order:\n\n")
+	sb.WriteString("## Phase 1: Analyze\n")
+	sb.WriteString("Read the codebase to understand the architecture, patterns, and relevant files.\n\n")
+	sb.WriteString("## Phase 2: Plan\n")
+	sb.WriteString("Decide what changes to make. Identify which files to create or modify.\n\n")
+	sb.WriteString("## Phase 3: Implement\n")
+	sb.WriteString("Make the code changes. Follow existing code style and patterns.\n\n")
+	sb.WriteString("## Phase 4: Verify\n")
+	sb.WriteString("Run the build command (e.g. `go build ./...`) and fix any errors.\n")
+	sb.WriteString("Run tests if they exist and are relevant.\n\n")
+	sb.WriteString("## Phase 5: Commit\n")
+	sb.WriteString("Stage and commit your changes with a clear commit message.\n\n")
 
-	sb.WriteString("## Instructions\n\n")
-	sb.WriteString("1. Implement the task described above\n")
-	sb.WriteString("2. Write tests if appropriate\n")
-	sb.WriteString("3. Follow existing code style and patterns\n")
-	sb.WriteString("4. Commit your changes when done\n")
+	sb.WriteString("---\n\n")
+	sb.WriteString("# Artifact Output\n\n")
+	sb.WriteString("After completing this step, write a summary of what you did to:\n")
+	fmt.Fprintf(&sb, "`%s/%s.md`\n\n", artifactsDir, stepName)
+	sb.WriteString("This artifact will be available to subsequent workflow steps.\n")
+	sb.WriteString("Include: files changed, decisions made, and any issues encountered.\n")
 
 	claudeMDPath := filepath.Join(worktreePath, "CLAUDE.md")
 	return os.WriteFile(claudeMDPath, []byte(sb.String()), 0644)

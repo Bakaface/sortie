@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -132,6 +131,19 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 			return fmt.Errorf("%s", errMsg)
 		}
 
+		// Validate that the step produced meaningful changes (skip for review steps)
+		if !step.ApprovalRequired {
+			noiseFiles := []string{".claude-output.log", "CLAUDE.md"}
+			hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
+			if err != nil {
+				log.Printf("Warning: failed to check for changes in step %q: %v", step.Name, err)
+			} else if !hasChanges {
+				errMsg := fmt.Sprintf("step %q exited successfully but produced no code changes", step.Name)
+				e.database.UpdateTaskExitCode(t.ID, 1, errMsg)
+				return fmt.Errorf("%s", errMsg)
+			}
+		}
+
 		// Check if approval required before continuing
 		if step.ApprovalRequired && i < len(steps)-1 {
 			// Set to awaiting_approval, the daemon will pause this task
@@ -213,15 +225,8 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Set up environment
-	for k, v := range envVars {
-		os.Setenv(k, v)
-	}
-	defer func() {
-		for k := range envVars {
-			os.Unsetenv(k)
-		}
-	}()
+	// Set environment on the child process (not the daemon's global env)
+	proc.SetEnv(envVars)
 
 	if err := proc.StartWithPrompt(prompt); err != nil {
 		return 1, "", fmt.Errorf("failed to start claude: %w", err)

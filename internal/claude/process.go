@@ -26,6 +26,7 @@ type Process struct {
 
 	mu         sync.RWMutex
 	cmd        *exec.Cmd
+	env        []string
 	outputLines []string
 	exitCode   int
 	exited     bool
@@ -43,6 +44,16 @@ func NewProcess(taskID, workDir string, cfg *config.ClaudeConfig) *Process {
 	}
 }
 
+// SetEnv sets environment variables for the child process.
+// Must be called before StartWithPrompt. Each entry is "KEY=VALUE".
+func (p *Process) SetEnv(env map[string]string) {
+	// Start with the current process environment
+	p.env = os.Environ()
+	for k, v := range env {
+		p.env = append(p.env, fmt.Sprintf("%s=%s", k, v))
+	}
+}
+
 // StartWithPrompt runs Claude Code with -p flag (one-shot mode).
 // The process exits automatically when the task is complete.
 func (p *Process) StartWithPrompt(prompt string) error {
@@ -51,6 +62,9 @@ func (p *Process) StartWithPrompt(prompt string) error {
 
 	p.cmd = exec.Command(p.cfg.Command, args...)
 	p.cmd.Dir = p.WorkDir
+	if p.env != nil {
+		p.cmd.Env = p.env
+	}
 
 	// Create output file
 	outFile, err := os.Create(p.OutputFile)

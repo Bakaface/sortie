@@ -12,3 +12,6 @@
 TEST_PRD.md
 
 bin/
+
+# Claude output logs
+.claude-output.log
