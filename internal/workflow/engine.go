@@ -5,7 +5,10 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 	gitpkg "github.com/aface/ralph-tamer-kit/internal/git"
 	"github.com/aface/ralph-tamer-kit/internal/notify"
 	"github.com/aface/ralph-tamer-kit/internal/task"
+	"github.com/aface/ralph-tamer-kit/internal/tmux"
 )
 
 type Engine struct {
@@ -115,8 +119,15 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 			"RTK_ARTIFACTS_DIR": artifactsDir,
 		}
 
-		// Spawn Claude process
-		exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, resolvedPrompt, env)
+		// Spawn Claude process (tmux or direct)
+		var exitCode int
+		var outputTail string
+		var err error
+		if step.UseTmux(wf.Tmux) {
+			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env)
+		} else {
+			exitCode, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env)
+		}
 		if err != nil {
 			e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
 			return fmt.Errorf("step %q failed: %w", step.Name, err)
@@ -253,6 +264,99 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 				}
 				return exitCode, outputTail, nil
 			}
+		}
+	}
+}
+
+func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string) (int, string, error) {
+	if !tmux.IsAvailable() {
+		return 1, "", fmt.Errorf("tmux is not installed or not in PATH (required for tmux mode)")
+	}
+
+	taskID := fmt.Sprintf("%d", t.ID)
+	session := tmux.NewStepSession(taskID, step.Name, t.WorktreePath)
+
+	// Kill stale session if exists (handles retries)
+	if session.Exists() {
+		session.Kill()
+	}
+
+	rtkDir := filepath.Join(t.WorktreePath, ".rtk")
+	promptFile := filepath.Join(rtkDir, fmt.Sprintf("step-prompt-%s.txt", step.Name))
+	exitCodeFile := filepath.Join(rtkDir, fmt.Sprintf("exit-code-%s", step.Name))
+	scriptFile := filepath.Join(rtkDir, fmt.Sprintf("run-step-%s.sh", step.Name))
+	logPath := LogPath(t.WorktreePath, step.Name)
+
+	// Write prompt to file (avoids shell quoting issues)
+	if err := os.WriteFile(promptFile, []byte(prompt), 0644); err != nil {
+		return 1, "", fmt.Errorf("failed to write prompt file: %w", err)
+	}
+
+	// Remove stale exit-code file
+	os.Remove(exitCodeFile)
+
+	// Build env exports for the wrapper script
+	var envExports strings.Builder
+	for k, v := range envVars {
+		envExports.WriteString(fmt.Sprintf("export %s=%q\n", k, v))
+	}
+
+	// Write wrapper script
+	script := fmt.Sprintf(`#!/bin/bash
+%sPROMPT=$(cat %q)
+claude --dangerously-skip-permissions "$PROMPT"
+echo $? > %q
+exec bash
+`, envExports.String(), promptFile, exitCodeFile)
+
+	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
+		return 1, "", fmt.Errorf("failed to write wrapper script: %w", err)
+	}
+
+	// Create detached tmux session running the wrapper script
+	if err := session.Create("bash", scriptFile); err != nil {
+		return 1, "", fmt.Errorf("failed to create tmux session: %w", err)
+	}
+
+	// Tee pane output to log file (non-fatal if fails)
+	if err := session.PipePane(logPath); err != nil {
+		log.Printf("Warning: failed to pipe pane output to log: %v", err)
+	}
+
+	// Apply step timeout
+	timeout := e.cfg.GetStepTimeout(step)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// Poll for exit-code file (not IsAlive, since exec bash keeps session alive)
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			session.Kill()
+			return 1, "", ctx.Err()
+		case <-ticker.C:
+			data, err := os.ReadFile(exitCodeFile)
+			if err != nil {
+				continue // File doesn't exist yet
+			}
+
+			code, err := strconv.Atoi(strings.TrimSpace(string(data)))
+			if err != nil {
+				code = 1 // Default to failure if malformed
+			}
+
+			var outputTail string
+			if code != 0 {
+				if lines, capErr := session.CapturePane(20); capErr == nil && len(lines) > 0 {
+					outputTail = strings.Join(lines, "\n")
+				}
+			}
+
+			// Do NOT kill the session — it stays alive with an interactive shell
+			return code, outputTail, nil
 		}
 	}
 }
