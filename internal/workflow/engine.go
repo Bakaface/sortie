@@ -164,8 +164,10 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		// Check if approval required before continuing
 		// Tmux steps always require approval (agent runs interactively, user approves when done)
 		needsApproval := step.ApprovalRequired || useTmux
-		if needsApproval && i < len(steps)-1 {
-			// Set to awaiting_approval, the daemon will pause this task
+		if needsApproval {
+			// Set to awaiting_approval, the daemon will pause this task.
+			// StepIndex = i+1 so resume continues from the next step (or exits
+			// the loop when this was the last step, running summarizer + on_complete).
 			if err := e.database.UpdateTaskStep(t.ID, i+1, ""); err != nil {
 				log.Printf("Warning: failed to update task step: %v", err)
 			}
