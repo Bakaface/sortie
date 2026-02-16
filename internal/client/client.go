@@ -17,17 +17,19 @@ type Client struct {
 	conn net.Conn
 	mu   sync.Mutex
 
-	msgChan chan *daemon.Message
-	errChan chan error
-	done    chan struct{}
+	respChan chan *daemon.Message // request-response messages
+	subChan  chan *daemon.Message // subscription broadcast messages
+	errChan  chan error
+	done     chan struct{}
 }
 
 func New(cfg *config.Config) *Client {
 	return &Client{
-		cfg:     cfg,
-		msgChan: make(chan *daemon.Message, 100),
-		errChan: make(chan error, 1),
-		done:    make(chan struct{}),
+		cfg:      cfg,
+		respChan: make(chan *daemon.Message, 100),
+		subChan:  make(chan *daemon.Message, 100),
+		errChan:  make(chan error, 1),
+		done:     make(chan struct{}),
 	}
 }
 
@@ -51,6 +53,17 @@ func (c *Client) Close() error {
 	return nil
 }
 
+// isBroadcast returns true for message types that are pushed by the daemon
+// to subscribers, as opposed to responses to client requests.
+func isBroadcast(t daemon.MessageType) bool {
+	switch t {
+	case daemon.MsgAgentUpdate, daemon.MsgTaskUpdate:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *Client) readLoop() {
 	scanner := bufio.NewScanner(c.conn)
 	for scanner.Scan() {
@@ -60,8 +73,13 @@ func (c *Client) readLoop() {
 			continue
 		}
 
+		ch := c.respChan
+		if isBroadcast(msg.Type) {
+			ch = c.subChan
+		}
+
 		select {
-		case c.msgChan <- msg:
+		case ch <- msg:
 		case <-c.done:
 			return
 		}
@@ -76,7 +94,7 @@ func (c *Client) readLoop() {
 }
 
 func (c *Client) Messages() <-chan *daemon.Message {
-	return c.msgChan
+	return c.subChan
 }
 
 func (c *Client) Errors() <-chan error {
@@ -107,7 +125,7 @@ func (c *Client) sendAndWait(msgType daemon.MessageType, payload any) (*daemon.M
 	}
 
 	select {
-	case msg := <-c.msgChan:
+	case msg := <-c.respChan:
 		return msg, nil
 	case err := <-c.errChan:
 		return nil, err
@@ -198,7 +216,8 @@ func (c *Client) StopAgent(agentID string) error {
 }
 
 func (c *Client) Subscribe() error {
-	return c.send(daemon.MsgSubscribe, nil)
+	_, err := c.sendAndWait(daemon.MsgSubscribe, nil)
+	return err
 }
 
 func (c *Client) Unsubscribe() error {

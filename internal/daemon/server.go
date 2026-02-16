@@ -551,9 +551,6 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 		return
 	}
 
-	// Broadcast refresh to subscribers
-	s.broadcastToSubscribers(MsgTaskList, TaskListResponse{})
-
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d deleted", t.ID)})
 }
 
