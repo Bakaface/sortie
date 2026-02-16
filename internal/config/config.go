@@ -12,10 +12,11 @@ import (
 
 // ProjectConfig is loaded from .rtk.yaml at repo root
 type ProjectConfig struct {
-	MaxWorkers int            `yaml:"max_workers"`
-	Planner    PlannerConfig  `yaml:"planner"`
-	Git        GitConfig      `yaml:"git"`
-	Workflow   WorkflowConfig `yaml:"workflow"`
+	MaxWorkers int                `yaml:"max_workers"`
+	Planner    PlannerConfig      `yaml:"planner"`
+	Git        GitConfig          `yaml:"git"`
+	Workflows  []WorkflowConfig   `yaml:"workflows"`
+	Workflow   WorkflowConfig     `yaml:"workflow"` // deprecated, backward compat
 }
 
 type PlannerConfig struct {
@@ -29,6 +30,7 @@ type GitConfig struct {
 }
 
 type WorkflowConfig struct {
+	Name  string       `yaml:"name"`
 	Steps []StepConfig `yaml:"steps"`
 }
 
@@ -84,7 +86,7 @@ type Config struct {
 	MaxWorkers int
 	Planner    PlannerConfig
 	Git        GitConfig
-	Workflow   WorkflowConfig
+	Workflows  []WorkflowConfig
 
 	// From global config
 	Notifications NotificationsConfig
@@ -141,7 +143,7 @@ func defaultConfig() *Config {
 			BranchTemplate: "rtk/{{task_id}}-{{task_slug}}",
 			OnComplete:     "commit",
 		},
-		Workflow: WorkflowConfig{},
+		Workflows: nil, // Empty - DefaultWorkflow() handles fallback
 		Notifications: NotificationsConfig{
 			Enabled:        true,
 			OnComplete:     true,
@@ -161,15 +163,24 @@ func defaultConfig() *Config {
 	}
 }
 
-// DefaultWorkflowSteps returns the single-step default when no workflow is configured
-func DefaultWorkflowSteps() []StepConfig {
-	return []StepConfig{
-		{
-			Name:   "implement",
-			Prompt: "Implement the task described in this worktree's CLAUDE.md",
-			Mode:   "automatic",
+// DefaultWorkflow returns the single-step default workflow when no workflow is configured
+func DefaultWorkflow() WorkflowConfig {
+	return WorkflowConfig{
+		Name: "default",
+		Steps: []StepConfig{
+			{
+				Name:   "implement",
+				Prompt: "Implement the task described in this worktree's CLAUDE.md",
+				Mode:   "automatic",
+			},
 		},
 	}
+}
+
+// DefaultWorkflowSteps returns the single-step default when no workflow is configured
+// Kept for backward compatibility - delegates to DefaultWorkflow().Steps
+func DefaultWorkflowSteps() []StepConfig {
+	return DefaultWorkflow().Steps
 }
 
 // Load loads config from global + project .rtk.yaml, returning a merged Config.
@@ -271,8 +282,24 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if proj.Git.OnComplete != "" {
 		cfg.Git.OnComplete = proj.Git.OnComplete
 	}
-	if len(proj.Workflow.Steps) > 0 {
-		cfg.Workflow = proj.Workflow
+
+	// Handle workflows: prefer new plural form, fall back to old singular
+	if len(proj.Workflows) > 0 {
+		cfg.Workflows = proj.Workflows
+	} else if len(proj.Workflow.Steps) > 0 {
+		// Backward compat: convert old singular workflow to workflows slice
+		cfg.Workflows = []WorkflowConfig{proj.Workflow}
+	}
+
+	// Ensure all workflows have names
+	for i := range cfg.Workflows {
+		if cfg.Workflows[i].Name == "" {
+			if i == 0 {
+				cfg.Workflows[i].Name = "default"
+			} else {
+				cfg.Workflows[i].Name = fmt.Sprintf("workflow-%d", i+1)
+			}
+		}
 	}
 
 	return nil
@@ -337,12 +364,42 @@ func (c *Config) GetDatabasePath(projectDir string) string {
 	return c.DatabasePath
 }
 
-// GetWorkflowSteps returns configured steps or the default single step.
-func (c *Config) GetWorkflowSteps() []StepConfig {
-	if len(c.Workflow.Steps) > 0 {
-		return c.Workflow.Steps
+// GetWorkflow returns the workflow with the given name.
+// If name is empty and there are workflows, returns the first one.
+// If the workflow is not found, returns the default workflow.
+func (c *Config) GetWorkflow(name string) *WorkflowConfig {
+	for i := range c.Workflows {
+		if c.Workflows[i].Name == name {
+			return &c.Workflows[i]
+		}
 	}
-	return DefaultWorkflowSteps()
+	// If name is empty and there are workflows, return first
+	if name == "" && len(c.Workflows) > 0 {
+		return &c.Workflows[0]
+	}
+	// Return default
+	def := DefaultWorkflow()
+	return &def
+}
+
+// ListWorkflowNames returns the names of all configured workflows.
+// If no workflows are configured, returns ["default"].
+func (c *Config) ListWorkflowNames() []string {
+	if len(c.Workflows) == 0 {
+		return []string{"default"}
+	}
+	names := make([]string, len(c.Workflows))
+	for i, w := range c.Workflows {
+		names[i] = w.Name
+	}
+	return names
+}
+
+// GetWorkflowSteps returns configured steps or the default single step.
+// Kept for backward compatibility - use GetWorkflow instead.
+func (c *Config) GetWorkflowSteps() []StepConfig {
+	wf := c.GetWorkflow("")
+	return wf.Steps
 }
 
 // ResolveBranchName applies the branch template for a task.

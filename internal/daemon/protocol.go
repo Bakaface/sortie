@@ -107,6 +107,7 @@ type GetLogsRequest struct {
 
 type CreateTaskRequest struct {
 	Description string `json:"description"`
+	Workflow    string `json:"workflow,omitempty"`
 }
 
 type CreateTaskResponse struct {
@@ -140,6 +141,7 @@ type TaskInfo struct {
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
 	Slug         string     `json:"slug"`
+	Workflow     string     `json:"workflow,omitempty"`
 	Status       string     `json:"status"`
 	StepIndex    int        `json:"step_index"`
 	CurrentStep  string     `json:"current_step"`

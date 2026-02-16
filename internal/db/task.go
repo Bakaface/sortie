@@ -12,14 +12,15 @@ type TaskInput struct {
 	Title       string
 	Description string
 	Slug        string
+	Workflow    string
 	Branch      string
 	BlockedBy   []int64
 }
 
-func (db *DB) CreateTask(title, description, slug, branch string) (*task.Task, error) {
+func (db *DB) CreateTask(title, description, slug, workflow, branch string) (*task.Task, error) {
 	result, err := db.Exec(
-		`INSERT INTO tasks (title, description, slug, branch, status) VALUES (?, ?, ?, ?, ?)`,
-		title, description, slug, branch, task.StatusPending,
+		`INSERT INTO tasks (title, description, slug, workflow, branch, status) VALUES (?, ?, ?, ?, ?, ?)`,
+		title, description, slug, workflow, branch, task.StatusPending,
 	)
 	if err != nil {
 		return nil, err
@@ -41,7 +42,7 @@ func (db *DB) CreateTasksBatch(inputs []TaskInput) ([]*task.Task, error) {
 	defer tx.Rollback()
 
 	taskStmt, err := tx.Prepare(
-		`INSERT INTO tasks (title, description, slug, branch, status) VALUES (?, ?, ?, ?, ?)`,
+		`INSERT INTO tasks (title, description, slug, workflow, branch, status) VALUES (?, ?, ?, ?, ?, ?)`,
 	)
 	if err != nil {
 		return nil, err
@@ -58,7 +59,7 @@ func (db *DB) CreateTasksBatch(inputs []TaskInput) ([]*task.Task, error) {
 
 	var ids []int64
 	for _, input := range inputs {
-		result, err := taskStmt.Exec(input.Title, input.Description, input.Slug, input.Branch, task.StatusPending)
+		result, err := taskStmt.Exec(input.Title, input.Description, input.Slug, input.Workflow, input.Branch, task.StatusPending)
 		if err != nil {
 			return nil, fmt.Errorf("insert task %q: %w", input.Title, err)
 		}
@@ -98,7 +99,7 @@ func (db *DB) CreateTasksBatch(inputs []TaskInput) ([]*task.Task, error) {
 	return tasks, nil
 }
 
-const taskColumns = `id, title, description, slug, status, step_index, current_step,
+const taskColumns = `id, title, description, slug, workflow, status, step_index, current_step,
 	branch, worktree_path, exit_code, error_message,
 	created_at, started_at, completed_at, updated_at`
 
@@ -308,14 +309,14 @@ func (db *DB) DeleteTask(id int64) error {
 
 func scanTask(row *sql.Row) (*task.Task, error) {
 	var t task.Task
-	var title, slug, branch sql.NullString
+	var title, slug, workflow, branch sql.NullString
 	var currentStep, worktreePath, errorMessage sql.NullString
 	var exitCode sql.NullInt64
 	var startedAt, completedAt sql.NullTime
 	var updatedAt sql.NullTime
 
 	err := row.Scan(
-		&t.ID, &title, &t.Description, &slug, &t.Status,
+		&t.ID, &title, &t.Description, &slug, &workflow, &t.Status,
 		&t.StepIndex, &currentStep,
 		&branch, &worktreePath, &exitCode, &errorMessage,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
@@ -329,6 +330,9 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	}
 	if slug.Valid {
 		t.Slug = slug.String
+	}
+	if workflow.Valid {
+		t.Workflow = workflow.String
 	}
 	if currentStep.Valid {
 		t.CurrentStep = currentStep.String
@@ -364,14 +368,14 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 
 	for rows.Next() {
 		var t task.Task
-		var title, slug, branch sql.NullString
+		var title, slug, workflow, branch sql.NullString
 		var currentStep, worktreePath, errorMessage sql.NullString
 		var exitCode sql.NullInt64
 		var startedAt, completedAt sql.NullTime
 		var updatedAt sql.NullTime
 
 		err := rows.Scan(
-			&t.ID, &title, &t.Description, &slug, &t.Status,
+			&t.ID, &title, &t.Description, &slug, &workflow, &t.Status,
 			&t.StepIndex, &currentStep,
 			&branch, &worktreePath, &exitCode, &errorMessage,
 			&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
@@ -385,6 +389,9 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		}
 		if slug.Valid {
 			t.Slug = slug.String
+		}
+		if workflow.Valid {
+			t.Workflow = workflow.String
 		}
 		if currentStep.Valid {
 			t.CurrentStep = currentStep.String

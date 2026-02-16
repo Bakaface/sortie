@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     title TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL,
     slug TEXT NOT NULL DEFAULT '',
+    workflow TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
     step_index INTEGER NOT NULL DEFAULT 0,
     current_step TEXT,

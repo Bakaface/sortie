@@ -33,6 +33,7 @@ type Task struct {
 	Title        string
 	Description  string
 	Slug         string
+	Workflow     string
 	Status       Status
 	StepIndex    int
 	CurrentStep  string

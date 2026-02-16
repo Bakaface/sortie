@@ -59,13 +59,23 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (1)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (2)`); err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+		return nil
+	}
+
+	// Migration version 2: Add workflow column
+	if version < 2 {
+		_, err := db.Exec(`ALTER TABLE tasks ADD COLUMN workflow TEXT NOT NULL DEFAULT ''`)
+		if err != nil {
+			return fmt.Errorf("failed to add workflow column: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 2`)
+		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 	}
-
-	// Future migrations go here as version checks:
-	// if version < 2 { ... migrate ... UPDATE schema_version SET version = 2 }
 
 	return nil
 }

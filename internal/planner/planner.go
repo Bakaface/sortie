@@ -32,7 +32,7 @@ func New(cfg *config.Config, database *db.DB) *Planner {
 	}
 }
 
-func (p *Planner) PlanFromPRD(prdPath string, force bool) ([]*task.Task, error) {
+func (p *Planner) PlanFromPRD(prdPath string, force bool, workflow string) ([]*task.Task, error) {
 	// Check for existing tasks before proceeding
 	existing, err := p.db.GetAllTasks()
 	if err != nil {
@@ -94,6 +94,7 @@ func (p *Planner) PlanFromPRD(prdPath string, force bool) ([]*task.Task, error) 
 			Title:       title,
 			Description: def.Description,
 			Slug:        slug,
+			Workflow:    workflow,
 			Branch:      "", // Will be populated when daemon starts the task
 			BlockedBy:   blockedBy,
 		})

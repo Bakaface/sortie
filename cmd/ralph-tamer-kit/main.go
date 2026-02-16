@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -107,6 +109,7 @@ var planCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		prdPath := args[0]
 		force, _ := cmd.Flags().GetBool("force")
+		workflowFlag, _ := cmd.Flags().GetString("workflow")
 
 		if _, err := os.Stat(prdPath); err != nil {
 			return fmt.Errorf("PRD file not found: %s", prdPath)
@@ -124,8 +127,45 @@ var planCmd = &cobra.Command{
 		}
 		defer database.Close()
 
+		// Determine which workflow to use
+		workflowName := workflowFlag
+		if workflowName == "" {
+			workflows := cfg.ListWorkflowNames()
+			if len(workflows) == 1 {
+				// Auto-select if there's only one
+				workflowName = workflows[0]
+				fmt.Printf("Using workflow: %s\n", workflowName)
+			} else if len(workflows) > 1 {
+				// Prompt user to select
+				fmt.Println("Multiple workflows available:")
+				for i, name := range workflows {
+					fmt.Printf("  %d. %s\n", i+1, name)
+				}
+				fmt.Print("Select workflow (enter number or name): ")
+
+				reader := bufio.NewReader(os.Stdin)
+				input, err := reader.ReadString('\n')
+				if err != nil {
+					return fmt.Errorf("failed to read input: %w", err)
+				}
+				input = strings.TrimSpace(input)
+
+				// Try to parse as number
+				if num, err := strconv.Atoi(input); err == nil && num > 0 && num <= len(workflows) {
+					workflowName = workflows[num-1]
+				} else {
+					// Use as name
+					workflowName = input
+				}
+				fmt.Printf("Selected workflow: %s\n", workflowName)
+			} else {
+				// No workflows defined, use default
+				workflowName = "default"
+			}
+		}
+
 		p := planner.New(cfg, database)
-		tasks, err := p.PlanFromPRD(prdPath, force)
+		tasks, err := p.PlanFromPRD(prdPath, force, workflowName)
 		if err != nil {
 			return fmt.Errorf("failed to create tasks from PRD: %w", err)
 		}
@@ -735,6 +775,7 @@ func completeTaskIDs(statuses ...task.Status) func(*cobra.Command, []string, str
 func init() {
 	daemonStartCmd.Flags().BoolP("foreground", "f", false, "Run daemon in foreground")
 	planCmd.Flags().Bool("force", false, "Delete existing tasks before creating new ones")
+	planCmd.Flags().StringP("workflow", "w", "", "Workflow to use for tasks")
 	logsCmd.Flags().IntP("tail", "n", 0, "Show only the last N lines")
 
 	daemonCmd.AddCommand(daemonStartCmd)

@@ -35,7 +35,8 @@ func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, r
 // RunTask executes the full workflow pipeline for a task.
 // It creates/reuses the worktree, then loops through steps starting from t.StepIndex.
 func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
-	steps := e.cfg.GetWorkflowSteps()
+	wf := e.cfg.GetWorkflow(t.Workflow)
+	steps := wf.Steps
 
 	// Resolve branch name if not set
 	if t.Branch == "" {
