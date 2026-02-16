@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/aface/ralph-tamer-kit/internal/daemon"
 	"github.com/charmbracelet/lipgloss"
@@ -77,7 +76,7 @@ func (l *listView) View() string {
 		b.WriteString(dimStyle.Render("  No tasks found. Use 'ralph-tamer-kit plan <PRD.md>' to create tasks."))
 		b.WriteString("\n")
 	} else {
-		header := fmt.Sprintf("  %-4s %-10s %-30s %s",
+		header := fmt.Sprintf("  %-5s %-22s %-18s %s",
 			"ID", "STATUS", "STEP", "TITLE")
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
@@ -117,7 +116,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 
 	// Format columns
 	taskID := fmt.Sprintf("#%-2d", task.ID)
-	status := fmt.Sprintf("%s %-8s", statusIcon, task.Status)
+	status := fmt.Sprintf("%s %s", statusIcon, task.Status)
 
 	// Add blocked suffix for pending tasks
 	if task.Status == "pending" && len(task.BlockedBy) > 0 {
@@ -131,7 +130,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 	// Show step info
 	step := ""
 	if task.CurrentStep != "" {
-		step = truncate(task.CurrentStep, 30)
+		step = task.CurrentStep
 	} else if task.StepIndex > 0 {
 		step = fmt.Sprintf("Step %d", task.StepIndex)
 	}
@@ -141,20 +140,28 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 	if title == "" {
 		title = task.Description
 	}
-	title = truncate(title, 60)
-
-	statusStyle := stateStyle(task.Status)
-	if strings.Contains(status, "(deadlocked)") {
-		statusStyle = stateStyle("failed") // Render deadlocked in red
+	if len(title) > 60 {
+		title = title[:57] + "..."
 	}
-	stateStyled := statusStyle.Render(fmt.Sprintf("%-20s", status))
 
-	line := fmt.Sprintf("  %-4s %s %-30s %s",
-		taskID, stateStyled, step, title)
+	// Use lipgloss Width for ANSI-aware column alignment
+	idCol := lipgloss.NewStyle().Width(5).Render(taskID)
+	stepCol := lipgloss.NewStyle().Width(18).Render(step)
 
 	if selected {
+		// Plain white text on selected background — no per-column colors
+		statusCol := lipgloss.NewStyle().Width(22).Render(status)
+		line := fmt.Sprintf("  %s %s %s %s", idCol, statusCol, stepCol, title)
 		return selectedStyle.Render(line)
 	}
+
+	// Apply status color for non-selected rows
+	statusStyle := stateStyle(task.Status)
+	if strings.Contains(status, "(deadlocked)") {
+		statusStyle = stateStyle("failed")
+	}
+	statusCol := statusStyle.Width(22).Render(status)
+	line := fmt.Sprintf("  %s %s %s %s", idCol, statusCol, stepCol, title)
 	return normalStyle.Render(line)
 }
 
@@ -189,30 +196,3 @@ func (l *listView) hasFailedBlocker(task daemon.TaskInfo) bool {
 	return false
 }
 
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return lipgloss.NewStyle().Width(maxLen).Render(s)
-	}
-	return s[:maxLen-3] + "..."
-}
-
-func shortenPath(path string) string {
-	home := "~"
-	if strings.HasPrefix(path, "/home/") {
-		parts := strings.SplitN(path, "/", 4)
-		if len(parts) >= 4 {
-			return home + "/" + parts[3]
-		}
-	}
-	return path
-}
-
-func formatDuration(d time.Duration) string {
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-}

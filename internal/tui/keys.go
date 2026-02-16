@@ -25,11 +25,11 @@ func newKeyMap() keyMap {
 	return keyMap{
 		Up: key.NewBinding(
 			key.WithKeys("up", "k"),
-			key.WithHelp("k/up", "up"),
+			key.WithHelp("↑/k", "up"),
 		),
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
-			key.WithHelp("j/down", "down"),
+			key.WithHelp("↓/j", "down"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
@@ -108,11 +108,11 @@ func newDetailKeyMap() detailKeyMap {
 	return detailKeyMap{
 		Up: key.NewBinding(
 			key.WithKeys("up", "k"),
-			key.WithHelp("k/up", "scroll up"),
+			key.WithHelp("↑/k", "scroll up"),
 		),
 		Down: key.NewBinding(
 			key.WithKeys("down", "j"),
-			key.WithHelp("j/down", "scroll down"),
+			key.WithHelp("↓/j", "scroll down"),
 		),
 		PageUp: key.NewBinding(
 			key.WithKeys("pgup", "ctrl+u"),
