@@ -41,6 +41,18 @@ func (l *listView) UpdateTask(task daemon.TaskInfo) {
 	l.tasks = append(l.tasks, task)
 }
 
+func (l *listView) RemoveTask(id int64) {
+	for i, t := range l.tasks {
+		if t.ID == id {
+			l.tasks = append(l.tasks[:i], l.tasks[i+1:]...)
+			if l.cursor >= len(l.tasks) {
+				l.cursor = max(0, len(l.tasks)-1)
+			}
+			return
+		}
+	}
+}
+
 func (l *listView) Selected() *daemon.TaskInfo {
 	if l.cursor >= 0 && l.cursor < len(l.tasks) {
 		return &l.tasks[l.cursor]

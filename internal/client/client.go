@@ -331,6 +331,21 @@ func (c *Client) CreateTask(description string) (*daemon.TaskInfo, error) {
 	return &resp.Task, nil
 }
 
+func (c *Client) DeleteTask(id int64) error {
+	msg, err := c.sendAndWait(daemon.MsgDeleteTask, daemon.DeleteTaskRequest{TaskID: id})
+	if err != nil {
+		return err
+	}
+
+	if msg.Type == daemon.MsgError {
+		var errResp daemon.ErrorResponse
+		msg.DecodePayload(&errResp)
+		return fmt.Errorf("%s", errResp.Message)
+	}
+
+	return nil
+}
+
 func (c *Client) GetLogs(id int64, step string, tail int) ([]string, error) {
 	msg, err := c.sendAndWait(daemon.MsgGetLogs, daemon.GetLogsRequest{
 		TaskID: id,

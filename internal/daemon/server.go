@@ -250,6 +250,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleCreateTask(conn, req)
 
+	case MsgDeleteTask:
+		var req DeleteTaskRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleDeleteTask(conn, req)
+
 	case MsgShutdown:
 		s.Shutdown()
 
@@ -510,6 +518,43 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: taskToInfo(t)})
 
 	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: taskToInfo(t)})
+}
+
+func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	// Stop agent if running
+	agentID := fmt.Sprintf("%d", t.ID)
+	_ = s.manager.StopAgent(agentID)
+
+	// Remove worktree if it exists
+	if t.WorktreePath != "" {
+		if err := gitpkg.RemoveWorktree(s.repoRoot, t.WorktreePath); err != nil {
+			log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, err)
+		}
+	}
+
+	// Force-delete branch if it exists
+	if t.Branch != "" {
+		if err := gitpkg.ForceDeleteBranch(s.repoRoot, t.Branch); err != nil {
+			log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, err)
+		}
+	}
+
+	// Delete from database
+	if err := s.database.DeleteTask(t.ID); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to delete task: %v", err))
+		return
+	}
+
+	// Broadcast refresh to subscribers
+	s.broadcastToSubscribers(MsgTaskList, TaskListResponse{})
+
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d deleted", t.ID)})
 }
 
 func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.State) {

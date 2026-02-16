@@ -12,6 +12,7 @@ type keyMap struct {
 	Approve  key.Binding
 	Reject   key.Binding
 	Retry    key.Binding
+	Delete   key.Binding
 	NewTask  key.Binding
 	Refresh  key.Binding
 	Back     key.Binding
@@ -51,6 +52,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r", "retry"),
 		),
+		Delete: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("dd", "delete"),
+		),
 		NewTask: key.NewBinding(
 			key.WithKeys("n"),
 			key.WithHelp("n", "new task"),
@@ -83,13 +88,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.NewTask, k.Approve, k.Reject, k.Retry, k.Stop, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.NewTask, k.Approve, k.Reject, k.Retry, k.Delete, k.Stop, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter},
-		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Refresh},
+		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Delete, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

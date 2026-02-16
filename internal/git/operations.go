@@ -112,6 +112,20 @@ func DeleteBranch(repoRoot, branch string) error {
 	return nil
 }
 
+func ForceDeleteBranch(repoRoot, branch string) error {
+	cmd := exec.Command("git", "branch", "-D", branch)
+	cmd.Dir = repoRoot
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git branch -D failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return nil
+}
+
 func GetLastCommitMessage(workDir string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--pretty=%B")
 	cmd.Dir = workDir

@@ -23,6 +23,7 @@ const (
 	MsgRetryTask    MessageType = "retry_task"
 	MsgGetLogs      MessageType = "get_logs"
 	MsgCreateTask   MessageType = "create_task"
+	MsgDeleteTask   MessageType = "delete_task"
 	MsgAgentList    MessageType = "agent_list"
 	MsgTaskList     MessageType = "task_list"
 	MsgAgentUpdate  MessageType = "agent_update"
@@ -108,6 +109,10 @@ type GetLogsRequest struct {
 type CreateTaskRequest struct {
 	Description string `json:"description"`
 	Workflow    string `json:"workflow,omitempty"`
+}
+
+type DeleteTaskRequest struct {
+	TaskID int64 `json:"task_id"`
 }
 
 type CreateTaskResponse struct {

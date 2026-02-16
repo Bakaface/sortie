@@ -33,8 +33,9 @@ type Model struct {
 	quitting bool
 
 	// Confirmation state
-	confirmAction string // "approve" or "reject", empty if no confirmation pending
+	confirmAction string // "approve", "reject", or "delete"; empty if no confirmation pending
 	confirmTaskID int64
+	pendingDelete bool // tracks first "d" press for dd sequence
 }
 
 type clientConnectedMsg struct {
@@ -133,6 +134,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorFinishedMsg:
 		return m, m.handleEditorResult(msg.path)
 
+	case taskDeletedMsg:
+		m.list.RemoveTask(int64(msg))
+		return m, nil
+
 	case taskCreatedMsg:
 		m.list.UpdateTask(daemon.TaskInfo(msg))
 		return m, m.refreshTasks()
@@ -184,10 +189,14 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			taskID := m.confirmTaskID
 			m.confirmAction = ""
 			m.confirmTaskID = 0
-			if action == "approve" {
+			switch action {
+			case "approve":
 				return m, m.approveTask(taskID)
+			case "delete":
+				return m, m.deleteTask(taskID)
+			default:
+				return m, m.rejectTask(taskID)
 			}
-			return m, m.rejectTask(taskID)
 		case "n", "esc":
 			m.confirmAction = ""
 			m.confirmTaskID = 0
@@ -197,7 +206,29 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	switch msg.String() {
+	keyStr := msg.String()
+
+	// Handle "d" key for dd delete sequence
+	if keyStr == "d" {
+		if m.pendingDelete {
+			// Second "d" — trigger delete confirmation
+			m.pendingDelete = false
+			if task := m.list.Selected(); task != nil && m.client != nil {
+				m.confirmAction = "delete"
+				m.confirmTaskID = task.ID
+				return m, nil
+			}
+			return m, nil
+		}
+		// First "d" — enter pending state
+		m.pendingDelete = true
+		return m, nil
+	}
+
+	// Any other key resets pending delete
+	m.pendingDelete = false
+
+	switch keyStr {
 	case "q", "ctrl+c":
 		m.quitting = true
 		if m.client != nil {
@@ -423,6 +454,20 @@ func (m Model) handleEditorResult(path string) tea.Cmd {
 		}
 
 		return taskCreatedMsg(*info)
+	}
+}
+
+type taskDeletedMsg int64
+
+func (m Model) deleteTask(taskID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+		if err := m.client.DeleteTask(taskID); err != nil {
+			return errorMsg(err)
+		}
+		return taskDeletedMsg(taskID)
 	}
 }
 
