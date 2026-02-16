@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -106,8 +107,10 @@ func (p *Process) streamOutput(stdout io.ReadCloser, rawFile *os.File) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB buffer for large tool inputs
 
+	linesRead := 0
 	for scanner.Scan() {
 		line := scanner.Bytes()
+		linesRead++
 
 		// Write raw JSON to .claude-output.log for debugging
 		rawFile.Write(line)
@@ -118,6 +121,13 @@ func (p *Process) streamOutput(stdout io.ReadCloser, rawFile *os.File) {
 		if len(formatted) > 0 && p.OutputFunc != nil {
 			p.OutputFunc(formatted)
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("[task %s] stdout scanner error after %d lines: %v", p.TaskID, linesRead, err)
+	}
+	if linesRead == 0 {
+		log.Printf("[task %s] warning: no stdout lines read from claude process", p.TaskID)
 	}
 }
 

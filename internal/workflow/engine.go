@@ -250,10 +250,15 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	}
 	defer logFile.Close()
 
-	// Write step header
+	// Write step header and prompt
 	header := fmt.Sprintf("[%s] === Step: %s (task #%d) ===\n",
 		time.Now().Format("15:04:05"), step.Name, t.ID)
 	logFile.WriteString(header)
+	logFile.WriteString(fmt.Sprintf("[%s] Prompt:\n", time.Now().Format("15:04:05")))
+	for _, line := range strings.Split(prompt, "\n") {
+		logFile.WriteString(fmt.Sprintf("[%s]   %s\n", time.Now().Format("15:04:05"), line))
+	}
+	logFile.WriteString("\n")
 
 	// Compose OutputFunc: write to log file AND call the agent's outputFn
 	var logMu sync.Mutex
