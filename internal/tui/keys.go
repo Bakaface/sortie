@@ -153,3 +153,92 @@ func (k detailKeyMap) FullHelp() [][]key.Binding {
 		{k.Back, k.Quit},
 	}
 }
+
+type detailFollowKeyMap struct {
+	Back key.Binding
+	Stop key.Binding
+	Quit key.Binding
+}
+
+func newDetailFollowKeyMap() detailFollowKeyMap {
+	return detailFollowKeyMap{
+		Back: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "normal mode"),
+		),
+		Stop: key.NewBinding(
+			key.WithKeys("ctrl+c"),
+			key.WithHelp("ctrl+c", "stop"),
+		),
+		Quit: key.NewBinding(
+			key.WithKeys("q"),
+			key.WithHelp("q", "quit"),
+		),
+	}
+}
+
+func (k detailFollowKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Back, k.Stop, k.Quit}
+}
+
+type detailNormalKeyMap struct {
+	GotoTop    key.Binding
+	GotoBottom key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	HalfUp     key.Binding
+	HalfDown   key.Binding
+	Follow     key.Binding
+	Back       key.Binding
+	Stop       key.Binding
+	Quit       key.Binding
+}
+
+func newDetailNormalKeyMap() detailNormalKeyMap {
+	return detailNormalKeyMap{
+		GotoTop: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("gg", "top"),
+		),
+		GotoBottom: key.NewBinding(
+			key.WithKeys("G"),
+			key.WithHelp("G", "bottom"),
+		),
+		Up: key.NewBinding(
+			key.WithKeys("k"),
+			key.WithHelp("k", "up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("j"),
+			key.WithHelp("j", "down"),
+		),
+		HalfUp: key.NewBinding(
+			key.WithKeys("u"),
+			key.WithHelp("u", "half up"),
+		),
+		HalfDown: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "half down"),
+		),
+		Follow: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "follow"),
+		),
+		Back: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "back"),
+		),
+		Stop: key.NewBinding(
+			key.WithKeys("ctrl+c"),
+			key.WithHelp("ctrl+c", "stop"),
+		),
+		Quit: key.NewBinding(
+			key.WithKeys("q"),
+			key.WithHelp("q", "quit"),
+		),
+	}
+}
+
+func (k detailNormalKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Back}
+}

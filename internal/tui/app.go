@@ -248,6 +248,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if task := m.list.Selected(); task != nil {
 			m.view = viewDetail
 			m.detail.SetTask(task)
+			m.detail.SetFollowMode(true)
 			// Load logs using task ID
 			agentID := fmt.Sprintf("%d", task.ID)
 			return m, m.loadOutput(agentID)
@@ -307,39 +308,69 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	keyStr := msg.String()
+
+	// Common keys (both modes)
+	switch keyStr {
 	case "q":
 		m.quitting = true
 		if m.client != nil {
 			m.client.Close()
 		}
 		return m, tea.Quit
-
-	case "esc":
-		m.view = viewList
-		return m, nil
-
-	case "up", "k":
-		m.detail.ScrollUp()
-		return m, nil
-
-	case "down", "j":
-		m.detail.ScrollDown()
-		return m, nil
-
-	case "pgup", "ctrl+u":
-		m.detail.PageUp()
-		return m, nil
-
-	case "pgdown", "ctrl+d":
-		m.detail.PageDown()
-		return m, nil
-
 	case "ctrl+c":
 		if m.detail.task != nil && m.client != nil {
 			return m, m.stopTask(m.detail.task.ID)
 		}
 		return m, nil
+	}
+
+	if m.detail.IsFollowMode() {
+		// Follow mode keys
+		switch keyStr {
+		case "esc":
+			m.detail.SetFollowMode(false)
+			return m, nil
+		}
+	} else {
+		// Normal mode keys
+
+		// Handle "gg" sequence
+		if keyStr == "g" {
+			if m.detail.IsPendingG() {
+				m.detail.SetPendingG(false)
+				m.detail.GotoTop()
+				return m, nil
+			}
+			m.detail.SetPendingG(true)
+			return m, nil
+		}
+		// Any non-g key resets pendingG
+		m.detail.SetPendingG(false)
+
+		switch keyStr {
+		case "G":
+			m.detail.GotoBottom()
+			return m, nil
+		case "j", "down":
+			m.detail.ScrollDown()
+			return m, nil
+		case "k", "up":
+			m.detail.ScrollUp()
+			return m, nil
+		case "d":
+			m.detail.PageDown()
+			return m, nil
+		case "u":
+			m.detail.PageUp()
+			return m, nil
+		case "enter":
+			m.detail.SetFollowMode(true)
+			return m, nil
+		case "esc":
+			m.view = viewList
+			return m, nil
+		}
 	}
 
 	return m, nil

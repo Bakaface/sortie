@@ -5,22 +5,26 @@ import (
 	"strings"
 
 	"github.com/aface/ralph-tamer-kit/internal/daemon"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type detailView struct {
-	task     *daemon.TaskInfo
-	output   []string
-	viewport viewport.Model
-	width    int
-	height   int
-	ready    bool
+	task       *daemon.TaskInfo
+	output     []string
+	viewport   viewport.Model
+	width      int
+	height     int
+	ready      bool
+	followMode bool
+	pendingG   bool
 }
 
 func newDetailView() detailView {
 	return detailView{
-		output: make([]string, 0),
+		output:     make([]string, 0),
+		followMode: true,
 	}
 }
 
@@ -31,6 +35,9 @@ func (d *detailView) SetTask(task *daemon.TaskInfo) {
 func (d *detailView) SetOutput(lines []string) {
 	d.output = lines
 	d.updateViewportContent()
+	if d.followMode {
+		d.viewport.GotoBottom()
+	}
 }
 
 func (d *detailView) AppendOutput(lines []string) {
@@ -82,6 +89,33 @@ func (d *detailView) PageUp() {
 
 func (d *detailView) PageDown() {
 	d.viewport.HalfViewDown()
+}
+
+func (d *detailView) GotoTop() {
+	d.viewport.GotoTop()
+}
+
+func (d *detailView) GotoBottom() {
+	d.viewport.GotoBottom()
+}
+
+func (d *detailView) IsFollowMode() bool {
+	return d.followMode
+}
+
+func (d *detailView) SetFollowMode(follow bool) {
+	d.followMode = follow
+	if follow {
+		d.viewport.GotoBottom()
+	}
+}
+
+func (d *detailView) IsPendingG() bool {
+	return d.pendingG
+}
+
+func (d *detailView) SetPendingG(pending bool) {
+	d.pendingG = pending
 }
 
 func (d *detailView) View() string {
@@ -165,12 +199,23 @@ func (d *detailView) View() string {
 }
 
 func (d *detailView) renderHelp() string {
-	keys := newDetailKeyMap()
 	var help strings.Builder
-
 	help.WriteString(helpStyle.Render("  "))
 
-	bindings := keys.ShortHelp()
+	// Mode indicator
+	if d.followMode {
+		help.WriteString(stateStyle("running").Render("FOLLOW"))
+	} else {
+		help.WriteString(stateStyle("pending").Render("NORMAL"))
+	}
+	help.WriteString(helpStyle.Render(" "))
+
+	var bindings []key.Binding
+	if d.followMode {
+		bindings = newDetailFollowKeyMap().ShortHelp()
+	} else {
+		bindings = newDetailNormalKeyMap().ShortHelp()
+	}
 	for i, binding := range bindings {
 		if i > 0 {
 			help.WriteString(helpStyle.Render(" | "))
