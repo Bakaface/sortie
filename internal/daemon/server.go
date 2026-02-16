@@ -811,7 +811,7 @@ func (s *Server) startTaskAgent(t *task.Task) error {
 }
 
 
-// recoverOrphanedTasks resets any tasks stuck in "running" or "generating_title" state to "pending".
+// recoverOrphanedTasks resets any tasks stuck in "running" or "generating-title" state to "pending".
 // Tasks in "awaiting_approval" are left alone — they need explicit user action.
 func (s *Server) recoverOrphanedTasks() error {
 	runningTasks, err := s.database.GetRunningTasks()
@@ -826,14 +826,14 @@ func (s *Server) recoverOrphanedTasks() error {
 		}
 	}
 
-	// Also recover tasks stuck in generating_title (title generation goroutine lost on restart)
+	// Also recover tasks stuck in generating-title (title generation goroutine lost on restart)
 	allTasks, err := s.database.GetAllTasks()
 	if err != nil {
 		return nil // Non-critical, don't fail
 	}
 	for _, t := range allTasks {
 		if t.Status == task.StatusGeneratingTitle {
-			log.Printf("Recovering task #%d stuck in generating_title, resetting to pending", t.ID)
+			log.Printf("Recovering task #%d stuck in generating-title, resetting to pending", t.ID)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
 				log.Printf("Failed to reset task #%d: %v", t.ID, err)
 			}
