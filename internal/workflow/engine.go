@@ -82,10 +82,12 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			log.Printf("Warning: failed to update task step: %v", err)
 		}
 
-		// Collect artifacts from prior steps
+		// Collect artifacts from prior steps (only those with artifact: true)
 		var priorStepNames []string
 		for j := 0; j < i; j++ {
-			priorStepNames = append(priorStepNames, steps[j].Name)
+			if steps[j].Artifact {
+				priorStepNames = append(priorStepNames, steps[j].Name)
+			}
 		}
 		artifacts := CollectArtifacts(t.WorktreePath, priorStepNames)
 
@@ -107,10 +109,12 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 		resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
 
-		// Append artifact output instructions directly to the prompt
+		// Append artifact output instructions if step has artifact: true
 		artifactsDir := ArtifactsDir(t.WorktreePath)
-		artifactPath := filepath.Join(artifactsDir, step.Name+".md")
-		resolvedPrompt += fmt.Sprintf("\n\n---\n\nIMPORTANT: When you are done, write a summary of what you did to `%s`. Include: files changed, decisions made, and any issues encountered. This artifact is required for subsequent workflow steps.", artifactPath)
+		if step.Artifact {
+			artifactPath := filepath.Join(artifactsDir, step.Name+".md")
+			resolvedPrompt += fmt.Sprintf("\n\n---\n\nIMPORTANT: When you are done, write a summary of what you did to `%s`. Include: files changed, decisions made, and any issues encountered. This artifact is required for subsequent workflow steps.", artifactPath)
+		}
 		if err := InjectClaudeMD(t.WorktreePath, resolvedPrompt); err != nil {
 			return fmt.Errorf("failed to inject CLAUDE.md: %w", err)
 		}
@@ -404,10 +408,12 @@ exec bash
 
 // runSummarizer generates a summary of all artifacts and stores it as the task's context.
 func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.WorkflowConfig) error {
-	// Collect all step names
+	// Collect step names that produce artifacts
 	var stepNames []string
 	for _, s := range wf.Steps {
-		stepNames = append(stepNames, s.Name)
+		if s.Artifact {
+			stepNames = append(stepNames, s.Name)
+		}
 	}
 
 	// Collect all artifacts
