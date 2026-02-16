@@ -10,6 +10,7 @@ type Status string
 
 const (
 	StatusPending          Status = "pending"
+	StatusGeneratingTitle  Status = "generating_title"
 	StatusRunning          Status = "running"
 	StatusAwaitingApproval Status = "awaiting_approval"
 	StatusCompleted        Status = "completed"

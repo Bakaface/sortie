@@ -510,7 +510,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	slug := task.Slugify(title)
 
-	t, err := s.database.CreateTask(title, description, slug, req.Workflow, "")
+	t, err := s.database.CreateTask(title, description, slug, req.Workflow, "", task.StatusGeneratingTitle)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
 		return
@@ -533,6 +533,11 @@ func (s *Server) refineTaskTitle(taskID int64, description string) {
 	title, err := s.generateTitle(ctx, description)
 	if err != nil {
 		log.Printf("Failed to generate AI title for task #%d: %v", taskID, err)
+		// Transition to pending even on failure so the task can still be claimed
+		if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
+			log.Printf("Failed to transition task #%d to pending: %v", taskID, err)
+		}
+		s.broadcastTaskUpdate(taskID)
 		return
 	}
 
@@ -540,18 +545,31 @@ func (s *Server) refineTaskTitle(taskID int64, description string) {
 
 	if err := s.database.UpdateTaskTitle(taskID, title, slug); err != nil {
 		log.Printf("Failed to update title for task #%d: %v", taskID, err)
+		// Still transition to pending
+		if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
+			log.Printf("Failed to transition task #%d to pending: %v", taskID, err)
+		}
+		s.broadcastTaskUpdate(taskID)
 		return
 	}
 
-	// Re-fetch and broadcast so TUI picks up the new title
+	// Transition to pending now that title is finalized
+	if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
+		log.Printf("Failed to transition task #%d to pending: %v", taskID, err)
+		return
+	}
+
+	s.broadcastTaskUpdate(taskID)
+	log.Printf("AI title for task #%d: %s", taskID, title)
+}
+
+func (s *Server) broadcastTaskUpdate(taskID int64) {
 	t, err := s.database.GetTask(taskID)
 	if err != nil {
-		log.Printf("Failed to re-fetch task #%d after title update: %v", taskID, err)
+		log.Printf("Failed to re-fetch task #%d for broadcast: %v", taskID, err)
 		return
 	}
-
 	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: taskToInfo(t)})
-	log.Printf("AI title for task #%d: %s", taskID, title)
 }
 
 // generateTitle invokes Claude CLI to produce a concise title from a task description.
@@ -793,7 +811,7 @@ func (s *Server) startTaskAgent(t *task.Task) error {
 }
 
 
-// recoverOrphanedTasks resets any tasks stuck in "running" state to "pending".
+// recoverOrphanedTasks resets any tasks stuck in "running" or "generating_title" state to "pending".
 // Tasks in "awaiting_approval" are left alone — they need explicit user action.
 func (s *Server) recoverOrphanedTasks() error {
 	runningTasks, err := s.database.GetRunningTasks()
@@ -808,12 +826,18 @@ func (s *Server) recoverOrphanedTasks() error {
 		}
 	}
 
-	// Log awaiting_approval tasks so users know they exist
+	// Also recover tasks stuck in generating_title (title generation goroutine lost on restart)
 	allTasks, err := s.database.GetAllTasks()
 	if err != nil {
 		return nil // Non-critical, don't fail
 	}
 	for _, t := range allTasks {
+		if t.Status == task.StatusGeneratingTitle {
+			log.Printf("Recovering task #%d stuck in generating_title, resetting to pending", t.ID)
+			if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
+				log.Printf("Failed to reset task #%d: %v", t.ID, err)
+			}
+		}
 		if t.Status == task.StatusAwaitingApproval {
 			log.Printf("Task #%d is awaiting approval (use 'approve' or 'reject' command)", t.ID)
 		}

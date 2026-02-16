@@ -8,10 +8,10 @@ import (
 	"github.com/aface/ralph-tamer-kit/internal/task"
 )
 
-func (db *DB) CreateTask(title, description, slug, workflow, branch string) (*task.Task, error) {
+func (db *DB) CreateTask(title, description, slug, workflow, branch string, status task.Status) (*task.Task, error) {
 	result, err := db.Exec(
 		`INSERT INTO tasks (title, description, slug, workflow, branch, status) VALUES (?, ?, ?, ?, ?, ?)`,
-		title, description, slug, workflow, branch, task.StatusPending,
+		title, description, slug, workflow, branch, status,
 	)
 	if err != nil {
 		return nil, err
