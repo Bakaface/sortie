@@ -20,12 +20,19 @@ type StreamParser struct {
 }
 
 // streamEvent represents a top-level NDJSON event from Claude's verbose stream-json output.
+// Note: the "result" JSON key has different types per event (string for result events,
+// absent for others), so we decode result events separately to avoid type conflicts.
 type streamEvent struct {
 	Type    string     `json:"type"`    // "system", "assistant", "user", "result"
 	Subtype string     `json:"subtype"` // for system events: "init"
 	Message *streamMsg `json:"message,omitempty"`
-	// result event fields
-	Result  *resultData `json:"result,omitempty"`
+}
+
+// resultEvent is decoded separately for "result" type events because the top-level
+// "result" key is a string (the final text), which conflicts with reusing streamEvent.
+type resultEvent struct {
+	DurationMs   float64 `json:"duration_ms"`
+	TotalCostUSD float64 `json:"total_cost_usd"`
 }
 
 type streamMsg struct {
@@ -41,11 +48,6 @@ type contentBlock struct {
 	Name     string          `json:"name"`  // tool name for tool_use blocks
 	Input    json.RawMessage `json:"input"` // raw JSON for tool_use input
 	Content  string          `json:"content"` // for tool_result blocks
-}
-
-type resultData struct {
-	Duration float64 `json:"duration_ms"`
-	Cost     float64 `json:"cost_usd"`
 }
 
 func NewStreamParser() *StreamParser {
@@ -71,8 +73,11 @@ func (p *StreamParser) ParseLine(line []byte) []string {
 		return p.parseAssistant(&ev, ts)
 
 	case "result":
-		if ev.Result != nil {
-			return []string{fmt.Sprintf("[%s] Done (%.1fs, $%.4f)", ts, ev.Result.Duration/1000, ev.Result.Cost)}
+		// Decode result events separately because the "result" key is a string
+		// (the final text output), not an object — which would break streamEvent unmarshal.
+		var res resultEvent
+		if err := json.Unmarshal(line, &res); err == nil {
+			return []string{fmt.Sprintf("[%s] Done (%.1fs, $%.4f)", ts, res.DurationMs/1000, res.TotalCostUSD)}
 		}
 	}
 

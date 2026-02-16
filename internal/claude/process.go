@@ -119,6 +119,11 @@ func (p *Process) streamOutput(stdout io.ReadCloser, rawFile *os.File) {
 			p.OutputFunc(formatted)
 		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		errMsg := fmt.Sprintf("[scanner error] %v\n", err)
+		rawFile.Write([]byte(errMsg))
+	}
 }
 
 func (p *Process) waitForExit(outFile *os.File) {
