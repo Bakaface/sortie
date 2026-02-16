@@ -85,14 +85,25 @@ func MergeBranch(repoRoot, branch, baseBranch string) error {
 		return fmt.Errorf("git checkout %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
 	}
 
-	// Merge the task branch
-	mergeCmd := exec.Command("git", "merge", "--no-ff", branch, "-m", fmt.Sprintf("Merge branch '%s'", branch))
+	// Squash merge the task branch
+	mergeCmd := exec.Command("git", "merge", "--squash", branch)
 	mergeCmd.Dir = repoRoot
 	stderr.Reset()
 	mergeCmd.Stderr = &stderr
 
 	if err := mergeCmd.Run(); err != nil {
-		return fmt.Errorf("git merge failed: %w (stderr: %s)", err, stderr.String())
+		return fmt.Errorf("git merge --squash failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	// Squash merge stages changes but doesn't commit — create the commit
+	commitMsg := fmt.Sprintf("Merge branch '%s'", branch)
+	commitCmd := exec.Command("git", "commit", "-m", commitMsg)
+	commitCmd.Dir = repoRoot
+	stderr.Reset()
+	commitCmd.Stderr = &stderr
+
+	if err := commitCmd.Run(); err != nil {
+		return fmt.Errorf("git commit after squash failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	return nil
