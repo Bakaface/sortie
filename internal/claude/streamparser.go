@@ -7,40 +7,45 @@ import (
 	"time"
 )
 
-// StreamParser parses Claude's --output-format stream-json NDJSON events
+// StreamParser parses Claude's --verbose --output-format stream-json NDJSON events
 // into human-readable log lines for display in logs and the TUI.
+//
+// The verbose stream-json format emits one complete content block per line:
+//   - {"type":"system","subtype":"init",...} — session initialization
+//   - {"type":"assistant","message":{"content":[{one block}]}} — assistant output
+//   - {"type":"user","message":{"content":[...]}} — tool results
+//   - {"type":"result",...} — final result summary
 type StreamParser struct {
-	// State tracking for the current content block
-	blockType  string // "text", "tool_use", "thinking"
-	toolName   string
-	inputJSON  strings.Builder
-	textAccum  strings.Builder
-	thinkAccum strings.Builder
+	lastMsgID string // track message ID to detect new turns
 }
 
-// streamEvent represents a top-level NDJSON event from Claude's stream-json output.
+// streamEvent represents a top-level NDJSON event from Claude's verbose stream-json output.
 type streamEvent struct {
-	Type         string        `json:"type"`
-	Message      *streamMsg    `json:"message,omitempty"`
-	Index        int           `json:"index"`
-	ContentBlock *contentBlock `json:"content_block,omitempty"`
-	Delta        *streamDelta  `json:"delta,omitempty"`
+	Type    string     `json:"type"`    // "system", "assistant", "user", "result"
+	Subtype string     `json:"subtype"` // for system events: "init"
+	Message *streamMsg `json:"message,omitempty"`
+	// result event fields
+	Result  *resultData `json:"result,omitempty"`
 }
 
 type streamMsg struct {
-	Role string `json:"role"`
+	ID      string         `json:"id"`
+	Role    string         `json:"role"`
+	Content []contentBlock `json:"content"`
 }
 
 type contentBlock struct {
-	Type string `json:"type"` // "text", "tool_use", "thinking"
-	Name string `json:"name"` // tool name for tool_use blocks
+	Type     string          `json:"type"`  // "text", "tool_use", "thinking", "tool_result"
+	Text     string          `json:"text"`  // for text blocks
+	Thinking string          `json:"thinking"` // for thinking blocks
+	Name     string          `json:"name"`  // tool name for tool_use blocks
+	Input    json.RawMessage `json:"input"` // raw JSON for tool_use input
+	Content  string          `json:"content"` // for tool_result blocks
 }
 
-type streamDelta struct {
-	Type      string `json:"type"`
-	Text      string `json:"text"`
-	Thinking  string `json:"thinking"`
-	PartialJSON string `json:"partial_json"`
+type resultData struct {
+	Duration float64 `json:"duration_ms"`
+	Cost     float64 `json:"cost_usd"`
 }
 
 func NewStreamParser() *StreamParser {
@@ -62,84 +67,63 @@ func (p *StreamParser) ParseLine(line []byte) []string {
 	ts := timestamp()
 
 	switch ev.Type {
-	case "message_start":
-		return []string{fmt.Sprintf("[%s] --- Assistant turn ---", ts)}
-
-	case "content_block_start":
-		p.resetBlock()
-		if ev.ContentBlock != nil {
-			p.blockType = ev.ContentBlock.Type
-			if ev.ContentBlock.Type == "tool_use" {
-				p.toolName = ev.ContentBlock.Name
-				return []string{fmt.Sprintf("[%s] Tool: %s", ts, p.toolName)}
-			}
-		}
-
-	case "content_block_delta":
-		if ev.Delta != nil {
-			switch {
-			case ev.Delta.Text != "":
-				p.textAccum.WriteString(ev.Delta.Text)
-			case ev.Delta.Thinking != "":
-				p.thinkAccum.WriteString(ev.Delta.Thinking)
-			case ev.Delta.PartialJSON != "":
-				p.inputJSON.WriteString(ev.Delta.PartialJSON)
-			}
-		}
-
-	case "content_block_stop":
-		return p.flushBlock(ts)
+	case "assistant":
+		return p.parseAssistant(&ev, ts)
 
 	case "result":
-		// Tool result events
-		if ev.Delta != nil && ev.Delta.Text != "" {
-			return []string{fmt.Sprintf("[%s] Result: %s", ts, truncate(ev.Delta.Text, 200))}
+		if ev.Result != nil {
+			return []string{fmt.Sprintf("[%s] Done (%.1fs, $%.4f)", ts, ev.Result.Duration/1000, ev.Result.Cost)}
 		}
 	}
 
 	return nil
 }
 
-// flushBlock emits formatted lines when a content block finishes.
-func (p *StreamParser) flushBlock(ts string) []string {
+// parseAssistant extracts human-readable lines from an assistant event.
+// Each event contains one complete content block.
+func (p *StreamParser) parseAssistant(ev *streamEvent, ts string) []string {
+	if ev.Message == nil {
+		return nil
+	}
+
 	var lines []string
 
-	switch p.blockType {
-	case "tool_use":
-		summary := summarizeToolInput(p.toolName, p.inputJSON.String())
-		if summary != "" {
-			lines = append(lines, fmt.Sprintf("[%s]   Input: %s", ts, summary))
-		}
+	// Detect new assistant turn
+	if ev.Message.ID != p.lastMsgID {
+		p.lastMsgID = ev.Message.ID
+		lines = append(lines, fmt.Sprintf("[%s] --- Assistant turn ---", ts))
+	}
 
-	case "text":
-		text := strings.TrimSpace(p.textAccum.String())
-		if text != "" {
-			// Emit each line of text output with timestamp
-			for _, l := range strings.Split(text, "\n") {
-				l = strings.TrimRight(l, " \t")
-				if l != "" {
-					lines = append(lines, fmt.Sprintf("[%s] %s", ts, l))
+	for _, block := range ev.Message.Content {
+		switch block.Type {
+		case "text":
+			text := strings.TrimSpace(block.Text)
+			if text != "" {
+				for _, l := range strings.Split(text, "\n") {
+					l = strings.TrimRight(l, " \t")
+					if l != "" {
+						lines = append(lines, fmt.Sprintf("[%s] %s", ts, l))
+					}
 				}
 			}
-		}
 
-	case "thinking":
-		text := strings.TrimSpace(p.thinkAccum.String())
-		if text != "" {
-			lines = append(lines, fmt.Sprintf("[%s] Thinking: %s", ts, truncate(text, 200)))
+		case "tool_use":
+			lines = append(lines, fmt.Sprintf("[%s] Tool: %s", ts, block.Name))
+			inputStr := string(block.Input)
+			summary := summarizeToolInput(block.Name, inputStr)
+			if summary != "" {
+				lines = append(lines, fmt.Sprintf("[%s]   Input: %s", ts, summary))
+			}
+
+		case "thinking":
+			text := strings.TrimSpace(block.Thinking)
+			if text != "" {
+				lines = append(lines, fmt.Sprintf("[%s] Thinking: %s", ts, truncate(text, 200)))
+			}
 		}
 	}
 
-	p.resetBlock()
 	return lines
-}
-
-func (p *StreamParser) resetBlock() {
-	p.blockType = ""
-	p.toolName = ""
-	p.inputJSON.Reset()
-	p.textAccum.Reset()
-	p.thinkAccum.Reset()
 }
 
 // summarizeToolInput extracts the most useful field from a tool's JSON input.
