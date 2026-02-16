@@ -15,20 +15,8 @@ func TestParseLineAssistantText(t *testing.T) {
 		t.Fatal("expected parsed lines from assistant event, got none")
 	}
 
-	// First line should be turn header
-	found := false
-	for _, l := range lines {
-		t.Logf("parsed: %s", l)
-		if contains(l, "Assistant turn") {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("expected 'Assistant turn' line")
-	}
-
 	// Should contain the text
-	found = false
+	found := false
 	for _, l := range lines {
 		if contains(l, "Hello! How can I help you today?") {
 			found = true

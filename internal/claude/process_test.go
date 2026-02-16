@@ -63,19 +63,12 @@ done:
 		t.Fatal("OutputFunc was never called — no parsed lines from claude output")
 	}
 
-	// Should have at least an assistant turn marker and some text
-	foundTurn := false
+	// Should have the expected text output
 	foundText := false
 	for _, l := range capturedLines {
-		if contains(l, "Assistant turn") {
-			foundTurn = true
-		}
 		if contains(l, "HELLO_TEST_OUTPUT") {
 			foundText = true
 		}
-	}
-	if !foundTurn {
-		t.Error("expected assistant turn marker in output")
 	}
 	if !foundText {
 		t.Error("expected HELLO_TEST_OUTPUT in output")
