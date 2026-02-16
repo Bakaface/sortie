@@ -358,10 +358,10 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "k", "up":
 			m.detail.ScrollUp()
 			return m, nil
-		case "d":
+		case "ctrl+d":
 			m.detail.PageDown()
 			return m, nil
-		case "u":
+		case "ctrl+u":
 			m.detail.PageUp()
 			return m, nil
 		case "enter":

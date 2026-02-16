@@ -213,12 +213,12 @@ func newDetailNormalKeyMap() detailNormalKeyMap {
 			key.WithHelp("j", "down"),
 		),
 		HalfUp: key.NewBinding(
-			key.WithKeys("u"),
-			key.WithHelp("u", "half up"),
+			key.WithKeys("ctrl+u"),
+			key.WithHelp("ctrl+u", "half up"),
 		),
 		HalfDown: key.NewBinding(
-			key.WithKeys("d"),
-			key.WithHelp("d", "half down"),
+			key.WithKeys("ctrl+d"),
+			key.WithHelp("ctrl+d", "half down"),
 		),
 		Follow: key.NewBinding(
 			key.WithKeys("enter"),
