@@ -319,11 +319,8 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Common keys (both modes)
 	switch keyStr {
 	case "q":
-		m.quitting = true
-		if m.client != nil {
-			m.client.Close()
-		}
-		return m, tea.Quit
+		m.view = viewList
+		return m, nil
 	case "ctrl+c":
 		if m.detail.task != nil && m.client != nil {
 			return m, m.stopTask(m.detail.task.ID)
