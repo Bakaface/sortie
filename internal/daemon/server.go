@@ -2,11 +2,13 @@ package daemon
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -518,6 +520,70 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: taskToInfo(t)})
 
 	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: taskToInfo(t)})
+
+	// Fire-and-forget goroutine for AI title generation
+	go s.refineTaskTitle(t.ID, description)
+}
+
+// refineTaskTitle generates an AI title for a task in the background and updates the DB.
+func (s *Server) refineTaskTitle(taskID int64, description string) {
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
+	title, err := s.generateTitle(ctx, description)
+	if err != nil {
+		log.Printf("Failed to generate AI title for task #%d: %v", taskID, err)
+		return
+	}
+
+	slug := task.Slugify(title)
+
+	if err := s.database.UpdateTaskTitle(taskID, title, slug); err != nil {
+		log.Printf("Failed to update title for task #%d: %v", taskID, err)
+		return
+	}
+
+	// Re-fetch and broadcast so TUI picks up the new title
+	t, err := s.database.GetTask(taskID)
+	if err != nil {
+		log.Printf("Failed to re-fetch task #%d after title update: %v", taskID, err)
+		return
+	}
+
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: taskToInfo(t)})
+	log.Printf("AI title for task #%d: %s", taskID, title)
+}
+
+// generateTitle invokes Claude CLI to produce a concise title from a task description.
+func (s *Server) generateTitle(ctx context.Context, description string) (string, error) {
+	prompt := fmt.Sprintf(
+		"Generate a concise task title (one short sentence, max 80 characters, no quotes, no prefix like 'Title:') for the following task description:\n\n%s",
+		description,
+	)
+
+	args := []string{"-p", prompt, "--output-format", "text"}
+	args = append(args, s.cfg.Claude.DefaultArgs...)
+
+	cmd := exec.CommandContext(ctx, s.cfg.Claude.Command, args...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("claude command failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	title := strings.TrimSpace(stdout.String())
+	if title == "" {
+		return "", fmt.Errorf("claude returned empty title")
+	}
+
+	if len(title) > 80 {
+		title = title[:80]
+	}
+
+	return title, nil
 }
 
 func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {

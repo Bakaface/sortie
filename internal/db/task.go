@@ -213,6 +213,14 @@ func (db *DB) UpdateTaskContext(id int64, taskContext string) error {
 	return err
 }
 
+func (db *DB) UpdateTaskTitle(id int64, title, slug string) error {
+	_, err := db.Exec(
+		"UPDATE tasks SET title = ?, slug = ?, updated_at = ? WHERE id = ?",
+		title, slug, time.Now(), id,
+	)
+	return err
+}
+
 func (db *DB) ResetTaskForRetry(id int64) error {
 	_, err := db.Exec(
 		`UPDATE tasks SET status = ?, step_index = 0, current_step = NULL,
