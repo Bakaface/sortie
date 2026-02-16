@@ -51,6 +51,45 @@ func TestHandleDetailKey_EscReturnsToList(t *testing.T) {
 	}
 }
 
+func TestHandleDetailKey_EscInFollowModeExitsFollow(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+	m.detail.SetFollowMode(true)
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, _ := m.handleDetailKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewDetail {
+		t.Errorf("expected view to remain viewDetail (%d), got %d", viewDetail, updated.view)
+	}
+	if updated.detail.IsFollowMode() {
+		t.Error("expected follow mode to be false after esc")
+	}
+}
+
+func TestHandleDetailKey_QInFollowModeReturnsToList(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+	m.detail.SetFollowMode(true)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+	result, _ := m.handleDetailKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewList {
+		t.Errorf("expected view to be viewList (%d), got %d", viewList, updated.view)
+	}
+}
+
 func TestHandleListKey_QQuitsApp(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),

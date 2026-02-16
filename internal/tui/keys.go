@@ -150,15 +150,20 @@ func (k detailKeyMap) FullHelp() [][]key.Binding {
 }
 
 type detailFollowKeyMap struct {
-	Back key.Binding
-	Stop key.Binding
+	ExitFollow key.Binding
+	Back       key.Binding
+	Stop       key.Binding
 }
 
 func newDetailFollowKeyMap() detailFollowKeyMap {
 	return detailFollowKeyMap{
+		ExitFollow: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "normal mode"),
+		),
 		Back: key.NewBinding(
-			key.WithKeys("esc", "q"),
-			key.WithHelp("esc/q", "back to list"),
+			key.WithKeys("q"),
+			key.WithHelp("q", "back to list"),
 		),
 		Stop: key.NewBinding(
 			key.WithKeys("ctrl+c"),
@@ -168,7 +173,7 @@ func newDetailFollowKeyMap() detailFollowKeyMap {
 }
 
 func (k detailFollowKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Back, k.Stop}
+	return []key.Binding{k.ExitFollow, k.Back, k.Stop}
 }
 
 type detailNormalKeyMap struct {
