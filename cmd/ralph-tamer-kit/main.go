@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -15,7 +13,6 @@ import (
 	"github.com/aface/ralph-tamer-kit/internal/daemon"
 	"github.com/aface/ralph-tamer-kit/internal/db"
 	gitpkg "github.com/aface/ralph-tamer-kit/internal/git"
-	"github.com/aface/ralph-tamer-kit/internal/planner"
 	"github.com/aface/ralph-tamer-kit/internal/task"
 	"github.com/aface/ralph-tamer-kit/internal/tui"
 	"github.com/spf13/cobra"
@@ -35,10 +32,9 @@ var noProjectRequired = map[string]bool{
 var rootCmd = &cobra.Command{
 	Use:   "rtk",
 	Short: "Ralph Tamer Kit orchestrates Claude Code agents",
-	Long: `Ralph Tamer Kit is a system that orchestrates Claude Code agents to work
-through Product Requirement Documents systematically. It creates tasks from
-PRD files, runs them through configurable multi-step workflows in dedicated
-git worktrees, and provides real-time monitoring via TUI.`,
+	Long: `Ralph Tamer Kit orchestrates Claude Code agents to work through tasks
+systematically. It runs tasks through configurable multi-step workflows in
+dedicated git worktrees, and provides real-time monitoring via TUI.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		var err error
 		cfg, err = config.Load()
@@ -99,91 +95,6 @@ var tuiCmd = &cobra.Command{
 	Short: "Launch the TUI (connects to daemon)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return tui.Run(cfg)
-	},
-}
-
-var planCmd = &cobra.Command{
-	Use:   "plan <PRD.md>",
-	Short: "Create tasks from a PRD file",
-	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		prdPath := args[0]
-		force, _ := cmd.Flags().GetBool("force")
-		workflowFlag, _ := cmd.Flags().GetString("workflow")
-
-		if _, err := os.Stat(prdPath); err != nil {
-			return fmt.Errorf("PRD file not found: %s", prdPath)
-		}
-
-		repoRoot, err := gitpkg.GetRepoRoot(".")
-		if err != nil {
-			return fmt.Errorf("not in a git repository: %w", err)
-		}
-
-		dbPath := cfg.GetDatabasePath(repoRoot)
-		database, err := db.Open(dbPath)
-		if err != nil {
-			return fmt.Errorf("failed to open database: %w", err)
-		}
-		defer database.Close()
-
-		// Determine which workflow to use
-		workflowName := workflowFlag
-		if workflowName == "" {
-			workflows := cfg.ListWorkflowNames()
-			if len(workflows) == 1 {
-				// Auto-select if there's only one
-				workflowName = workflows[0]
-				fmt.Printf("Using workflow: %s\n", workflowName)
-			} else if len(workflows) > 1 {
-				// Prompt user to select
-				fmt.Println("Multiple workflows available:")
-				for i, name := range workflows {
-					fmt.Printf("  %d. %s\n", i+1, name)
-				}
-				fmt.Print("Select workflow (enter number or name): ")
-
-				reader := bufio.NewReader(os.Stdin)
-				input, err := reader.ReadString('\n')
-				if err != nil {
-					return fmt.Errorf("failed to read input: %w", err)
-				}
-				input = strings.TrimSpace(input)
-
-				// Try to parse as number
-				if num, err := strconv.Atoi(input); err == nil && num > 0 && num <= len(workflows) {
-					workflowName = workflows[num-1]
-				} else {
-					// Use as name
-					workflowName = input
-				}
-				fmt.Printf("Selected workflow: %s\n", workflowName)
-			} else {
-				// No workflows defined, use default
-				workflowName = "default"
-			}
-		}
-
-		p := planner.New(cfg, database)
-		tasks, err := p.PlanFromPRD(prdPath, force, workflowName)
-		if err != nil {
-			return fmt.Errorf("failed to create tasks from PRD: %w", err)
-		}
-
-		fmt.Printf("Created %d tasks from PRD:\n\n", len(tasks))
-		for _, t := range tasks {
-			title := t.Title
-			if title == "" {
-				title = truncateStr(t.Description, 60)
-			}
-			blockedByStr := ""
-			if len(t.BlockedBy) > 0 {
-				blockedByStr = fmt.Sprintf(" (blocked by: %v)", t.BlockedBy)
-			}
-			fmt.Printf("  #%d: %s%s\n", t.ID, title, blockedByStr)
-		}
-
-		return nil
 	},
 }
 
@@ -264,7 +175,7 @@ var tasksCmd = &cobra.Command{
 		}
 
 		if len(tasks) == 0 {
-			fmt.Println("No tasks found. Use 'rtk plan <PRD.md>' to create tasks.")
+			fmt.Println("No tasks found. Create tasks via the TUI (n key) or daemon IPC.")
 			return nil
 		}
 
@@ -313,7 +224,7 @@ func listTasksFromDB() error {
 	}
 
 	if len(tasks) == 0 {
-		fmt.Println("No tasks found. Use 'rtk plan <PRD.md>' to create tasks.")
+		fmt.Println("No tasks found. Create tasks via the TUI (n key) or daemon IPC.")
 		return nil
 	}
 
@@ -774,8 +685,6 @@ func completeTaskIDs(statuses ...task.Status) func(*cobra.Command, []string, str
 
 func init() {
 	daemonStartCmd.Flags().BoolP("foreground", "f", false, "Run daemon in foreground")
-	planCmd.Flags().Bool("force", false, "Delete existing tasks before creating new ones")
-	planCmd.Flags().StringP("workflow", "w", "", "Workflow to use for tasks")
 	logsCmd.Flags().IntP("tail", "n", 0, "Show only the last N lines")
 
 	daemonCmd.AddCommand(daemonStartCmd)
@@ -784,7 +693,6 @@ func init() {
 
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(tuiCmd)
-	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(tasksCmd)
 	rootCmd.AddCommand(startCmd)

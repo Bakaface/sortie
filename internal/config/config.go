@@ -12,15 +12,10 @@ import (
 
 // ProjectConfig is loaded from .rtk.yaml at repo root
 type ProjectConfig struct {
-	MaxWorkers int                `yaml:"max_workers"`
-	Planner    PlannerConfig      `yaml:"planner"`
-	Git        GitConfig          `yaml:"git"`
-	Workflows  []WorkflowConfig   `yaml:"workflows"`
-	Workflow   WorkflowConfig     `yaml:"workflow"` // deprecated, backward compat
-}
-
-type PlannerConfig struct {
-	Instructions string `yaml:"instructions"`
+	MaxWorkers int              `yaml:"max_workers"`
+	Git        GitConfig        `yaml:"git"`
+	Workflows  []WorkflowConfig `yaml:"workflows"`
+	Workflow   WorkflowConfig   `yaml:"workflow"` // deprecated, backward compat
 }
 
 type GitConfig struct {
@@ -85,7 +80,6 @@ type CommandsConfig struct {
 type Config struct {
 	// From .rtk.yaml (project config)
 	MaxWorkers int
-	Planner    PlannerConfig
 	Git        GitConfig
 	Workflows  []WorkflowConfig
 
@@ -139,7 +133,6 @@ type agentsCompat struct {
 func defaultConfig() *Config {
 	return &Config{
 		MaxWorkers: 3,
-		Planner:    PlannerConfig{},
 		Git: GitConfig{
 			BranchTemplate: "rtk/{{task_id}}-{{task_slug}}",
 			OnComplete:     "commit",
@@ -270,9 +263,6 @@ func loadProjectConfig(path string, cfg *Config) error {
 
 	if proj.MaxWorkers > 0 {
 		cfg.MaxWorkers = proj.MaxWorkers
-	}
-	if proj.Planner.Instructions != "" {
-		cfg.Planner = proj.Planner
 	}
 	if proj.Git.BaseBranch != "" {
 		cfg.Git.BaseBranch = proj.Git.BaseBranch

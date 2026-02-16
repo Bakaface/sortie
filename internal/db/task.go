@@ -8,15 +8,6 @@ import (
 	"github.com/aface/ralph-tamer-kit/internal/task"
 )
 
-type TaskInput struct {
-	Title       string
-	Description string
-	Slug        string
-	Workflow    string
-	Branch      string
-	BlockedBy   []int64
-}
-
 func (db *DB) CreateTask(title, description, slug, workflow, branch string) (*task.Task, error) {
 	result, err := db.Exec(
 		`INSERT INTO tasks (title, description, slug, workflow, branch, status) VALUES (?, ?, ?, ?, ?, ?)`,
@@ -32,71 +23,6 @@ func (db *DB) CreateTask(title, description, slug, workflow, branch string) (*ta
 	}
 
 	return db.GetTask(id)
-}
-
-func (db *DB) CreateTasksBatch(inputs []TaskInput) ([]*task.Task, error) {
-	tx, err := db.Begin()
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	taskStmt, err := tx.Prepare(
-		`INSERT INTO tasks (title, description, slug, workflow, branch, status) VALUES (?, ?, ?, ?, ?, ?)`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer taskStmt.Close()
-
-	depStmt, err := tx.Prepare(
-		`INSERT INTO task_dependencies (task_id, blocked_by) VALUES (?, ?)`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer depStmt.Close()
-
-	var ids []int64
-	for _, input := range inputs {
-		result, err := taskStmt.Exec(input.Title, input.Description, input.Slug, input.Workflow, input.Branch, task.StatusPending)
-		if err != nil {
-			return nil, fmt.Errorf("insert task %q: %w", input.Title, err)
-		}
-		id, err := result.LastInsertId()
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-
-	// Insert dependencies — BlockedBy indices are 1-based references into the inputs slice
-	for i, input := range inputs {
-		for _, depIdx := range input.BlockedBy {
-			actualIdx := depIdx - 1 // Convert 1-based to 0-based
-			if actualIdx < 0 || int(actualIdx) >= len(ids) {
-				continue
-			}
-			if _, err := depStmt.Exec(ids[i], ids[actualIdx]); err != nil {
-				return nil, fmt.Errorf("insert dependency for task %d: %w", ids[i], err)
-			}
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-
-	var tasks []*task.Task
-	for _, id := range ids {
-		t, err := db.GetTask(id)
-		if err != nil {
-			return nil, err
-		}
-		tasks = append(tasks, t)
-	}
-
-	return tasks, nil
 }
 
 const taskColumns = `id, title, description, slug, workflow, status, step_index, current_step,
@@ -294,15 +220,6 @@ func (db *DB) ResetTaskForRetry(id int64) error {
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
 		task.StatusPending, time.Now(), id,
 	)
-	return err
-}
-
-func (db *DB) DeleteAllTasks() error {
-	_, err := db.Exec("DELETE FROM task_dependencies")
-	if err != nil {
-		return err
-	}
-	_, err = db.Exec("DELETE FROM tasks")
 	return err
 }
 
