@@ -153,6 +153,7 @@ type TaskInfo struct {
 	Branch       string     `json:"branch"`
 	WorktreePath string     `json:"worktree_path,omitempty"`
 	ErrorMessage string     `json:"error_message,omitempty"`
+	Context      string     `json:"context,omitempty"`
 	BlockedBy    []int64    `json:"blocked_by,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	StartedAt    *time.Time `json:"started_at,omitempty"`

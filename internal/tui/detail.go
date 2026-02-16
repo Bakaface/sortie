@@ -130,6 +130,24 @@ func (d *detailView) View() string {
 		b.WriteString("\n")
 	}
 
+	// Context / summary
+	if d.task.Context != "" {
+		b.WriteString("\n")
+		b.WriteString(dimStyle.Render("  Context:"))
+		b.WriteString("\n")
+		// Show first 5 lines of context, truncated
+		contextLines := strings.SplitN(d.task.Context, "\n", 6)
+		for i, line := range contextLines {
+			if i >= 5 {
+				b.WriteString(dimStyle.Render("  ..."))
+				b.WriteString("\n")
+				break
+			}
+			b.WriteString(dimStyle.Render("  "+line))
+			b.WriteString("\n")
+		}
+	}
+
 	b.WriteString("\n")
 
 	// Live logs viewport

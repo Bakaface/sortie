@@ -100,7 +100,7 @@ func (db *DB) CreateTasksBatch(inputs []TaskInput) ([]*task.Task, error) {
 }
 
 const taskColumns = `id, title, description, slug, workflow, status, step_index, current_step,
-	branch, worktree_path, exit_code, error_message,
+	branch, worktree_path, exit_code, error_message, context,
 	created_at, started_at, completed_at, updated_at`
 
 func (db *DB) GetTask(id int64) (*task.Task, error) {
@@ -279,6 +279,14 @@ func (db *DB) UpdateTaskError(id int64, errMsg string) error {
 	return err
 }
 
+func (db *DB) UpdateTaskContext(id int64, taskContext string) error {
+	_, err := db.Exec(
+		"UPDATE tasks SET context = ?, updated_at = ? WHERE id = ?",
+		taskContext, time.Now(), id,
+	)
+	return err
+}
+
 func (db *DB) ResetTaskForRetry(id int64) error {
 	_, err := db.Exec(
 		`UPDATE tasks SET status = ?, step_index = 0, current_step = NULL,
@@ -311,6 +319,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	var t task.Task
 	var title, slug, workflow, branch sql.NullString
 	var currentStep, worktreePath, errorMessage sql.NullString
+	var taskContext sql.NullString
 	var exitCode sql.NullInt64
 	var startedAt, completedAt sql.NullTime
 	var updatedAt sql.NullTime
@@ -318,7 +327,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	err := row.Scan(
 		&t.ID, &title, &t.Description, &slug, &workflow, &t.Status,
 		&t.StepIndex, &currentStep,
-		&branch, &worktreePath, &exitCode, &errorMessage,
+		&branch, &worktreePath, &exitCode, &errorMessage, &taskContext,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 	)
 	if err != nil {
@@ -350,6 +359,9 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	if errorMessage.Valid {
 		t.ErrorMessage = errorMessage.String
 	}
+	if taskContext.Valid {
+		t.Context = taskContext.String
+	}
 	if startedAt.Valid {
 		t.StartedAt = &startedAt.Time
 	}
@@ -370,6 +382,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		var t task.Task
 		var title, slug, workflow, branch sql.NullString
 		var currentStep, worktreePath, errorMessage sql.NullString
+		var taskContext sql.NullString
 		var exitCode sql.NullInt64
 		var startedAt, completedAt sql.NullTime
 		var updatedAt sql.NullTime
@@ -377,7 +390,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		err := rows.Scan(
 			&t.ID, &title, &t.Description, &slug, &workflow, &t.Status,
 			&t.StepIndex, &currentStep,
-			&branch, &worktreePath, &exitCode, &errorMessage,
+			&branch, &worktreePath, &exitCode, &errorMessage, &taskContext,
 			&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 		)
 		if err != nil {
@@ -408,6 +421,9 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		}
 		if errorMessage.Valid {
 			t.ErrorMessage = errorMessage.String
+		}
+		if taskContext.Valid {
+			t.Context = taskContext.String
 		}
 		if startedAt.Valid {
 			t.StartedAt = &startedAt.Time

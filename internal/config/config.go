@@ -30,8 +30,9 @@ type GitConfig struct {
 }
 
 type WorkflowConfig struct {
-	Name  string       `yaml:"name"`
-	Steps []StepConfig `yaml:"steps"`
+	Name             string       `yaml:"name"`
+	Steps            []StepConfig `yaml:"steps"`
+	SummarizerPrompt string       `yaml:"summarizer_prompt"`
 }
 
 type StepConfig struct {

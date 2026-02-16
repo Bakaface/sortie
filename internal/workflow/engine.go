@@ -1,10 +1,12 @@
 package workflow
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -143,6 +145,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 		}
 	}
 
+	// Run summarizer to generate task context
+	if err := e.runSummarizer(ctx, t, wf); err != nil {
+		log.Printf("Warning: summarizer failed for task #%d: %v", t.ID, err)
+	}
+
 	// All steps completed — execute on_complete action
 	if err := e.executeOnComplete(t); err != nil {
 		log.Printf("Warning: on_complete action failed for task #%d: %v", t.ID, err)
@@ -243,4 +250,96 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 			}
 		}
 	}
+}
+
+// runSummarizer generates a summary of all artifacts and stores it as the task's context.
+func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.WorkflowConfig) error {
+	// Collect all step names
+	var stepNames []string
+	for _, s := range wf.Steps {
+		stepNames = append(stepNames, s.Name)
+	}
+
+	// Collect all artifacts
+	artifacts := CollectArtifacts(t.WorktreePath, stepNames)
+	if len(artifacts) == 0 {
+		log.Printf("No artifacts found for task #%d, skipping summarizer", t.ID)
+		return nil
+	}
+
+	// Build the prompt
+	var prompt string
+	if wf.SummarizerPrompt != "" {
+		// Use the configured summarizer prompt with template resolution
+		tmplCtx := &TemplateContext{
+			Task: TaskVars{
+				ID:          t.ID,
+				Title:       t.Title,
+				Description: t.Description,
+				Slug:        t.Slug,
+				Branch:      t.Branch,
+			},
+			Artifacts: artifacts,
+			Git: GitVars{
+				BaseBranch: e.cfg.Git.BaseBranch,
+				RepoRoot:   e.repoRoot,
+			},
+		}
+		prompt = ResolveTemplate(wf.SummarizerPrompt, tmplCtx)
+	} else {
+		// Build default prompt with all artifacts
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Summarize the progress made on task #%d: %s\n\n", t.ID, t.Title))
+		sb.WriteString("Use the context from the following task artifacts:\n\n")
+		for _, name := range stepNames {
+			if content, ok := artifacts[name]; ok {
+				sb.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", name, content))
+			}
+		}
+		sb.WriteString("Provide a concise but comprehensive summary of what was accomplished, ")
+		sb.WriteString("any decisions made, and the current state of the implementation. ")
+		sb.WriteString("This summary will be used as context for future work on this task.")
+		prompt = sb.String()
+	}
+
+	log.Printf("Running summarizer for task #%d", t.ID)
+
+	// Run Claude synchronously to capture the summary text
+	summary, err := e.runClaudeSync(ctx, prompt)
+	if err != nil {
+		return fmt.Errorf("summarizer claude invocation failed: %w", err)
+	}
+
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		log.Printf("Summarizer produced empty output for task #%d", t.ID)
+		return nil
+	}
+
+	// Store the context in the database
+	if err := e.database.UpdateTaskContext(t.ID, summary); err != nil {
+		return fmt.Errorf("failed to store task context: %w", err)
+	}
+
+	t.Context = summary
+	log.Printf("Summarizer completed for task #%d (%d chars)", t.ID, len(summary))
+	return nil
+}
+
+// runClaudeSync runs Claude Code synchronously and captures its stdout output.
+func (e *Engine) runClaudeSync(ctx context.Context, prompt string) (string, error) {
+	args := []string{"-p", prompt, "--output-format", "text"}
+	args = append(args, e.cfg.Claude.DefaultArgs...)
+
+	cmd := exec.CommandContext(ctx, e.cfg.Claude.Command, args...)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("claude command failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return stdout.String(), nil
 }

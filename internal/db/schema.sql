@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     worktree_path TEXT,
     exit_code INTEGER,
     error_message TEXT,
+    context TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME,
     completed_at DATETIME,

@@ -41,6 +41,7 @@ type Task struct {
 	WorktreePath string
 	ExitCode     *int
 	ErrorMessage string
+	Context      string
 	BlockedBy    []int64
 	CreatedAt    time.Time
 	StartedAt    *time.Time

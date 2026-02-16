@@ -823,6 +823,7 @@ func taskToInfo(t *task.Task) TaskInfo {
 		Branch:       t.Branch,
 		WorktreePath: t.WorktreePath,
 		ErrorMessage: t.ErrorMessage,
+		Context:      t.Context,
 		BlockedBy:    t.BlockedBy,
 		CreatedAt:    t.CreatedAt,
 		StartedAt:    t.StartedAt,
