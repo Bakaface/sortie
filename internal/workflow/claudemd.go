@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,7 +8,7 @@ import (
 
 // InjectClaudeMD writes a CLAUDE.md file in the worktree with the resolved prompt
 // and structured directives to ensure Claude actually implements changes.
-func InjectClaudeMD(worktreePath, resolvedPrompt, stepName, artifactsDir string) error {
+func InjectClaudeMD(worktreePath, resolvedPrompt string) error {
 	var sb strings.Builder
 
 	sb.WriteString("# CRITICAL: Autonomous Execution Mode\n\n")
@@ -39,13 +38,6 @@ func InjectClaudeMD(worktreePath, resolvedPrompt, stepName, artifactsDir string)
 	sb.WriteString("Run tests if they exist and are relevant.\n\n")
 	sb.WriteString("## Phase 5: Commit\n")
 	sb.WriteString("Stage and commit your changes with a clear commit message.\n\n")
-
-	sb.WriteString("---\n\n")
-	sb.WriteString("# Artifact Output\n\n")
-	sb.WriteString("After completing this step, write a summary of what you did to:\n")
-	fmt.Fprintf(&sb, "`%s/%s.md`\n\n", artifactsDir, stepName)
-	sb.WriteString("This artifact will be available to subsequent workflow steps.\n")
-	sb.WriteString("Include: files changed, decisions made, and any issues encountered.\n")
 
 	claudeMDPath := filepath.Join(worktreePath, "CLAUDE.md")
 	return os.WriteFile(claudeMDPath, []byte(sb.String()), 0644)

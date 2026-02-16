@@ -107,9 +107,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 		resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
 
-		// Inject CLAUDE.md into worktree
+		// Append artifact output instructions directly to the prompt
 		artifactsDir := ArtifactsDir(t.WorktreePath)
-		if err := InjectClaudeMD(t.WorktreePath, resolvedPrompt, step.Name, artifactsDir); err != nil {
+		artifactPath := filepath.Join(artifactsDir, step.Name+".md")
+		resolvedPrompt += fmt.Sprintf("\n\n---\n\nIMPORTANT: When you are done, write a summary of what you did to `%s`. Include: files changed, decisions made, and any issues encountered. This artifact is required for subsequent workflow steps.", artifactPath)
+		if err := InjectClaudeMD(t.WorktreePath, resolvedPrompt); err != nil {
 			return fmt.Errorf("failed to inject CLAUDE.md: %w", err)
 		}
 
