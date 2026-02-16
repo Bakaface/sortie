@@ -776,8 +776,13 @@ func (s *Server) startTaskAgent(t *task.Task) error {
 	}
 
 	engine := s.engine
+	manager := s.manager
 	runner := func(ctx context.Context) error {
-		return engine.RunTask(ctx, t)
+		var outputFn func([]string)
+		if a, ok := manager.GetAgentByTaskID(t.ID); ok {
+			outputFn = a.AppendOutput
+		}
+		return engine.RunTask(ctx, t, outputFn)
 	}
 
 	if _, err := s.manager.StartAgent(t, workDir, runner); err != nil {

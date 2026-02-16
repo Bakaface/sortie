@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,11 +23,13 @@ type Process struct {
 	TaskID     string
 	WorkDir    string
 	OutputFile string
+	OutputFunc func(lines []string) // Callback for parsed log lines
 	cfg        *config.ClaudeConfig
 
 	mu         sync.RWMutex
 	cmd        *exec.Cmd
 	env        []string
+	parser     *StreamParser
 	outputLines []string
 	exitCode   int
 	exited     bool
@@ -40,6 +43,7 @@ func NewProcess(taskID, workDir string, cfg *config.ClaudeConfig) *Process {
 		WorkDir:    workDir,
 		OutputFile: outputFile,
 		cfg:        cfg,
+		parser:     NewStreamParser(),
 		exitCode:   -1,
 	}
 }
@@ -58,7 +62,7 @@ func (p *Process) SetEnv(env map[string]string) {
 // The process exits automatically when the task is complete.
 func (p *Process) StartWithPrompt(prompt string) error {
 	args := append([]string{}, p.cfg.DefaultArgs...)
-	args = append(args, "-p", prompt)
+	args = append(args, "--output-format", "stream-json", "-p", prompt)
 
 	p.cmd = exec.Command(p.cfg.Command, args...)
 	p.cmd.Dir = p.WorkDir
@@ -66,13 +70,20 @@ func (p *Process) StartWithPrompt(prompt string) error {
 		p.cmd.Env = p.env
 	}
 
-	// Create output file
+	// Create raw output file for debugging (raw NDJSON + stderr)
 	outFile, err := os.Create(p.OutputFile)
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
 
-	p.cmd.Stdout = outFile
+	// Pipe stdout for real-time NDJSON parsing
+	stdout, err := p.cmd.StdoutPipe()
+	if err != nil {
+		outFile.Close()
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+
+	// Stderr goes to the raw output file for diagnostics
 	p.cmd.Stderr = outFile
 
 	if err := p.cmd.Start(); err != nil {
@@ -80,10 +91,34 @@ func (p *Process) StartWithPrompt(prompt string) error {
 		return fmt.Errorf("failed to start claude process: %w", err)
 	}
 
-	// Monitor process in background
-	go p.waitForExit(outFile)
+	// Stream stdout, then wait for exit — must drain stdout before cmd.Wait()
+	go func() {
+		p.streamOutput(stdout, outFile)
+		p.waitForExit(outFile)
+	}()
 
 	return nil
+}
+
+// streamOutput reads NDJSON lines from stdout, writes raw JSON to the output file,
+// and passes parsed lines through the StreamParser to OutputFunc.
+func (p *Process) streamOutput(stdout io.ReadCloser, rawFile *os.File) {
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB buffer for large tool inputs
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+
+		// Write raw JSON to .claude-output.log for debugging
+		rawFile.Write(line)
+		rawFile.Write([]byte("\n"))
+
+		// Parse into human-readable lines
+		formatted := p.parser.ParseLine(line)
+		if len(formatted) > 0 && p.OutputFunc != nil {
+			p.OutputFunc(formatted)
+		}
+	}
 }
 
 func (p *Process) waitForExit(outFile *os.File) {

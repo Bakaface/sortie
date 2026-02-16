@@ -1,12 +1,15 @@
 package workflow
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aface/ralph-tamer-kit/internal/claude"
@@ -35,7 +38,8 @@ func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, r
 
 // RunTask executes the full workflow pipeline for a task.
 // It creates/reuses the worktree, then loops through steps starting from t.StepIndex.
-func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
+// outputFn is called with parsed log lines for live streaming (may be nil).
+func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]string)) error {
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	steps := wf.Steps
 
@@ -116,7 +120,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 		}
 
 		// Spawn Claude process
-		exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, resolvedPrompt, env)
+		exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn)
 		if err != nil {
 			e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
 			return fmt.Errorf("step %q failed: %w", step.Name, err)
@@ -213,17 +217,44 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 }
 
 // ResumeAfterApproval resumes a task from its current step index.
-func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task) error {
-	return e.RunTask(ctx, t)
+func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn func([]string)) error {
+	return e.RunTask(ctx, t, outputFn)
 }
 
-func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string) (int, string, error) {
+func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string)) (int, string, error) {
 	proc := claude.NewProcess(fmt.Sprintf("%d", t.ID), t.WorktreePath, &e.cfg.Claude)
 
 	// Apply step timeout
 	timeout := e.cfg.GetStepTimeout(step)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	// Open per-step log file
+	logPath := LogPath(t.WorktreePath, step.Name)
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return 1, "", fmt.Errorf("failed to create step log: %w", err)
+	}
+	defer logFile.Close()
+
+	// Write step header
+	header := fmt.Sprintf("[%s] === Step: %s (task #%d) ===\n",
+		time.Now().Format("15:04:05"), step.Name, t.ID)
+	logFile.WriteString(header)
+
+	// Compose OutputFunc: write to log file AND call the agent's outputFn
+	var logMu sync.Mutex
+	proc.OutputFunc = func(lines []string) {
+		logMu.Lock()
+		for _, line := range lines {
+			logFile.WriteString(line + "\n")
+		}
+		logMu.Unlock()
+
+		if outputFn != nil {
+			outputFn(lines)
+		}
+	}
 
 	// Set environment on the child process (not the daemon's global env)
 	proc.SetEnv(envVars)
@@ -244,10 +275,18 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 		case <-ticker.C:
 			if proc.HasExited() {
 				exitCode := proc.ExitCode()
+
+				// Write step footer
+				footer := fmt.Sprintf("[%s] === Step %s finished (exit=%d) ===\n",
+					time.Now().Format("15:04:05"), step.Name, exitCode)
+				logMu.Lock()
+				logFile.WriteString(footer)
+				logMu.Unlock()
+
 				var outputTail string
 				if exitCode != 0 {
-					if lines, err := proc.CaptureOutput(20); err == nil && len(lines) > 0 {
-						// Take the last 20 lines as context
+					// Read last 20 lines from the per-step log (not raw JSON)
+					if lines, err := readLastLines(logPath, 20); err == nil && len(lines) > 0 {
 						outputTail = strings.Join(lines, "\n")
 					}
 				}
@@ -255,6 +294,29 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 			}
 		}
 	}
+}
+
+// readLastLines reads the last n lines from a file.
+func readLastLines(path string, n int) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return lines, nil
 }
 
 // runSummarizer generates a summary of all artifacts and stores it as the task's context.
