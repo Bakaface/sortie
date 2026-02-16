@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -120,10 +119,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 		}
 
 		// Spawn Claude process (tmux or direct)
+		useTmux := step.UseTmux(wf.Tmux)
 		var exitCode int
 		var outputTail string
 		var err error
-		if step.UseTmux(wf.Tmux) {
+		if useTmux {
 			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env)
 		} else {
 			exitCode, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env)
@@ -142,8 +142,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 			return fmt.Errorf("%s", errMsg)
 		}
 
-		// Validate that the step produced meaningful changes (skip for review steps)
-		if !step.ApprovalRequired {
+		// Validate that the step produced meaningful changes
+		// Skip for review steps and tmux steps (agent may still be working)
+		if !step.ApprovalRequired && !useTmux {
 			noiseFiles := []string{".claude-output.log", "CLAUDE.md"}
 			hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
 			if err != nil {
@@ -156,7 +157,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task) error {
 		}
 
 		// Check if approval required before continuing
-		if step.ApprovalRequired && i < len(steps)-1 {
+		// Tmux steps always require approval (agent runs interactively, user approves when done)
+		needsApproval := step.ApprovalRequired || useTmux
+		if needsApproval && i < len(steps)-1 {
 			// Set to awaiting_approval, the daemon will pause this task
 			if err := e.database.UpdateTaskStep(t.ID, i+1, ""); err != nil {
 				log.Printf("Warning: failed to update task step: %v", err)
@@ -268,6 +271,10 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	}
 }
 
+// runClaudeStepTmux starts a Claude session in a detached tmux session and returns
+// immediately. The tmux session persists for the user to attach and interact with.
+// The workflow engine treats tmux steps as approval_required, so the task will pause
+// at awaiting_approval until the user manually approves.
 func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string) (int, string, error) {
 	if !tmux.IsAvailable() {
 		return 1, "", fmt.Errorf("tmux is not installed or not in PATH (required for tmux mode)")
@@ -283,7 +290,6 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 
 	rtkDir := filepath.Join(t.WorktreePath, ".rtk")
 	promptFile := filepath.Join(rtkDir, fmt.Sprintf("step-prompt-%s.txt", step.Name))
-	exitCodeFile := filepath.Join(rtkDir, fmt.Sprintf("exit-code-%s", step.Name))
 	scriptFile := filepath.Join(rtkDir, fmt.Sprintf("run-step-%s.sh", step.Name))
 	logPath := LogPath(t.WorktreePath, step.Name)
 
@@ -292,22 +298,18 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 		return 1, "", fmt.Errorf("failed to write prompt file: %w", err)
 	}
 
-	// Remove stale exit-code file
-	os.Remove(exitCodeFile)
-
 	// Build env exports for the wrapper script
 	var envExports strings.Builder
 	for k, v := range envVars {
 		envExports.WriteString(fmt.Sprintf("export %s=%q\n", k, v))
 	}
 
-	// Write wrapper script
+	// Write wrapper script: run Claude interactively, then drop to bash for inspection
 	script := fmt.Sprintf(`#!/bin/bash
 %sPROMPT=$(cat %q)
 claude --dangerously-skip-permissions "$PROMPT"
-echo $? > %q
 exec bash
-`, envExports.String(), promptFile, exitCodeFile)
+`, envExports.String(), promptFile)
 
 	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
 		return 1, "", fmt.Errorf("failed to write wrapper script: %w", err)
@@ -323,42 +325,11 @@ exec bash
 		log.Printf("Warning: failed to pipe pane output to log: %v", err)
 	}
 
-	// Apply step timeout
-	timeout := e.cfg.GetStepTimeout(step)
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	log.Printf("Tmux session %q started for task #%d step %q (attach with: rtk attach %s %s)",
+		session.Name, t.ID, step.Name, taskID, step.Name)
 
-	// Poll for exit-code file (not IsAlive, since exec bash keeps session alive)
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			session.Kill()
-			return 1, "", ctx.Err()
-		case <-ticker.C:
-			data, err := os.ReadFile(exitCodeFile)
-			if err != nil {
-				continue // File doesn't exist yet
-			}
-
-			code, err := strconv.Atoi(strings.TrimSpace(string(data)))
-			if err != nil {
-				code = 1 // Default to failure if malformed
-			}
-
-			var outputTail string
-			if code != 0 {
-				if lines, capErr := session.CapturePane(20); capErr == nil && len(lines) > 0 {
-					outputTail = strings.Join(lines, "\n")
-				}
-			}
-
-			// Do NOT kill the session — it stays alive with an interactive shell
-			return code, outputTail, nil
-		}
-	}
+	// Fire-and-forget: return immediately, workflow will pause at approval gate
+	return 0, "", nil
 }
 
 // runSummarizer generates a summary of all artifacts and stores it as the task's context.
