@@ -50,7 +50,7 @@ func (d *detailView) SetSize(width, height int) {
 	d.width = width
 	d.height = height
 
-	headerHeight := 5
+	headerHeight := 2
 	footerHeight := 2
 	vpHeight := height - headerHeight - footerHeight
 
@@ -125,63 +125,16 @@ func (d *detailView) View() string {
 
 	var b strings.Builder
 
-	// Title
+	// Title bar with status
 	taskTitle := d.task.Title
 	if taskTitle == "" {
 		taskTitle = d.task.Description
 	}
-	title := titleStyle.Render(fmt.Sprintf(" Task #%d: %s ", d.task.ID, taskTitle))
-	b.WriteString(title)
-	b.WriteString("\n\n")
-
-	// Task info
 	stateStyled := stateStyle(d.task.Status).Render(d.task.Status)
-	info := fmt.Sprintf("  Status: %s", stateStyled)
-	if d.task.Branch != "" {
-		info += fmt.Sprintf(" | Branch: %s", d.task.Branch)
-	}
-	b.WriteString(dimStyle.Render(info))
-	b.WriteString("\n")
-
-	// Workflow progress
-	if d.task.CurrentStep != "" {
-		progress := fmt.Sprintf("  Step %d: %s", d.task.StepIndex, d.task.CurrentStep)
-		b.WriteString(dimStyle.Render(progress))
-		b.WriteString("\n")
-	}
-
-	// Description (if title was used above)
-	if d.task.Title != "" && d.task.Description != "" {
-		desc := fmt.Sprintf("  %s", d.task.Description)
-		b.WriteString(dimStyle.Render(desc))
-		b.WriteString("\n")
-	}
-
-	// Error message
-	if d.task.ErrorMessage != "" {
-		errorMsg := fmt.Sprintf("  Error: %s", d.task.ErrorMessage)
-		b.WriteString(stateStyle("failed").Render(errorMsg))
-		b.WriteString("\n")
-	}
-
-	// Context / summary
-	if d.task.Context != "" {
-		b.WriteString("\n")
-		b.WriteString(dimStyle.Render("  Context:"))
-		b.WriteString("\n")
-		// Show first 5 lines of context, truncated
-		contextLines := strings.SplitN(d.task.Context, "\n", 6)
-		for i, line := range contextLines {
-			if i >= 5 {
-				b.WriteString(dimStyle.Render("  ..."))
-				b.WriteString("\n")
-				break
-			}
-			b.WriteString(dimStyle.Render("  "+line))
-			b.WriteString("\n")
-		}
-	}
-
+	title := fmt.Sprintf(" #%d %s ", d.task.ID, taskTitle)
+	b.WriteString(titleStyle.Render(title))
+	b.WriteString(" ")
+	b.WriteString(stateStyled)
 	b.WriteString("\n")
 
 	// Live logs viewport
