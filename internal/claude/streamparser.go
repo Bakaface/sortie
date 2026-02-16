@@ -21,7 +21,7 @@ type StreamParser struct {
 
 // streamEvent represents a top-level NDJSON event from Claude's verbose stream-json output.
 // Note: the "result" JSON key has different types per event (string for result events,
-// absent for others), so we use json.RawMessage and decode result events separately.
+// absent for others), so we decode result events separately to avoid type conflicts.
 type streamEvent struct {
 	Type    string     `json:"type"`    // "system", "assistant", "user", "result"
 	Subtype string     `json:"subtype"` // for system events: "init"
