@@ -325,52 +325,52 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.detail.IsFollowMode() {
-		// Follow mode keys
-		switch keyStr {
-		case "esc":
+	// Navigation keys work in both modes; in follow mode they switch to normal first
+	// Handle "gg" sequence
+	if keyStr == "g" {
+		if m.detail.IsPendingG() {
+			m.detail.SetPendingG(false)
 			m.detail.SetFollowMode(false)
+			m.detail.GotoTop()
 			return m, nil
 		}
-	} else {
-		// Normal mode keys
+		m.detail.SetPendingG(true)
+		return m, nil
+	}
+	// Any non-g key resets pendingG
+	m.detail.SetPendingG(false)
 
-		// Handle "gg" sequence
-		if keyStr == "g" {
-			if m.detail.IsPendingG() {
-				m.detail.SetPendingG(false)
-				m.detail.GotoTop()
-				return m, nil
-			}
-			m.detail.SetPendingG(true)
-			return m, nil
-		}
-		// Any non-g key resets pendingG
-		m.detail.SetPendingG(false)
-
-		switch keyStr {
-		case "G":
-			m.detail.GotoBottom()
-			return m, nil
-		case "j", "down":
-			m.detail.ScrollDown()
-			return m, nil
-		case "k", "up":
-			m.detail.ScrollUp()
-			return m, nil
-		case "ctrl+d":
-			m.detail.PageDown()
-			return m, nil
-		case "ctrl+u":
-			m.detail.PageUp()
-			return m, nil
-		case "enter":
-			m.detail.SetFollowMode(true)
-			return m, nil
-		case "esc":
+	switch keyStr {
+	case "G":
+		m.detail.SetFollowMode(false)
+		m.detail.GotoBottom()
+		return m, nil
+	case "j", "down":
+		m.detail.SetFollowMode(false)
+		m.detail.ScrollDown()
+		return m, nil
+	case "k", "up":
+		m.detail.SetFollowMode(false)
+		m.detail.ScrollUp()
+		return m, nil
+	case "ctrl+d":
+		m.detail.SetFollowMode(false)
+		m.detail.PageDown()
+		return m, nil
+	case "ctrl+u":
+		m.detail.SetFollowMode(false)
+		m.detail.PageUp()
+		return m, nil
+	case "enter":
+		m.detail.SetFollowMode(true)
+		return m, nil
+	case "esc":
+		if m.detail.IsFollowMode() {
+			m.detail.SetFollowMode(false)
+		} else {
 			m.view = viewList
-			return m, nil
 		}
+		return m, nil
 	}
 
 	return m, nil
