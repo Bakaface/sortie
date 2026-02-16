@@ -171,6 +171,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Clear error on any keypress
+	if m.err != nil {
+		m.err = nil
+		return m, nil
+	}
+
 	switch m.view {
 	case viewList:
 		return m.handleListKey(msg)
@@ -520,7 +526,7 @@ func (m Model) View() string {
 	}
 
 	if m.err != nil {
-		return fmt.Sprintf("Error: %v\n\nPress q to quit.", m.err)
+		return fmt.Sprintf("Error: %v\n\nPress any key to continue.", m.err)
 	}
 
 	var content string

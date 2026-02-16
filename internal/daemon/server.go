@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"time"
 
+	"path/filepath"
+
 	"github.com/aface/ralph-tamer-kit/internal/agent"
 	"github.com/aface/ralph-tamer-kit/internal/config"
 	"github.com/aface/ralph-tamer-kit/internal/db"
@@ -343,8 +345,8 @@ func (s *Server) handleUnsubscribe(conn net.Conn) {
 func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
 	lines, total, err := s.manager.GetOutput(req.AgentID, req.FromLine)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to get output: %v", err))
-		return
+		// Agent not in memory — try reading logs from disk
+		lines, total = s.loadOutputFromDisk(req.AgentID, req.FromLine)
 	}
 
 	s.sendMessage(conn, MsgOutputChunk, OutputChunkResponse{
@@ -352,6 +354,48 @@ func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
 		Lines:      lines,
 		TotalLines: total,
 	})
+}
+
+// loadOutputFromDisk reads parsed step logs from a task's worktree (.rtk/logs/*.log).
+// Used as a fallback when the agent is no longer in memory (e.g. after daemon restart).
+func (s *Server) loadOutputFromDisk(agentID string, fromLine int) ([]string, int) {
+	taskID, err := strconv.ParseInt(agentID, 10, 64)
+	if err != nil {
+		return nil, 0
+	}
+
+	t, err := s.database.GetTask(taskID)
+	if err != nil || t.WorktreePath == "" {
+		return nil, 0
+	}
+
+	logsDir := filepath.Join(t.WorktreePath, ".rtk", "logs")
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		return nil, 0
+	}
+
+	var allLines []string
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
+			continue
+		}
+		f, err := os.Open(filepath.Join(logsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			allLines = append(allLines, scanner.Text())
+		}
+		f.Close()
+	}
+
+	total := len(allLines)
+	if fromLine >= total {
+		return nil, total
+	}
+	return allLines[fromLine:], total
 }
 
 func (s *Server) handleSendInput(conn net.Conn, req SendInputRequest) {
