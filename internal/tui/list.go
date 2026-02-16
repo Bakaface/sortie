@@ -88,8 +88,8 @@ func (l *listView) View() string {
 		b.WriteString(dimStyle.Render("  No tasks found. Use 'ralph-tamer-kit plan <PRD.md>' to create tasks."))
 		b.WriteString("\n")
 	} else {
-		header := fmt.Sprintf("  %-5s %-22s %-18s %s",
-			"ID", "STATUS", "STEP", "TITLE")
+		header := fmt.Sprintf("  %-5s %-22s %s",
+			"ID", "STATUS", "TITLE")
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
 
@@ -128,24 +128,24 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 
 	// Format columns
 	taskID := fmt.Sprintf("#%-2d", task.ID)
-	status := fmt.Sprintf("%s %s", statusIcon, task.Status)
 
-	// Add blocked suffix for pending tasks
-	if task.Status == "pending" && len(task.BlockedBy) > 0 {
-		if l.hasFailedBlocker(task) {
-			status += " (deadlocked)"
-		} else {
-			status += " (blocked)"
+	// Merge step info into status: show step name for active states
+	statusLabel := task.Status
+	switch task.Status {
+	case "running", "awaiting_approval", "failed", "stopped":
+		if task.CurrentStep != "" {
+			statusLabel = task.CurrentStep
+		}
+	case "pending":
+		if len(task.BlockedBy) > 0 {
+			if l.hasFailedBlocker(task) {
+				statusLabel = "pending (deadlocked)"
+			} else {
+				statusLabel = "pending (blocked)"
+			}
 		}
 	}
-
-	// Show step info
-	step := ""
-	if task.CurrentStep != "" {
-		step = task.CurrentStep
-	} else if task.StepIndex > 0 {
-		step = fmt.Sprintf("Step %d", task.StepIndex)
-	}
+	status := fmt.Sprintf("%s %s", statusIcon, statusLabel)
 
 	// Use title or truncated description
 	title := task.Title
@@ -158,12 +158,11 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 
 	// Use lipgloss Width for ANSI-aware column alignment
 	idCol := lipgloss.NewStyle().Width(5).Render(taskID)
-	stepCol := lipgloss.NewStyle().Width(18).Render(step)
 
 	if selected {
 		// Plain white text on selected background — no per-column colors
 		statusCol := lipgloss.NewStyle().Width(22).Render(status)
-		line := fmt.Sprintf("  %s %s %s %s", idCol, statusCol, stepCol, title)
+		line := fmt.Sprintf("  %s %s %s", idCol, statusCol, title)
 		return selectedStyle.Render(line)
 	}
 
@@ -173,7 +172,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 		statusStyle = stateStyle("failed")
 	}
 	statusCol := statusStyle.Width(22).Render(status)
-	line := fmt.Sprintf("  %s %s %s %s", idCol, statusCol, stepCol, title)
+	line := fmt.Sprintf("  %s %s %s", idCol, statusCol, title)
 	return normalStyle.Render(line)
 }
 
