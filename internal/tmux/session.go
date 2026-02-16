@@ -21,6 +21,20 @@ func NewSession(taskID, workDir string) *Session {
 	}
 }
 
+// NewStepSession creates a session with name format: ralph-tamer-kit-<taskID>-<stepName>
+func NewStepSession(taskID, stepName, workDir string) *Session {
+	return &Session{
+		Name:    SessionPrefix + taskID + "-" + stepName,
+		WorkDir: workDir,
+	}
+}
+
+// IsAvailable checks if the tmux binary exists in PATH.
+func IsAvailable() bool {
+	_, err := exec.LookPath("tmux")
+	return err == nil
+}
+
 func (s *Session) Create(command string, args ...string) error {
 	cmdArgs := []string{
 		"new-session",
@@ -150,11 +164,49 @@ func ListSessions(prefix string) ([]*Session, error) {
 	return sessions, nil
 }
 
+// ExtractTaskID extracts the task ID from a session name.
+// Handles both "ralph-tamer-kit-<taskID>" and "ralph-tamer-kit-<taskID>-<stepName>".
 func ExtractTaskID(sessionName string) string {
-	if strings.HasPrefix(sessionName, SessionPrefix) {
-		return sessionName[len(SessionPrefix):]
+	if !strings.HasPrefix(sessionName, SessionPrefix) {
+		return sessionName
 	}
-	return sessionName
+	rest := sessionName[len(SessionPrefix):]
+	// rest is either "<taskID>" or "<taskID>-<stepName>"
+	// Task IDs are numeric, so split on first non-numeric dash
+	if idx := strings.Index(rest, "-"); idx > 0 {
+		return rest[:idx]
+	}
+	return rest
+}
+
+// PipePane tees the pane output to a log file using tmux pipe-pane.
+func (s *Session) PipePane(logFile string) error {
+	cmd := exec.Command("tmux", "pipe-pane", "-t", s.Name, fmt.Sprintf("cat >> %s", logFile))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to pipe pane: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return nil
+}
+
+// KillSessionsForTask kills all tmux sessions matching ralph-tamer-kit-<taskID>-*.
+func KillSessionsForTask(taskID string) error {
+	prefix := SessionPrefix + taskID + "-"
+	sessions, err := ListSessions(prefix)
+	if err != nil {
+		return err
+	}
+
+	var lastErr error
+	for _, s := range sessions {
+		if err := s.Kill(); err != nil {
+			lastErr = err
+		}
+	}
+	return lastErr
 }
 
 func AttachCommand(sessionName string) *exec.Cmd {

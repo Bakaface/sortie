@@ -22,6 +22,7 @@ import (
 	gitpkg "github.com/aface/ralph-tamer-kit/internal/git"
 	"github.com/aface/ralph-tamer-kit/internal/notify"
 	"github.com/aface/ralph-tamer-kit/internal/task"
+	"github.com/aface/ralph-tamer-kit/internal/tmux"
 	"github.com/aface/ralph-tamer-kit/internal/workflow"
 )
 
@@ -615,6 +616,11 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 	agentID := fmt.Sprintf("%d", t.ID)
 	_ = s.manager.StopAgent(agentID)
 
+	// Kill any tmux sessions for this task
+	if err := tmux.KillSessionsForTask(agentID); err != nil {
+		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+	}
+
 	// Remove worktree if it exists
 	if t.WorktreePath != "" {
 		if err := gitpkg.RemoveWorktree(s.repoRoot, t.WorktreePath); err != nil {
@@ -663,6 +669,10 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		log.Printf("Agent %s completed task #%d", a.ID, a.Task.ID)
 		if err := s.database.UpdateTaskStatus(a.Task.ID, task.StatusCompleted); err != nil {
 			log.Printf("Failed to update task status: %v", err)
+		}
+		// Kill tmux sessions for completed task
+		if err := tmux.KillSessionsForTask(a.ID); err != nil {
+			log.Printf("Warning: failed to kill tmux sessions for task %s: %v", a.ID, err)
 		}
 		s.notifier.AgentCompleted(a.ID, taskTitle)
 
@@ -869,6 +879,13 @@ func (s *Server) Shutdown() {
 
 	// Shutdown agents with grace period
 	s.manager.Shutdown(30 * time.Second)
+
+	// Kill all RTK tmux sessions
+	if sessions, err := tmux.ListSessions(tmux.SessionPrefix); err == nil {
+		for _, sess := range sessions {
+			sess.Kill()
+		}
+	}
 
 	// Now cancel context to stop poller and accept loop
 	s.cancel()

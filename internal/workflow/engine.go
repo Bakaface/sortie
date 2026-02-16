@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ import (
 	gitpkg "github.com/aface/ralph-tamer-kit/internal/git"
 	"github.com/aface/ralph-tamer-kit/internal/notify"
 	"github.com/aface/ralph-tamer-kit/internal/task"
+	"github.com/aface/ralph-tamer-kit/internal/tmux"
 )
 
 type Engine struct {
@@ -119,8 +121,16 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			"RTK_ARTIFACTS_DIR": artifactsDir,
 		}
 
-		// Spawn Claude process
-		exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn)
+		// Spawn Claude process (tmux or direct)
+		useTmux := step.UseTmux(wf.Tmux)
+		var exitCode int
+		var outputTail string
+		var err error
+		if useTmux {
+			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env)
+		} else {
+			exitCode, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn)
+		}
 		if err != nil {
 			e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
 			return fmt.Errorf("step %q failed: %w", step.Name, err)
@@ -135,8 +145,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			return fmt.Errorf("%s", errMsg)
 		}
 
-		// Validate that the step produced meaningful changes (skip for review steps)
-		if !step.ApprovalRequired {
+		// Validate that the step produced meaningful changes
+		// Skip for review steps and tmux steps (agent may still be working)
+		if !step.ApprovalRequired && !useTmux {
 			noiseFiles := []string{".claude-output.log", "CLAUDE.md"}
 			hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
 			if err != nil {
@@ -149,7 +160,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 
 		// Check if approval required before continuing
-		if step.ApprovalRequired && i < len(steps)-1 {
+		// Tmux steps always require approval (agent runs interactively, user approves when done)
+		needsApproval := step.ApprovalRequired || useTmux
+		if needsApproval && i < len(steps)-1 {
 			// Set to awaiting_approval, the daemon will pause this task
 			if err := e.database.UpdateTaskStep(t.ID, i+1, ""); err != nil {
 				log.Printf("Warning: failed to update task step: %v", err)
@@ -317,6 +330,67 @@ func readLastLines(path string, n int) ([]string, error) {
 		lines = lines[len(lines)-n:]
 	}
 	return lines, nil
+}
+
+// runClaudeStepTmux starts a Claude session in a detached tmux session and returns
+// immediately. The tmux session persists for the user to attach and interact with.
+// The workflow engine treats tmux steps as approval_required, so the task will pause
+// at awaiting_approval until the user manually approves.
+func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string) (int, string, error) {
+	if !tmux.IsAvailable() {
+		return 1, "", fmt.Errorf("tmux is not installed or not in PATH (required for tmux mode)")
+	}
+
+	taskID := fmt.Sprintf("%d", t.ID)
+	session := tmux.NewStepSession(taskID, step.Name, t.WorktreePath)
+
+	// Kill stale session if exists (handles retries)
+	if session.Exists() {
+		session.Kill()
+	}
+
+	rtkDir := filepath.Join(t.WorktreePath, ".rtk")
+	promptFile := filepath.Join(rtkDir, fmt.Sprintf("step-prompt-%s.txt", step.Name))
+	scriptFile := filepath.Join(rtkDir, fmt.Sprintf("run-step-%s.sh", step.Name))
+	logPath := LogPath(t.WorktreePath, step.Name)
+
+	// Write prompt to file (avoids shell quoting issues)
+	if err := os.WriteFile(promptFile, []byte(prompt), 0644); err != nil {
+		return 1, "", fmt.Errorf("failed to write prompt file: %w", err)
+	}
+
+	// Build env exports for the wrapper script
+	var envExports strings.Builder
+	for k, v := range envVars {
+		envExports.WriteString(fmt.Sprintf("export %s=%q\n", k, v))
+	}
+
+	// Write wrapper script: run Claude interactively, then drop to bash for inspection
+	script := fmt.Sprintf(`#!/bin/bash
+%sPROMPT=$(cat %q)
+claude --dangerously-skip-permissions "$PROMPT"
+exec bash
+`, envExports.String(), promptFile)
+
+	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
+		return 1, "", fmt.Errorf("failed to write wrapper script: %w", err)
+	}
+
+	// Create detached tmux session running the wrapper script
+	if err := session.Create("bash", scriptFile); err != nil {
+		return 1, "", fmt.Errorf("failed to create tmux session: %w", err)
+	}
+
+	// Tee pane output to log file (non-fatal if fails)
+	if err := session.PipePane(logPath); err != nil {
+		log.Printf("Warning: failed to pipe pane output to log: %v", err)
+	}
+
+	log.Printf("Tmux session %q started for task #%d step %q (attach with: rtk attach %s %s)",
+		session.Name, t.ID, step.Name, taskID, step.Name)
+
+	// Fire-and-forget: return immediately, workflow will pause at approval gate
+	return 0, "", nil
 }
 
 // runSummarizer generates a summary of all artifacts and stores it as the task's context.

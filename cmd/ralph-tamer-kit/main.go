@@ -14,6 +14,7 @@ import (
 	"github.com/aface/ralph-tamer-kit/internal/db"
 	gitpkg "github.com/aface/ralph-tamer-kit/internal/git"
 	"github.com/aface/ralph-tamer-kit/internal/task"
+	"github.com/aface/ralph-tamer-kit/internal/tmux"
 	"github.com/aface/ralph-tamer-kit/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -628,6 +629,53 @@ func cleanupTask(database *db.DB, repoRoot string, taskID int64) error {
 	return nil
 }
 
+var attachCmd = &cobra.Command{
+	Use:               "attach <task_id> [step]",
+	Short:             "Attach to a task's tmux session",
+	Args:              cobra.RangeArgs(1, 2),
+	ValidArgsFunction: completeTaskIDs(task.StatusRunning),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		taskID := args[0]
+		if _, err := strconv.ParseInt(taskID, 10, 64); err != nil {
+			return fmt.Errorf("invalid task ID: %s", taskID)
+		}
+
+		if !tmux.IsAvailable() {
+			return fmt.Errorf("tmux is not installed or not in PATH")
+		}
+
+		var sessionName string
+
+		if len(args) == 2 {
+			// Specific step requested
+			step := args[1]
+			session := tmux.NewStepSession(taskID, step, "")
+			if !session.Exists() {
+				return fmt.Errorf("no tmux session found for task #%s step %q", taskID, step)
+			}
+			sessionName = session.Name
+		} else {
+			// No step specified — find the most recent session for this task
+			prefix := tmux.SessionPrefix + taskID + "-"
+			sessions, err := tmux.ListSessions(prefix)
+			if err != nil {
+				return fmt.Errorf("failed to list tmux sessions: %w", err)
+			}
+			if len(sessions) == 0 {
+				return fmt.Errorf("no tmux sessions found for task #%s", taskID)
+			}
+			// Attach to the last session (most recent step)
+			sessionName = sessions[len(sessions)-1].Name
+		}
+
+		attach := tmux.AttachCommand(sessionName)
+		attach.Stdin = os.Stdin
+		attach.Stdout = os.Stdout
+		attach.Stderr = os.Stderr
+		return attach.Run()
+	},
+}
+
 func truncateStr(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
@@ -703,6 +751,7 @@ func init() {
 	rootCmd.AddCommand(retryCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(cleanupCmd)
+	rootCmd.AddCommand(attachCmd)
 }
 
 func main() {

@@ -26,6 +26,7 @@ type GitConfig struct {
 
 type WorkflowConfig struct {
 	Name             string       `yaml:"name"`
+	Tmux             bool         `yaml:"tmux,omitempty"`
 	Steps            []StepConfig `yaml:"steps"`
 	SummarizerPrompt string       `yaml:"summarizer_prompt"`
 }
@@ -34,8 +35,18 @@ type StepConfig struct {
 	Name             string `yaml:"name"`
 	Prompt           string `yaml:"prompt"`
 	Mode             string `yaml:"mode"`
+	Tmux             *bool  `yaml:"tmux,omitempty"`
 	Timeout          string `yaml:"timeout"`
 	ApprovalRequired bool   `yaml:"approval_required"`
+}
+
+// UseTmux returns whether this step should use tmux execution.
+// Step-level setting overrides the workflow default.
+func (s *StepConfig) UseTmux(workflowDefault bool) bool {
+	if s.Tmux != nil {
+		return *s.Tmux
+	}
+	return workflowDefault
 }
 
 const DefaultStepTimeout = 30 * time.Minute
