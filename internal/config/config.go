@@ -175,7 +175,7 @@ func DefaultWorkflow() WorkflowConfig {
 		Name: "default",
 		Steps: []StepConfig{
 			{
-				Name:   "implement",
+				Name:   "implementing",
 				Prompt: "Implement the task described in this worktree's CLAUDE.md",
 				Mode:   "automatic",
 			},
