@@ -406,6 +406,12 @@ func (s *Server) handleApproveTask(conn net.Conn, req ApproveTaskRequest) {
 		return
 	}
 
+	// Kill any tmux sessions from the approved step before resuming
+	agentID := fmt.Sprintf("%d", t.ID)
+	if err := tmux.KillSessionsForTask(agentID); err != nil {
+		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+	}
+
 	// Set status to running
 	if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
@@ -433,6 +439,12 @@ func (s *Server) handleRejectTask(conn net.Conn, req RejectTaskRequest) {
 	if t.Status != task.StatusAwaitingApproval {
 		s.sendError(conn, fmt.Sprintf("task is not awaiting approval (status: %s)", t.Status))
 		return
+	}
+
+	// Kill any tmux sessions from the rejected step
+	agentID := fmt.Sprintf("%d", t.ID)
+	if err := tmux.KillSessionsForTask(agentID); err != nil {
+		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
 	}
 
 	// Set status to failed
@@ -718,6 +730,10 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		log.Printf("Agent %s failed task #%d: %s", a.ID, a.Task.ID, a.Error)
 		if err := s.database.UpdateTaskError(a.Task.ID, a.Error); err != nil {
 			log.Printf("Failed to update task error: %v", err)
+		}
+		// Kill tmux sessions for failed task
+		if err := tmux.KillSessionsForTask(a.ID); err != nil {
+			log.Printf("Warning: failed to kill tmux sessions for task %s: %v", a.ID, err)
 		}
 		s.notifier.AgentFailed(a.ID, taskTitle, a.Error)
 
