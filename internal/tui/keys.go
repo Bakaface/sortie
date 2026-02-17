@@ -14,6 +14,7 @@ type keyMap struct {
 	Retry    key.Binding
 	Delete   key.Binding
 	NewTask  key.Binding
+	Attach   key.Binding
 	Refresh  key.Binding
 	Back     key.Binding
 	Quit     key.Binding
@@ -60,6 +61,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("n"),
 			key.WithHelp("n", "new task"),
 		),
+		Attach: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "tmux attach"),
+		),
 		Refresh: key.NewBinding(
 			key.WithKeys("R"),
 			key.WithHelp("R", "refresh"),
@@ -88,13 +93,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.NewTask, k.Approve, k.Reject, k.Retry, k.Delete, k.Stop, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.NewTask, k.Approve, k.Reject, k.Retry, k.Delete, k.Stop, k.Attach, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter},
-		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Delete, k.Refresh},
+		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Delete, k.Attach, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }
@@ -153,6 +158,7 @@ type detailFollowKeyMap struct {
 	ExitFollow key.Binding
 	Back       key.Binding
 	Stop       key.Binding
+	Attach     key.Binding
 }
 
 func newDetailFollowKeyMap() detailFollowKeyMap {
@@ -169,11 +175,15 @@ func newDetailFollowKeyMap() detailFollowKeyMap {
 			key.WithKeys("ctrl+c"),
 			key.WithHelp("ctrl+c", "stop"),
 		),
+		Attach: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "tmux attach"),
+		),
 	}
 }
 
 func (k detailFollowKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.ExitFollow, k.Back, k.Stop}
+	return []key.Binding{k.ExitFollow, k.Back, k.Stop, k.Attach}
 }
 
 type detailNormalKeyMap struct {
@@ -186,6 +196,7 @@ type detailNormalKeyMap struct {
 	Follow     key.Binding
 	Back       key.Binding
 	Stop       key.Binding
+	Attach     key.Binding
 }
 
 func newDetailNormalKeyMap() detailNormalKeyMap {
@@ -226,9 +237,13 @@ func newDetailNormalKeyMap() detailNormalKeyMap {
 			key.WithKeys("ctrl+c"),
 			key.WithHelp("ctrl+c", "stop"),
 		),
+		Attach: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "tmux attach"),
+		),
 	}
 }
 
 func (k detailNormalKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Back}
+	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Attach, k.Back}
 }
