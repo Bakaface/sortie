@@ -30,6 +30,7 @@ func newDetailView() detailView {
 
 func (d *detailView) SetTask(task *daemon.TaskInfo) {
 	d.task = task
+	d.recalcViewport()
 }
 
 func (d *detailView) SetOutput(lines []string) {
@@ -49,17 +50,42 @@ func (d *detailView) AppendOutput(lines []string) {
 func (d *detailView) SetSize(width, height int) {
 	d.width = width
 	d.height = height
+	d.recalcViewport()
+}
 
-	headerHeight := 2
+func (d *detailView) headerLines() int {
+	// "Ralph Tamer Kit" + blank line = 2 lines
+	base := 2
+	if d.task != nil && d.width > 0 {
+		taskTitle := d.task.Title
+		if taskTitle == "" {
+			taskTitle = d.task.Description
+		}
+		titleText := fmt.Sprintf("#%d %s", d.task.ID, taskTitle)
+		rendered := lipgloss.NewStyle().Width(d.width).Render(titleText)
+		return base + lipgloss.Height(rendered)
+	}
+	return base + 1
+}
+
+func (d *detailView) recalcViewport() {
+	if d.width == 0 || d.height == 0 {
+		return
+	}
+
+	headerHeight := d.headerLines()
 	footerHeight := 2
-	vpHeight := height - headerHeight - footerHeight
+	vpHeight := d.height - headerHeight - footerHeight
+	if vpHeight < 1 {
+		vpHeight = 1
+	}
 
 	if !d.ready {
-		d.viewport = viewport.New(width-4, vpHeight)
+		d.viewport = viewport.New(d.width-4, vpHeight)
 		d.viewport.HighPerformanceRendering = false
 		d.ready = true
 	} else {
-		d.viewport.Width = width - 4
+		d.viewport.Width = d.width - 4
 		d.viewport.Height = vpHeight
 	}
 
@@ -125,16 +151,18 @@ func (d *detailView) View() string {
 
 	var b strings.Builder
 
-	// Title bar with status
+	// App title
+	b.WriteString(titleStyle.Render(" Ralph Tamer Kit "))
+	b.WriteString("\n")
+
+	// Task title with word wrapping
 	taskTitle := d.task.Title
 	if taskTitle == "" {
 		taskTitle = d.task.Description
 	}
-	stateStyled := stateStyle(d.task.Status).Render(d.task.Status)
-	title := fmt.Sprintf(" #%d %s ", d.task.ID, taskTitle)
-	b.WriteString(titleStyle.Render(title))
-	b.WriteString(" ")
-	b.WriteString(stateStyled)
+	titleText := fmt.Sprintf("#%d %s", d.task.ID, taskTitle)
+	wrappedTitle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Width(d.width).Render(titleText)
+	b.WriteString(wrappedTitle)
 	b.WriteString("\n")
 
 	// Live logs viewport
