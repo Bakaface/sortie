@@ -98,7 +98,8 @@ func (d *detailView) updateViewportContent() {
 	}
 
 	content := strings.Join(d.output, "\n")
-	d.viewport.SetContent(content)
+	wrapped := lipgloss.NewStyle().Width(d.viewport.Width).Render(content)
+	d.viewport.SetContent(wrapped)
 }
 
 func (d *detailView) ScrollUp() {
