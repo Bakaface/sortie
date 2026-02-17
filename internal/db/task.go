@@ -213,10 +213,10 @@ func (db *DB) UpdateTaskContext(id int64, taskContext string) error {
 	return err
 }
 
-func (db *DB) UpdateTaskTitle(id int64, title, slug string) error {
+func (db *DB) FinalizeTaskIdentity(id int64, title, slug, branch string) error {
 	_, err := db.Exec(
-		"UPDATE tasks SET title = ?, slug = ?, updated_at = ? WHERE id = ?",
-		title, slug, time.Now(), id,
+		"UPDATE tasks SET title = ?, slug = ?, branch = ?, updated_at = ? WHERE id = ?",
+		title, slug, branch, time.Now(), id,
 	)
 	return err
 }

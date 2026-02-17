@@ -570,8 +570,9 @@ func (s *Server) refineTaskTitle(taskID int64, description string) {
 	}
 
 	slug := task.Slugify(title)
+	branch := s.cfg.ResolveBranchName(taskID, slug)
 
-	if err := s.database.UpdateTaskTitle(taskID, title, slug); err != nil {
+	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {
 		log.Printf("Failed to update title for task #%d: %v", taskID, err)
 		// Still transition to pending
 		if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
