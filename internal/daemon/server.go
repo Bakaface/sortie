@@ -438,6 +438,8 @@ func (s *Server) handleApproveTask(conn net.Conn, req ApproveTaskRequest) {
 
 	// Resume the task (engine will continue from t.StepIndex)
 	if err := s.startTaskAgent(t); err != nil {
+		// Roll back status so the task isn't stuck as "running" with no agent
+		_ = s.database.UpdateTaskStatus(t.ID, task.StatusAwaitingApproval)
 		s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
 		return
 	}

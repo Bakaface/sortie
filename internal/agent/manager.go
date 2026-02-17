@@ -127,6 +127,7 @@ func (m *Manager) startAgentLocked(agent *Agent, runner func(ctx context.Context
 			agent.SetState(StateCompleted)
 		}
 		delete(m.cancelFuncs, agent.ID)
+		delete(m.knownTasks, agent.Task.ID)
 
 		newState := agent.GetState()
 		queueTransitions := m.processQueueLocked()
@@ -162,6 +163,7 @@ func (m *Manager) StopAgent(agentID string) error {
 	}
 
 	agent.SetState(StateStopped)
+	delete(m.knownTasks, agent.Task.ID)
 
 	var transitions []stateTransition
 	transitions = append(transitions, stateTransition{agent, oldState, StateStopped})
