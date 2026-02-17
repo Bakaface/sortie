@@ -150,9 +150,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmds []tea.Cmd
 
 		if m.view == viewDetail && m.detail.task != nil && m.client != nil {
-			// Load output using task ID as agent ID
-			agentID := fmt.Sprintf("%d", m.detail.task.ID)
-			cmds = append(cmds, m.loadOutput(agentID))
+			cmds = append(cmds, m.loadOutput(m.detail.task.ID))
 		}
 
 		if m.client != nil {
@@ -255,9 +253,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.view = viewDetail
 			m.detail.SetTask(task)
 			m.detail.SetFollowMode(true)
-			// Load logs using task ID
-			agentID := fmt.Sprintf("%d", task.ID)
-			return m, m.loadOutput(agentID)
+			return m, m.loadOutput(task.ID)
 		}
 		return m, nil
 
@@ -392,16 +388,16 @@ func (m Model) refreshTasks() tea.Cmd {
 	}
 }
 
-func (m Model) loadOutput(agentID string) tea.Cmd {
+func (m Model) loadOutput(taskID int64) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
-		lines, total, err := m.client.GetOutput(agentID, 0)
+		lines, err := m.client.GetLogs(taskID, "", 0)
 		if err != nil {
 			return errorMsg(err)
 		}
-		return outputLoadedMsg{lines: lines, total: total}
+		return outputLoadedMsg{lines: lines, total: len(lines)}
 	}
 }
 

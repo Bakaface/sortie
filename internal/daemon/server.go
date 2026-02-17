@@ -345,8 +345,26 @@ func (s *Server) handleUnsubscribe(conn net.Conn) {
 func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
 	lines, total, err := s.manager.GetOutput(req.AgentID, req.FromLine)
 	if err != nil {
-		// Agent not in memory — try reading logs from disk
-		lines, total = s.loadOutputFromDisk(req.AgentID, req.FromLine)
+		// Agent not in memory — try reading logs from project data dir
+		taskID, parseErr := strconv.ParseInt(req.AgentID, 10, 64)
+		if parseErr == nil {
+			dataDir := filepath.Join(s.repoRoot, ".rtk")
+			logsDir := workflow.ProjectLogsDir(dataDir, taskID)
+			entries, readErr := os.ReadDir(logsDir)
+			if readErr == nil {
+				var allLines []string
+				for _, entry := range entries {
+					if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
+						continue
+					}
+					allLines = append(allLines, readLogFile(filepath.Join(logsDir, entry.Name()))...)
+				}
+				total = len(allLines)
+				if req.FromLine < total {
+					lines = allLines[req.FromLine:]
+				}
+			}
+		}
 	}
 
 	s.sendMessage(conn, MsgOutputChunk, OutputChunkResponse{
@@ -354,48 +372,6 @@ func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
 		Lines:      lines,
 		TotalLines: total,
 	})
-}
-
-// loadOutputFromDisk reads parsed step logs from a task's worktree (.rtk/logs/*.log).
-// Used as a fallback when the agent is no longer in memory (e.g. after daemon restart).
-func (s *Server) loadOutputFromDisk(agentID string, fromLine int) ([]string, int) {
-	taskID, err := strconv.ParseInt(agentID, 10, 64)
-	if err != nil {
-		return nil, 0
-	}
-
-	t, err := s.database.GetTask(taskID)
-	if err != nil || t.WorktreePath == "" {
-		return nil, 0
-	}
-
-	logsDir := filepath.Join(t.WorktreePath, ".rtk", "logs")
-	entries, err := os.ReadDir(logsDir)
-	if err != nil {
-		return nil, 0
-	}
-
-	var allLines []string
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
-			continue
-		}
-		f, err := os.Open(filepath.Join(logsDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		scanner := bufio.NewScanner(f)
-		for scanner.Scan() {
-			allLines = append(allLines, scanner.Text())
-		}
-		f.Close()
-	}
-
-	total := len(allLines)
-	if fromLine >= total {
-		return nil, total
-	}
-	return allLines[fromLine:], total
 }
 
 func (s *Server) handleSendInput(conn net.Conn, req SendInputRequest) {
@@ -478,64 +454,69 @@ func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 }
 
 func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {
-	t, err := s.database.GetTask(req.TaskID)
-	if err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
-		return
-	}
+	dataDir := filepath.Join(s.repoRoot, ".rtk")
 
-	if t.WorktreePath == "" {
-		s.sendError(conn, "task has no worktree")
-		return
-	}
+	if req.Step != "" {
+		// Read a specific step's log
+		logPath := workflow.ProjectLogPath(dataDir, req.TaskID, req.Step)
+		lines := readLogFile(logPath)
 
-	// Default to current step if not specified
-	step := req.Step
-	if step == "" {
-		step = t.CurrentStep
-	}
-
-	// Get log file path
-	logPath := workflow.LogPath(t.WorktreePath, step)
-
-	// Read log file
-	file, err := os.Open(logPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
-				TaskID: req.TaskID,
-				Step:   step,
-				Lines:  []string{},
-			})
-			return
+		if req.Tail > 0 && len(lines) > req.Tail {
+			lines = lines[len(lines)-req.Tail:]
 		}
-		s.sendError(conn, fmt.Sprintf("failed to open log file: %v", err))
+
+		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
+			TaskID: req.TaskID,
+			Step:   req.Step,
+			Lines:  lines,
+		})
 		return
+	}
+
+	// No step specified — read all .log files in the task's log dir
+	logsDir := workflow.ProjectLogsDir(dataDir, req.TaskID)
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
+			TaskID: req.TaskID,
+			Lines:  []string{},
+		})
+		return
+	}
+
+	var allLines []string
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
+			continue
+		}
+		lines := readLogFile(filepath.Join(logsDir, entry.Name()))
+		allLines = append(allLines, lines...)
+	}
+
+	if req.Tail > 0 && len(allLines) > req.Tail {
+		allLines = allLines[len(allLines)-req.Tail:]
+	}
+
+	s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
+		TaskID: req.TaskID,
+		Lines:  allLines,
+	})
+}
+
+// readLogFile reads all lines from a log file, returning nil if the file doesn't exist.
+func readLogFile(path string) []string {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
 	}
 	defer file.Close()
 
-	// Read all lines
 	var lines []string
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-
-	if err := scanner.Err(); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to read log file: %v", err))
-		return
-	}
-
-	// Apply tail if requested
-	if req.Tail > 0 && len(lines) > req.Tail {
-		lines = lines[len(lines)-req.Tail:]
-	}
-
-	s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
-		TaskID: req.TaskID,
-		Step:   step,
-		Lines:  lines,
-	})
+	return lines
 }
 
 func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
@@ -679,6 +660,13 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 		if err := gitpkg.ForceDeleteBranch(s.repoRoot, t.Branch); err != nil {
 			log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, err)
 		}
+	}
+
+	// Remove log directory
+	dataDir := filepath.Join(s.repoRoot, ".rtk")
+	logDir := workflow.ProjectLogsDir(dataDir, t.ID)
+	if err := os.RemoveAll(logDir); err != nil {
+		log.Printf("Warning: failed to remove log dir for task #%d: %v", t.ID, err)
 	}
 
 	// Delete from database

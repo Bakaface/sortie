@@ -27,6 +27,7 @@ type Engine struct {
 	database *db.DB
 	notifier *notify.Notifier
 	repoRoot string
+	dataDir  string
 }
 
 func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, repoRoot string) *Engine {
@@ -35,6 +36,7 @@ func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, r
 		database: database,
 		notifier: notifier,
 		repoRoot: repoRoot,
+		dataDir:  filepath.Join(repoRoot, ".rtk"),
 	}
 }
 
@@ -250,8 +252,11 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Open per-step log file
-	logPath := LogPath(t.WorktreePath, step.Name)
+	// Open per-step log file in project data dir
+	logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
+	if err := os.MkdirAll(ProjectLogsDir(e.dataDir, t.ID), 0755); err != nil {
+		return 1, "", fmt.Errorf("failed to create log dir: %w", err)
+	}
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return 1, "", fmt.Errorf("failed to create step log: %w", err)
@@ -365,7 +370,10 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 	rtkDir := filepath.Join(t.WorktreePath, ".rtk")
 	promptFile := filepath.Join(rtkDir, fmt.Sprintf("step-prompt-%s.txt", step.Name))
 	scriptFile := filepath.Join(rtkDir, fmt.Sprintf("run-step-%s.sh", step.Name))
-	logPath := LogPath(t.WorktreePath, step.Name)
+	logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
+	if err := os.MkdirAll(ProjectLogsDir(e.dataDir, t.ID), 0755); err != nil {
+		return 1, "", fmt.Errorf("failed to create log dir: %w", err)
+	}
 
 	// Write prompt to file (avoids shell quoting issues)
 	if err := os.WriteFile(promptFile, []byte(prompt), 0644); err != nil {

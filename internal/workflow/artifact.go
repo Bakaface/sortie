@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -26,6 +27,16 @@ func EnsureRTKDirs(worktreePath string) error {
 		return err
 	}
 	return os.MkdirAll(LogsDir(worktreePath), 0755)
+}
+
+// ProjectLogsDir returns the path to the logs directory for a task in the project data dir.
+func ProjectLogsDir(dataDir string, taskID int64) string {
+	return filepath.Join(dataDir, "logs", fmt.Sprintf("%d", taskID))
+}
+
+// ProjectLogPath returns the log file path for a specific step in the project data dir.
+func ProjectLogPath(dataDir string, taskID int64, stepName string) string {
+	return filepath.Join(ProjectLogsDir(dataDir, taskID), stepName+".log")
 }
 
 // ReadArtifact reads the artifact file for a given step. Returns empty string if not found.

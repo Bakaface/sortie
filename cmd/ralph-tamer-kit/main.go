@@ -16,6 +16,7 @@ import (
 	"github.com/aface/ralph-tamer-kit/internal/task"
 	"github.com/aface/ralph-tamer-kit/internal/tmux"
 	"github.com/aface/ralph-tamer-kit/internal/tui"
+	"github.com/aface/ralph-tamer-kit/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -589,7 +590,7 @@ var cleanupCmd = &cobra.Command{
 
 		cleaned := 0
 		for _, t := range tasks {
-			if (t.Status == "completed" || t.Status == "failed") && t.WorktreePath != "" {
+			if t.Status == "completed" || t.Status == "failed" {
 				if err := cleanupTask(database, repoRoot, t.ID); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to cleanup task #%d: %v\n", t.ID, err)
 				} else {
@@ -599,9 +600,9 @@ var cleanupCmd = &cobra.Command{
 		}
 
 		if cleaned == 0 {
-			fmt.Println("No worktrees to clean up")
+			fmt.Println("Nothing to clean up")
 		} else {
-			fmt.Printf("Cleaned up %d worktree(s)\n", cleaned)
+			fmt.Printf("Cleaned up %d task(s)\n", cleaned)
 		}
 		return nil
 	},
@@ -613,19 +614,30 @@ func cleanupTask(database *db.DB, repoRoot string, taskID int64) error {
 		return fmt.Errorf("task not found: %w", err)
 	}
 
-	if t.WorktreePath == "" {
-		return nil
+	cleaned := false
+
+	if t.WorktreePath != "" {
+		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
+			return fmt.Errorf("failed to remove worktree: %w", err)
+		}
+		if err := database.ClearWorktreePath(taskID); err != nil {
+			return fmt.Errorf("failed to clear worktree path: %w", err)
+		}
+		cleaned = true
 	}
 
-	if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
-		return fmt.Errorf("failed to remove worktree: %w", err)
+	// Remove log directory
+	dataDir := filepath.Join(repoRoot, ".rtk")
+	logDir := workflow.ProjectLogsDir(dataDir, taskID)
+	if err := os.RemoveAll(logDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to remove log dir for task #%d: %v\n", taskID, err)
+	} else {
+		cleaned = true
 	}
 
-	if err := database.ClearWorktreePath(taskID); err != nil {
-		return fmt.Errorf("failed to clear worktree path: %w", err)
+	if cleaned {
+		fmt.Printf("Cleaned up task #%d\n", taskID)
 	}
-
-	fmt.Printf("Cleaned up worktree for task #%d\n", taskID)
 	return nil
 }
 
