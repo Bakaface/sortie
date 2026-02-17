@@ -594,7 +594,12 @@ func (m Model) attachTmuxSession(taskID int64) tea.Cmd {
 	taskIDStr := fmt.Sprintf("%d", taskID)
 	prefix := tmux.SessionPrefix + taskIDStr + "-"
 	sessions, err := tmux.ListSessions(prefix)
-	if err != nil || len(sessions) == 0 {
+	if err != nil {
+		return func() tea.Msg {
+			return errorMsg(fmt.Errorf("failed to list tmux sessions: %w", err))
+		}
+	}
+	if len(sessions) == 0 {
 		return func() tea.Msg {
 			return errorMsg(fmt.Errorf("no tmux session found for task #%d", taskID))
 		}
