@@ -38,6 +38,7 @@ type StepConfig struct {
 	Tmux             *bool  `yaml:"tmux,omitempty"`
 	Timeout          string `yaml:"timeout"`
 	ApprovalRequired bool   `yaml:"approval_required"`
+	Artifact         bool   `yaml:"artifact"`
 }
 
 // UseTmux returns whether this step should use tmux execution.
