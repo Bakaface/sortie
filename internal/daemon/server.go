@@ -447,6 +447,20 @@ func (s *Server) handleRejectTask(conn net.Conn, req RejectTaskRequest) {
 		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
 	}
 
+	// Remove worktree if it exists
+	if t.WorktreePath != "" {
+		if err := gitpkg.RemoveWorktree(s.repoRoot, t.WorktreePath); err != nil {
+			log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, err)
+		}
+	}
+
+	// Delete branch if it exists
+	if t.Branch != "" {
+		if err := gitpkg.ForceDeleteBranch(s.repoRoot, t.Branch); err != nil {
+			log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, err)
+		}
+	}
+
 	// Set status to failed
 	if err := s.database.UpdateTaskStatus(t.ID, task.StatusFailed); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
