@@ -330,8 +330,8 @@ func (c *Client) RetryTask(id int64) error {
 	return nil
 }
 
-func (c *Client) CreateTask(description string) (*daemon.TaskInfo, error) {
-	msg, err := c.sendAndWait(daemon.MsgCreateTask, daemon.CreateTaskRequest{Description: description})
+func (c *Client) CreateTask(description string, workflow string) (*daemon.TaskInfo, error) {
+	msg, err := c.sendAndWait(daemon.MsgCreateTask, daemon.CreateTaskRequest{Description: description, Workflow: workflow})
 	if err != nil {
 		return nil, err
 	}

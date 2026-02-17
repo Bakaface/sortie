@@ -36,6 +36,11 @@ type Model struct {
 	confirmAction string // "approve", "reject", or "delete"; empty if no confirmation pending
 	confirmTaskID int64
 	pendingDelete bool // tracks first "d" press for dd sequence
+
+	// Workflow selection state
+	selectingWorkflow bool
+	workflowCursor    int
+	selectedWorkflow  string
 }
 
 type clientConnectedMsg struct {
@@ -185,6 +190,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle workflow selection if active
+	if m.selectingWorkflow {
+		return m.handleWorkflowSelectKey(msg)
+	}
+
 	// Handle confirmation prompt if active
 	if m.confirmAction != "" {
 		switch msg.String() {
@@ -299,11 +309,55 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.client == nil {
 			return m, nil
 		}
+		workflows := m.cfg.ListWorkflowNames()
+		if len(workflows) > 1 {
+			m.selectingWorkflow = true
+			m.workflowCursor = 0
+			return m, nil
+		}
+		// Single workflow (or default) — skip selection
+		m.selectedWorkflow = ""
 		return m, m.openEditorForNewTask()
 
 	case "?":
 		m.list.showHelp = !m.list.showHelp
 		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	workflows := m.cfg.ListWorkflowNames()
+
+	switch msg.String() {
+	case "up", "k":
+		if m.workflowCursor > 0 {
+			m.workflowCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.workflowCursor < len(workflows)-1 {
+			m.workflowCursor++
+		}
+		return m, nil
+	case "enter":
+		m.selectedWorkflow = workflows[m.workflowCursor]
+		m.selectingWorkflow = false
+		return m, m.openEditorForNewTask()
+	case "esc", "q":
+		m.selectingWorkflow = false
+		return m, nil
+	}
+
+	// Number keys for quick selection (1-9)
+	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
+		idx := int(msg.String()[0] - '1')
+		if idx < len(workflows) {
+			m.selectedWorkflow = workflows[idx]
+			m.selectingWorkflow = false
+			return m, m.openEditorForNewTask()
+		}
 	}
 
 	return m, nil
@@ -478,7 +532,7 @@ func (m Model) handleEditorResult(path string) tea.Cmd {
 			return nil
 		}
 
-		info, err := m.client.CreateTask(description)
+		info, err := m.client.CreateTask(description, m.selectedWorkflow)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
@@ -528,6 +582,21 @@ func (m Model) View() string {
 		content = m.detail.View()
 	default:
 		content = m.list.View()
+	}
+
+	// Show workflow selection menu if active
+	if m.selectingWorkflow {
+		workflows := m.cfg.ListWorkflowNames()
+		content += "\n  Select workflow:\n"
+		for i, name := range workflows {
+			label := fmt.Sprintf("  %d. %s", i+1, name)
+			if i == m.workflowCursor {
+				content += selectedStyle.Render("> "+label) + "\n"
+			} else {
+				content += "  " + label + "\n"
+			}
+		}
+		content += dimStyle.Render("  j/k: navigate | enter: select | esc: cancel")
 	}
 
 	// Show confirmation bar if active
