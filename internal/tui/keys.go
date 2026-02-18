@@ -8,6 +8,7 @@ type keyMap struct {
 	Up       key.Binding
 	Down     key.Binding
 	Enter    key.Binding
+	Logs     key.Binding
 	Stop     key.Binding
 	Approve  key.Binding
 	Reject   key.Binding
@@ -35,7 +36,11 @@ func newKeyMap() keyMap {
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
-			key.WithHelp("enter", "view details"),
+			key.WithHelp("enter", "task info"),
+		),
+		Logs: key.NewBinding(
+			key.WithKeys("l"),
+			key.WithHelp("l", "logs"),
 		),
 		Stop: key.NewBinding(
 			key.WithKeys("s"),
@@ -93,12 +98,12 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.NewTask, k.Approve, k.Reject, k.Retry, k.Delete, k.Stop, k.Attach, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.Approve, k.Reject, k.Retry, k.Delete, k.Stop, k.Attach, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Enter},
+		{k.Up, k.Down, k.Enter, k.Logs},
 		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Delete, k.Attach, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
@@ -246,4 +251,66 @@ func newDetailNormalKeyMap() detailNormalKeyMap {
 
 func (k detailNormalKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Attach, k.Back}
+}
+
+type taskInfoKeyMap struct {
+	Up       key.Binding
+	Down     key.Binding
+	HalfUp   key.Binding
+	HalfDown key.Binding
+	GotoTop  key.Binding
+	GotoBtm  key.Binding
+	Logs     key.Binding
+	Back     key.Binding
+	Stop     key.Binding
+	Attach   key.Binding
+}
+
+func newTaskInfoKeyMap() taskInfoKeyMap {
+	return taskInfoKeyMap{
+		Up: key.NewBinding(
+			key.WithKeys("k", "up"),
+			key.WithHelp("k", "up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("j", "down"),
+			key.WithHelp("j", "down"),
+		),
+		HalfUp: key.NewBinding(
+			key.WithKeys("ctrl+u"),
+			key.WithHelp("ctrl+u", "half up"),
+		),
+		HalfDown: key.NewBinding(
+			key.WithKeys("ctrl+d"),
+			key.WithHelp("ctrl+d", "half down"),
+		),
+		GotoTop: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("gg", "top"),
+		),
+		GotoBtm: key.NewBinding(
+			key.WithKeys("G"),
+			key.WithHelp("G", "bottom"),
+		),
+		Logs: key.NewBinding(
+			key.WithKeys("l"),
+			key.WithHelp("l", "logs"),
+		),
+		Back: key.NewBinding(
+			key.WithKeys("esc", "q"),
+			key.WithHelp("esc/q", "back"),
+		),
+		Stop: key.NewBinding(
+			key.WithKeys("ctrl+c"),
+			key.WithHelp("ctrl+c", "stop"),
+		),
+		Attach: key.NewBinding(
+			key.WithKeys("t"),
+			key.WithHelp("t", "tmux attach"),
+		),
+	}
+}
+
+func (k taskInfoKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.Attach, k.Back}
 }
