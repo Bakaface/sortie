@@ -35,11 +35,12 @@ var (
 
 	stateStyles = map[string]lipgloss.Style{
 		"pending":           lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")),
-		"generating-title":  lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")).Italic(true),
+		"init":              lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")).Italic(true),
 		"starting":          lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")),
 		"running":           lipgloss.NewStyle().Foreground(lipgloss.Color("#73F59F")),
 		"waiting_for_input": lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Bold(true),
-		"awaiting_approval": lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")).Bold(true),
+		"awaiting-approval": lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")).Bold(true),
+		"tmux":              lipgloss.NewStyle().Foreground(lipgloss.Color("#FF69B4")).Bold(true),
 		"completed":         lipgloss.NewStyle().Foreground(lipgloss.Color("#43BF6D")),
 		"failed":            lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")),
 		"stopped":           lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")),

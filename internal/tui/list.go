@@ -115,8 +115,10 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 		statusIcon = "✓"
 	case "running":
 		statusIcon = "●"
-	case "awaiting_approval":
+	case "awaiting-approval":
 		statusIcon = "◷"
+	case "tmux":
+		statusIcon = "▣"
 	case "pending":
 		statusIcon = "○"
 	case "failed":
@@ -133,7 +135,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 	// Merge step info into status: show step name for active states
 	statusLabel := task.Status
 	switch task.Status {
-	case "running", "awaiting_approval", "failed", "stopped":
+	case "running", "awaiting-approval", "tmux", "failed", "stopped":
 		if task.CurrentStep != "" {
 			statusLabel = task.CurrentStep
 		}

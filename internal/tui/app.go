@@ -281,7 +281,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "a":
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "awaiting_approval" {
+			if task.Status == "awaiting-approval" || task.Status == "tmux" {
 				m.confirmAction = "approve"
 				m.confirmTaskID = task.ID
 				return m, nil
@@ -291,7 +291,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "x":
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "awaiting_approval" {
+			if task.Status == "awaiting-approval" || task.Status == "tmux" {
 				m.confirmAction = "reject"
 				m.confirmTaskID = task.ID
 				return m, nil

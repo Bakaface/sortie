@@ -188,7 +188,7 @@ func TestHandleListKey_TReturnsCommandWhenTaskSelected(t *testing.T) {
 		view:   viewList,
 	}
 	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 42, Title: "Test", Status: "awaiting_approval"},
+		{ID: 42, Title: "Test", Status: "awaiting-approval"},
 	})
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
@@ -222,7 +222,7 @@ func TestHandleDetailKey_TReturnsCommandWhenTaskSet(t *testing.T) {
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
-	task := daemon.TaskInfo{ID: 42, Title: "Test", Status: "awaiting_approval"}
+	task := daemon.TaskInfo{ID: 42, Title: "Test", Status: "awaiting-approval"}
 	m.detail.SetTask(&task)
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
@@ -252,7 +252,7 @@ func TestHandleDetailKey_TNoOpWithNoTask(t *testing.T) {
 func TestListView_RendersTmuxIndicator(t *testing.T) {
 	l := newListView()
 	l.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Task with tmux", Status: "awaiting_approval", CurrentStep: "implement"},
+		{ID: 1, Title: "Task with tmux", Status: "awaiting-approval", CurrentStep: "implement"},
 		{ID: 2, Title: "Task without tmux", Status: "running", CurrentStep: "review"},
 	})
 	l.tmuxSessions = map[int64]bool{1: true}

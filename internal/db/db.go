@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (3)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (4)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -84,6 +84,22 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to add context column: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 3`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 4: Rename status values
+	if version < 4 {
+		_, err := db.Exec(`UPDATE tasks SET status = 'init' WHERE status = 'generating-title'`)
+		if err != nil {
+			return fmt.Errorf("failed to rename generating-title status: %w", err)
+		}
+		_, err = db.Exec(`UPDATE tasks SET status = 'awaiting-approval' WHERE status = 'awaiting_approval'`)
+		if err != nil {
+			return fmt.Errorf("failed to rename awaiting_approval status: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 4`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}

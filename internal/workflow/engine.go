@@ -168,17 +168,18 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 
 		// Check if approval required before continuing
-		// Tmux steps always require approval (agent runs interactively, user approves when done)
 		needsApproval := step.ApprovalRequired || useTmux
 		if needsApproval {
-			// Set to awaiting_approval, the daemon will pause this task.
-			// StepIndex = i+1 so resume continues from the next step (or exits
-			// the loop when this was the last step, running summarizer + on_complete).
+			// Set status to pause the task. The daemon will wait for user action.
 			if err := e.database.UpdateTaskStep(t.ID, i+1, ""); err != nil {
 				log.Printf("Warning: failed to update task step: %v", err)
 			}
-			if err := e.database.UpdateTaskStatus(t.ID, task.StatusAwaitingApproval); err != nil {
-				log.Printf("Warning: failed to set awaiting_approval: %v", err)
+			pauseStatus := task.StatusAwaitingApproval
+			if useTmux {
+				pauseStatus = task.StatusTmux
+			}
+			if err := e.database.UpdateTaskStatus(t.ID, pauseStatus); err != nil {
+				log.Printf("Warning: failed to set %s: %v", pauseStatus, err)
 			}
 			return nil
 		}
@@ -354,7 +355,7 @@ func readLastLines(path string, n int) ([]string, error) {
 // runClaudeStepTmux starts a Claude session in a detached tmux session and returns
 // immediately. The tmux session persists for the user to attach and interact with.
 // The workflow engine treats tmux steps as approval_required, so the task will pause
-// at awaiting_approval until the user manually approves.
+// at tmux status until the user manually approves.
 func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string) (int, string, error) {
 	if !tmux.IsAvailable() {
 		return 1, "", fmt.Errorf("tmux is not installed or not in PATH (required for tmux mode)")
