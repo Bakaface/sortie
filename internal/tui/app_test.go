@@ -265,6 +265,20 @@ func TestListView_RendersTmuxIndicator(t *testing.T) {
 	}
 }
 
+func TestListView_RendersTmuxStatus(t *testing.T) {
+	l := newListView()
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Task with tmux status", Status: "tmux", CurrentStep: "implement"},
+	})
+	l.SetSize(100, 24)
+
+	output := l.View()
+
+	if !strings.Contains(output, "▣") {
+		t.Error("expected task list to contain ▣ icon for tmux status")
+	}
+}
+
 func TestListView_NoTmuxIndicatorWithoutSessions(t *testing.T) {
 	l := newListView()
 	l.SetTasks([]daemon.TaskInfo{
