@@ -19,6 +19,10 @@ type detailView struct {
 	ready      bool
 	followMode bool
 	pendingG   bool
+
+	// Performance: track content state to avoid redundant re-wraps
+	contentLineCount int  // number of lines last set on viewport
+	contentDirty     bool // true when content needs re-wrap (e.g. resize)
 }
 
 func newDetailView() detailView {
@@ -34,6 +38,10 @@ func (d *detailView) SetTask(task *daemon.TaskInfo) {
 }
 
 func (d *detailView) SetOutput(lines []string) {
+	// Skip expensive re-wrap if content hasn't changed
+	if len(lines) == d.contentLineCount && !d.contentDirty {
+		return
+	}
 	d.output = lines
 	d.updateViewportContent()
 	if d.followMode {
@@ -43,6 +51,7 @@ func (d *detailView) SetOutput(lines []string) {
 
 func (d *detailView) AppendOutput(lines []string) {
 	d.output = append(d.output, lines...)
+	d.contentDirty = true
 	d.updateViewportContent()
 	d.viewport.GotoBottom()
 }
@@ -89,6 +98,7 @@ func (d *detailView) recalcViewport() {
 		d.viewport.Height = vpHeight
 	}
 
+	d.contentDirty = true
 	d.updateViewportContent()
 }
 
@@ -97,9 +107,12 @@ func (d *detailView) updateViewportContent() {
 		return
 	}
 
+	// Set content directly without expensive lipgloss full-content wrapping.
+	// The viewport's own View() method handles rendering visible lines.
 	content := strings.Join(d.output, "\n")
-	wrapped := lipgloss.NewStyle().Width(d.viewport.Width).Render(content)
-	d.viewport.SetContent(wrapped)
+	d.viewport.SetContent(content)
+	d.contentLineCount = len(d.output)
+	d.contentDirty = false
 }
 
 func (d *detailView) ScrollUp() {
@@ -194,9 +207,9 @@ func (d *detailView) renderHelp() string {
 
 	var bindings []key.Binding
 	if d.followMode {
-		bindings = newDetailFollowKeyMap().ShortHelp()
+		bindings = cachedDetailFollowKeyMap.ShortHelp()
 	} else {
-		bindings = newDetailNormalKeyMap().ShortHelp()
+		bindings = cachedDetailNormalKeyMap.ShortHelp()
 	}
 	for i, binding := range bindings {
 		if i > 0 {

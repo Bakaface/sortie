@@ -247,3 +247,9 @@ func newDetailNormalKeyMap() detailNormalKeyMap {
 func (k detailNormalKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Attach, k.Back}
 }
+
+// Pre-allocated key maps to avoid allocations on every renderHelp() call.
+var (
+	cachedDetailFollowKeyMap = newDetailFollowKeyMap()
+	cachedDetailNormalKeyMap = newDetailNormalKeyMap()
+)
