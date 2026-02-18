@@ -224,7 +224,7 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 		if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
 			log.Printf("Warning: failed to remove worktree: %v", err)
 		}
-		if err := gitpkg.DeleteBranch(e.repoRoot, t.Branch); err != nil {
+		if err := gitpkg.ForceDeleteBranch(e.repoRoot, t.Branch); err != nil {
 			log.Printf("Warning: failed to delete branch: %v", err)
 		}
 		// Clear worktree path in DB
