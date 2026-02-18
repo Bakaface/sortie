@@ -147,6 +147,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}()
 
 	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024) // 10MB buffer for large IPC messages
 	for scanner.Scan() {
 		msg, err := DecodeMessage(scanner.Bytes())
 		if err != nil {
@@ -539,6 +540,7 @@ func readLogFile(path string) []string {
 
 	var lines []string
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB buffer for large NDJSON lines
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}

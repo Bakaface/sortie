@@ -226,6 +226,7 @@ func (p *Process) CaptureOutput(maxLines int) ([]string, error) {
 
 	var lines []string
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024) // 1MB buffer for large NDJSON lines
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 		if maxLines > 0 && len(lines) >= maxLines {

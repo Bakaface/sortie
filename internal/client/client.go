@@ -66,6 +66,7 @@ func isBroadcast(t daemon.MessageType) bool {
 
 func (c *Client) readLoop() {
 	scanner := bufio.NewScanner(c.conn)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024) // 10MB buffer for large log responses
 	for scanner.Scan() {
 		msg, err := daemon.DecodeMessage(scanner.Bytes())
 		if err != nil {
