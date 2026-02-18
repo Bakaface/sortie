@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/aface/ralph-tamer-kit/internal/daemon"
@@ -9,6 +10,9 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
+
+// ansiRegex matches ANSI escape sequences (CSI, OSC, and carriage returns).
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][0-9A-B]|\r`)
 
 type detailView struct {
 	task       *daemon.TaskInfo
@@ -34,7 +38,12 @@ func (d *detailView) SetTask(task *daemon.TaskInfo) {
 }
 
 func (d *detailView) SetOutput(lines []string) {
-	d.output = lines
+	// Strip ANSI escape codes (from tmux pipe-pane captures, etc.)
+	cleaned := make([]string, len(lines))
+	for i, line := range lines {
+		cleaned[i] = ansiRegex.ReplaceAllString(line, "")
+	}
+	d.output = cleaned
 	d.updateViewportContent()
 	if d.followMode {
 		d.viewport.GotoBottom()
