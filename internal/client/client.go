@@ -17,10 +17,11 @@ type Client struct {
 	conn net.Conn
 	mu   sync.Mutex
 
-	respChan chan *daemon.Message // request-response messages
-	subChan  chan *daemon.Message // subscription broadcast messages
-	errChan  chan error
-	done     chan struct{}
+	respChan  chan *daemon.Message // request-response messages
+	subChan   chan *daemon.Message // subscription broadcast messages
+	errChan   chan error
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 func New(cfg *config.Config) *Client {
@@ -46,7 +47,9 @@ func (c *Client) Connect() error {
 }
 
 func (c *Client) Close() error {
-	close(c.done)
+	c.closeOnce.Do(func() {
+		close(c.done)
+	})
 	if c.conn != nil {
 		return c.conn.Close()
 	}
