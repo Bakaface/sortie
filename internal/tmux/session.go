@@ -3,6 +3,7 @@ package tmux
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -211,4 +212,30 @@ func KillSessionsForTask(taskID string) error {
 
 func AttachCommand(sessionName string) *exec.Cmd {
 	return exec.Command("tmux", "attach-session", "-t", sessionName)
+}
+
+// IsInsideTmux returns true if the current process is running inside a tmux session.
+func IsInsideTmux() bool {
+	return os.Getenv("TMUX") != ""
+}
+
+// SwitchClientCommand returns a command that switches the current tmux client
+// to the given session. Use this instead of AttachCommand when already inside tmux.
+func SwitchClientCommand(sessionName string) *exec.Cmd {
+	return exec.Command("tmux", "switch-client", "-t", sessionName)
+}
+
+// NestedAttachCommand returns an attach-session command with $TMUX unset,
+// allowing it to run inside an existing tmux session (nested tmux).
+func NestedAttachCommand(sessionName string) *exec.Cmd {
+	cmd := exec.Command("tmux", "attach-session", "-t", sessionName)
+	// Copy current environment but strip TMUX to allow nesting
+	var filtered []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "TMUX=") {
+			filtered = append(filtered, e)
+		}
+	}
+	cmd.Env = filtered
+	return cmd
 }

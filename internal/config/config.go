@@ -64,8 +64,9 @@ func (c *Config) GetStepTimeout(step StepConfig) time.Duration {
 
 // GlobalConfig from ~/.config/ralph-tamer-kit/config.yaml
 type GlobalConfig struct {
-	MaxWorkers    int                 `yaml:"max_workers"`
-	Notifications NotificationsConfig `yaml:"notifications"`
+	MaxWorkers               int                 `yaml:"max_workers"`
+	Notifications            NotificationsConfig `yaml:"notifications"`
+	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
 }
 
 type NotificationsConfig struct {
@@ -96,7 +97,8 @@ type Config struct {
 	Workflows  []WorkflowConfig
 
 	// From global config
-	Notifications NotificationsConfig
+	Notifications            NotificationsConfig
+	TmuxNestedAttachBehavior string // "switch" (default) or "nest"
 
 	// Internal defaults (not in yaml)
 	Claude ClaudeConfig
@@ -258,6 +260,9 @@ func loadGlobalConfig(path string, cfg *Config) error {
 		cfg.MaxWorkers = global.MaxWorkers
 	}
 	cfg.Notifications = global.Notifications
+	if global.TmuxNestedAttachBehavior != "" {
+		cfg.TmuxNestedAttachBehavior = global.TmuxNestedAttachBehavior
+	}
 
 	return nil
 }
@@ -433,8 +438,9 @@ func (c *Config) Save() error {
 	}
 
 	global := GlobalConfig{
-		MaxWorkers:    c.MaxWorkers,
-		Notifications: c.Notifications,
+		MaxWorkers:               c.MaxWorkers,
+		Notifications:            c.Notifications,
+		TmuxNestedAttachBehavior: c.TmuxNestedAttachBehavior,
 	}
 
 	data, err := yaml.Marshal(global)

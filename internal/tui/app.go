@@ -606,6 +606,34 @@ func (m Model) attachTmuxSession(taskID int64) tea.Cmd {
 	}
 
 	sessionName := sessions[len(sessions)-1].Name
+
+	if tmux.IsInsideTmux() {
+		behavior := m.cfg.TmuxNestedAttachBehavior
+		if behavior == "" {
+			behavior = "switch"
+		}
+
+		if behavior == "nest" {
+			// Nested attach: unset $TMUX and attach (creates nested tmux).
+			// User detaches with prefix+d to return to the TUI.
+			cmd := tmux.NestedAttachCommand(sessionName)
+			return tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return tmuxDetachedMsg{taskID: taskID}
+			})
+		}
+
+		// Default "switch": switch the client to the target session.
+		// The TUI keeps running in the background. User returns with prefix+L.
+		return func() tea.Msg {
+			cmd := tmux.SwitchClientCommand(sessionName)
+			if err := cmd.Run(); err != nil {
+				return errorMsg(fmt.Errorf("failed to switch to tmux session: %w", err))
+			}
+			return tmuxDetachedMsg{taskID: taskID}
+		}
+	}
+
+	// Not inside tmux: hand over the terminal to tmux attach.
 	cmd := tmux.AttachCommand(sessionName)
 	return tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return tmuxDetachedMsg{taskID: taskID}
