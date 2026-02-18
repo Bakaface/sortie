@@ -138,6 +138,147 @@ func TestDetailView_ShowsOnlyLogs(t *testing.T) {
 	}
 }
 
+func TestTmuxSessionsMsg_UpdatesListView(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+
+	sessions := tmuxSessionsMsg(map[int64]bool{1: true, 5: true})
+	result, cmd := m.Update(sessions)
+	updated := result.(Model)
+
+	if !updated.list.tmuxSessions[1] {
+		t.Error("expected task 1 to have tmux session")
+	}
+	if !updated.list.tmuxSessions[5] {
+		t.Error("expected task 5 to have tmux session")
+	}
+	if updated.list.tmuxSessions[3] {
+		t.Error("expected task 3 to NOT have tmux session")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestTmuxDetachedMsg_TriggersRefresh(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+
+	msg := tmuxDetachedMsg{taskID: 42}
+	_, cmd := m.Update(msg)
+
+	if cmd == nil {
+		t.Error("expected refresh command after tmux detach, got nil")
+	}
+}
+
+func TestHandleListKey_TReturnsCommandWhenTaskSelected(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 42, Title: "Test", Status: "awaiting_approval"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
+	_, cmd := m.handleListKey(msg)
+
+	if cmd == nil {
+		t.Error("expected command from 't' key with selected task, got nil")
+	}
+}
+
+func TestHandleListKey_TNoOpWithNoTasks(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
+	_, cmd := m.handleListKey(msg)
+
+	if cmd != nil {
+		t.Error("expected no command from 't' key with no tasks, got non-nil")
+	}
+}
+
+func TestHandleDetailKey_TReturnsCommandWhenTaskSet(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+	task := daemon.TaskInfo{ID: 42, Title: "Test", Status: "awaiting_approval"}
+	m.detail.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
+	_, cmd := m.handleDetailKey(msg)
+
+	if cmd == nil {
+		t.Error("expected command from 't' key in detail view with task, got nil")
+	}
+}
+
+func TestHandleDetailKey_TNoOpWithNoTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
+	_, cmd := m.handleDetailKey(msg)
+
+	if cmd != nil {
+		t.Error("expected no command from 't' key in detail view without task, got non-nil")
+	}
+}
+
+func TestListView_RendersTmuxIndicator(t *testing.T) {
+	l := newListView()
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Task with tmux", Status: "awaiting_approval", CurrentStep: "implement"},
+		{ID: 2, Title: "Task without tmux", Status: "running", CurrentStep: "review"},
+	})
+	l.tmuxSessions = map[int64]bool{1: true}
+	l.SetSize(100, 24)
+
+	output := l.View()
+
+	if !strings.Contains(output, "[T]") {
+		t.Error("expected task list to contain [T] indicator for task with tmux session")
+	}
+}
+
+func TestListView_NoTmuxIndicatorWithoutSessions(t *testing.T) {
+	l := newListView()
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Task without tmux", Status: "running", CurrentStep: "implement"},
+	})
+	l.SetSize(100, 24)
+
+	output := l.View()
+
+	if strings.Contains(output, "[T]") {
+		t.Error("expected task list to NOT contain [T] indicator when no tmux sessions")
+	}
+}
+
 func TestHandleListKey_QQuitsApp(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),

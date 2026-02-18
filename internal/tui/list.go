@@ -9,11 +9,12 @@ import (
 )
 
 type listView struct {
-	tasks    []daemon.TaskInfo
-	cursor   int
-	width    int
-	height   int
-	showHelp bool
+	tasks        []daemon.TaskInfo
+	cursor       int
+	width        int
+	height       int
+	showHelp     bool
+	tmuxSessions map[int64]bool
 }
 
 func newListView() listView {
@@ -144,6 +145,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 				statusLabel = "pending (blocked)"
 			}
 		}
+	}
+	if l.tmuxSessions[task.ID] {
+		statusLabel += " [T]"
 	}
 	status := fmt.Sprintf("%s %s", statusIcon, statusLabel)
 

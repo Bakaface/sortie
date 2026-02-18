@@ -4,12 +4,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aface/ralph-tamer-kit/internal/client"
 	"github.com/aface/ralph-tamer-kit/internal/config"
 	"github.com/aface/ralph-tamer-kit/internal/daemon"
+	"github.com/aface/ralph-tamer-kit/internal/tmux"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -57,6 +59,8 @@ type outputLoadedMsg struct {
 }
 type errorMsg error
 type tickMsg time.Time
+type tmuxDetachedMsg struct{ taskID int64 }
+type tmuxSessionsMsg map[int64]bool
 
 func NewModel(cfg *config.Config) Model {
 	return Model{
@@ -139,6 +143,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorFinishedMsg:
 		return m, m.handleEditorResult(msg.path)
 
+	case tmuxDetachedMsg:
+		return m, m.refreshTasks()
+
+	case tmuxSessionsMsg:
+		m.list.tmuxSessions = msg
+		return m, nil
+
 	case taskDeletedMsg:
 		m.list.RemoveTask(int64(msg))
 		return m, nil
@@ -162,6 +173,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.refreshTasks())
 		}
 
+		cmds = append(cmds, m.checkTmuxSessions())
 		cmds = append(cmds, m.tickCmd())
 		return m, tea.Batch(cmds...)
 
@@ -305,6 +317,12 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "t":
+		if task := m.list.Selected(); task != nil {
+			return m, m.attachTmuxSession(task.ID)
+		}
+		return m, nil
+
 	case "n":
 		if m.client == nil {
 			return m, nil
@@ -374,6 +392,11 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		if m.detail.task != nil && m.client != nil {
 			return m, m.stopTask(m.detail.task.ID)
+		}
+		return m, nil
+	case "t":
+		if m.detail.task != nil {
+			return m, m.attachTmuxSession(m.detail.task.ID)
 		}
 		return m, nil
 	}
@@ -564,6 +587,45 @@ func (m Model) retryTask(taskID int64) tea.Cmd {
 			return errorMsg(err)
 		}
 		return nil
+	}
+}
+
+func (m Model) attachTmuxSession(taskID int64) tea.Cmd {
+	taskIDStr := fmt.Sprintf("%d", taskID)
+	prefix := tmux.SessionPrefix + taskIDStr + "-"
+	sessions, err := tmux.ListSessions(prefix)
+	if err != nil {
+		return func() tea.Msg {
+			return errorMsg(fmt.Errorf("failed to list tmux sessions: %w", err))
+		}
+	}
+	if len(sessions) == 0 {
+		return func() tea.Msg {
+			return errorMsg(fmt.Errorf("no tmux session found for task #%d", taskID))
+		}
+	}
+
+	sessionName := sessions[len(sessions)-1].Name
+	cmd := tmux.AttachCommand(sessionName)
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return tmuxDetachedMsg{taskID: taskID}
+	})
+}
+
+func (m Model) checkTmuxSessions() tea.Cmd {
+	return func() tea.Msg {
+		sessions, err := tmux.ListSessions(tmux.SessionPrefix)
+		if err != nil {
+			return nil
+		}
+		result := make(map[int64]bool)
+		for _, s := range sessions {
+			taskIDStr := tmux.ExtractTaskID(s.Name)
+			if taskID, err := strconv.ParseInt(taskIDStr, 10, 64); err == nil {
+				result[taskID] = true
+			}
+		}
+		return tmuxSessionsMsg(result)
 	}
 }
 
