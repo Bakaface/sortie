@@ -638,27 +638,29 @@ func (m Model) View() string {
 		return fmt.Sprintf("Error: %v\n\nPress any key to continue.", m.err)
 	}
 
+	// Show workflow selection as its own screen
+	if m.selectingWorkflow {
+		workflows := m.cfg.ListWorkflowNames()
+		var content string
+		content += titleStyle.Render("Select Workflow") + "\n\n"
+		for i, name := range workflows {
+			label := fmt.Sprintf("  %d. %s", i+1, name)
+			if i == m.workflowCursor {
+				content += selectedStyle.Render("> "+label) + "\n"
+			} else {
+				content += "    " + label + "\n"
+			}
+		}
+		content += "\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel")
+		return content
+	}
+
 	var content string
 	switch m.view {
 	case viewDetail:
 		content = m.detail.View()
 	default:
 		content = m.list.View()
-	}
-
-	// Show workflow selection menu if active
-	if m.selectingWorkflow {
-		workflows := m.cfg.ListWorkflowNames()
-		content += "\n  Select workflow:\n"
-		for i, name := range workflows {
-			label := fmt.Sprintf("  %d. %s", i+1, name)
-			if i == m.workflowCursor {
-				content += selectedStyle.Render("> "+label) + "\n"
-			} else {
-				content += "  " + label + "\n"
-			}
-		}
-		content += dimStyle.Render("  j/k: navigate | enter: select | esc: cancel")
 	}
 
 	// Show confirmation bar if active
