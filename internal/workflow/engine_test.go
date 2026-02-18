@@ -3,6 +3,7 @@ package workflow
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aface/ralph-tamer-kit/internal/config"
@@ -116,5 +117,62 @@ func TestSummarizerSkipsWhenNoArtifacts(t *testing.T) {
 	artifacts := CollectArtifacts(dir, stepNames)
 	if len(artifacts) != 0 {
 		t.Errorf("expected 0 artifacts when no steps have artifact: true, got %d", len(artifacts))
+	}
+}
+
+func TestWriteTmuxLogMessage(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "step.log")
+
+	lines := writeTmuxLogMessage(logPath, 42, "implement", "ralph-tamer-kit-42-implement", "42")
+
+	// Verify returned lines
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "=== Step: implement (task #42) ===") {
+		t.Errorf("expected step header in line 0, got: %s", lines[0])
+	}
+	if !strings.Contains(lines[1], `Tmux session "ralph-tamer-kit-42-implement" initiated`) {
+		t.Errorf("expected tmux session initiated message in line 1, got: %s", lines[1])
+	}
+	if !strings.Contains(lines[2], "Attach with: rtk attach 42 implement") {
+		t.Errorf("expected attach instructions in line 2, got: %s", lines[2])
+	}
+
+	// Verify log file was written
+	content, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("failed to read log file: %v", err)
+	}
+	logContent := string(content)
+	if !strings.Contains(logContent, "=== Step: implement (task #42) ===") {
+		t.Error("log file missing step header")
+	}
+	if !strings.Contains(logContent, "Tmux session") {
+		t.Error("log file missing tmux session message")
+	}
+	if !strings.Contains(logContent, "rtk attach 42 implement") {
+		t.Error("log file missing attach instructions")
+	}
+}
+
+func TestWriteTmuxLogMessageCallsOutputFn(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "step.log")
+
+	var captured []string
+	outputFn := func(lines []string) {
+		captured = append(captured, lines...)
+	}
+
+	lines := writeTmuxLogMessage(logPath, 7, "review", "ralph-tamer-kit-7-review", "7")
+	outputFn(lines)
+
+	if len(captured) != 3 {
+		t.Fatalf("expected outputFn to receive 3 lines, got %d", len(captured))
+	}
+	if !strings.Contains(captured[1], "Tmux session") {
+		t.Errorf("expected tmux session message in outputFn, got: %s", captured[1])
 	}
 }

@@ -135,7 +135,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		var outputTail string
 		var err error
 		if useTmux {
-			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env)
+			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env, outputFn)
 		} else {
 			exitCode, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn)
 		}
@@ -355,7 +355,7 @@ func readLastLines(path string, n int) ([]string, error) {
 // immediately. The tmux session persists for the user to attach and interact with.
 // The workflow engine treats tmux steps as approval_required, so the task will pause
 // at awaiting_approval until the user manually approves.
-func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string) (int, string, error) {
+func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string)) (int, string, error) {
 	if !tmux.IsAvailable() {
 		return 1, "", fmt.Errorf("tmux is not installed or not in PATH (required for tmux mode)")
 	}
@@ -403,9 +403,10 @@ exec bash
 		return 1, "", fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
-	// Tee pane output to log file (non-fatal if fails)
-	if err := session.PipePane(logPath); err != nil {
-		log.Printf("Warning: failed to pipe pane output to log: %v", err)
+	// Write a clean log message instead of piping raw TUI output via pipe-pane
+	logLines := writeTmuxLogMessage(logPath, t.ID, step.Name, session.Name, taskID)
+	if outputFn != nil {
+		outputFn(logLines)
 	}
 
 	log.Printf("Tmux session %q started for task #%d step %q (attach with: rtk attach %s %s)",
@@ -413,6 +414,30 @@ exec bash
 
 	// Fire-and-forget: return immediately, workflow will pause at approval gate
 	return 0, "", nil
+}
+
+// writeTmuxLogMessage writes a clean status message to the per-step log file for tmux
+// steps, replacing the raw TUI output that pipe-pane would capture.
+func writeTmuxLogMessage(logPath string, taskID int64, stepName, sessionName, taskIDStr string) []string {
+	ts := time.Now().Format("15:04:05")
+	lines := []string{
+		fmt.Sprintf("[%s] === Step: %s (task #%d) ===", ts, stepName, taskID),
+		fmt.Sprintf("[%s] Tmux session %q initiated", ts, sessionName),
+		fmt.Sprintf("[%s] Attach with: rtk attach %s %s", ts, taskIDStr, stepName),
+	}
+
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		log.Printf("Warning: failed to write tmux log message: %v", err)
+		return lines
+	}
+	defer logFile.Close()
+
+	for _, line := range lines {
+		logFile.WriteString(line + "\n")
+	}
+
+	return lines
 }
 
 // runSummarizer generates a summary of all artifacts and stores it as the task's context.
