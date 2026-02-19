@@ -441,7 +441,7 @@ var approveCmd = &cobra.Command{
 	Use:               "approve <task_id>",
 	Short:             "Approve a task awaiting approval",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval),
+	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval, task.StatusTmux),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
@@ -467,7 +467,7 @@ var rejectCmd = &cobra.Command{
 	Use:               "reject <task_id>",
 	Short:             "Reject a task awaiting approval",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval),
+	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval, task.StatusTmux),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
@@ -645,7 +645,7 @@ var attachCmd = &cobra.Command{
 	Use:               "attach <task_id> [step]",
 	Short:             "Attach to a task's tmux session",
 	Args:              cobra.RangeArgs(1, 2),
-	ValidArgsFunction: completeTaskIDs(task.StatusRunning),
+	ValidArgsFunction: completeTaskIDs(task.StatusRunning, task.StatusTmux),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID := args[0]
 		if _, err := strconv.ParseInt(taskID, 10, 64); err != nil {

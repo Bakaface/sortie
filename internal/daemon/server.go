@@ -305,7 +305,7 @@ func (s *Server) handleStartAgent(conn net.Conn, req StartAgentRequest) {
 		return
 	}
 
-	if t.Status != task.StatusPending && t.Status != task.StatusAwaitingApproval {
+	if t.Status != task.StatusPending && t.Status != task.StatusAwaitingApproval && t.Status != task.StatusTmux {
 		s.sendError(conn, fmt.Sprintf("task is not startable (status: %s)", t.Status))
 		return
 	}
@@ -402,7 +402,7 @@ func (s *Server) handleApproveTask(conn net.Conn, req ApproveTaskRequest) {
 		return
 	}
 
-	if t.Status != task.StatusAwaitingApproval {
+	if t.Status != task.StatusAwaitingApproval && t.Status != task.StatusTmux {
 		s.sendError(conn, fmt.Sprintf("task is not awaiting approval (status: %s)", t.Status))
 		return
 	}
@@ -413,6 +413,9 @@ func (s *Server) handleApproveTask(conn net.Conn, req ApproveTaskRequest) {
 		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
 	}
 
+	// Save original status for rollback
+	origStatus := t.Status
+
 	// Set status to running
 	if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
@@ -422,7 +425,7 @@ func (s *Server) handleApproveTask(conn net.Conn, req ApproveTaskRequest) {
 	// Resume the task (engine will continue from t.StepIndex)
 	if err := s.startTaskAgent(t); err != nil {
 		// Roll back status so the task isn't stuck as "running" with no agent
-		_ = s.database.UpdateTaskStatus(t.ID, task.StatusAwaitingApproval)
+		_ = s.database.UpdateTaskStatus(t.ID, origStatus)
 		s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
 		return
 	}
@@ -437,7 +440,7 @@ func (s *Server) handleRejectTask(conn net.Conn, req RejectTaskRequest) {
 		return
 	}
 
-	if t.Status != task.StatusAwaitingApproval {
+	if t.Status != task.StatusAwaitingApproval && t.Status != task.StatusTmux {
 		s.sendError(conn, fmt.Sprintf("task is not awaiting approval (status: %s)", t.Status))
 		return
 	}
@@ -566,7 +569,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	slug := task.Slugify(title)
 
-	t, err := s.database.CreateTask(title, description, slug, req.Workflow, "", task.StatusGeneratingTitle)
+	t, err := s.database.CreateTask(title, description, slug, req.Workflow, "", task.StatusInit)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
 		return
@@ -720,10 +723,10 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 	// Worktrees are NOT auto-cleaned; they persist until explicit cleanup.
 	switch newState {
 	case agent.StateCompleted:
-		// Check if the task is awaiting_approval (engine set this in the DB).
+		// Check if the task is awaiting approval or in tmux status (engine set this in the DB).
 		// If so, don't mark it completed — it's paused for approval.
 		refreshedTask, err := s.database.GetTask(a.Task.ID)
-		if err == nil && refreshedTask.Status == task.StatusAwaitingApproval {
+		if err == nil && (refreshedTask.Status == task.StatusAwaitingApproval || refreshedTask.Status == task.StatusTmux) {
 			log.Printf("Agent %s paused task #%d for approval", a.ID, a.Task.ID)
 			s.notifier.AgentWaitingForInput(a.ID, taskTitle)
 			return
@@ -768,7 +771,7 @@ func (s *Server) checkAllTasksDone() {
 	}
 	for _, t := range tasks {
 		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval:
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux:
 			return // Still active work
 		}
 	}
@@ -888,8 +891,8 @@ func (s *Server) startTaskAgent(t *task.Task) error {
 }
 
 
-// recoverOrphanedTasks resets any tasks stuck in "running" or "generating-title" state to "pending".
-// Tasks in "awaiting_approval" are left alone — they need explicit user action.
+// recoverOrphanedTasks resets any tasks stuck in "running" or "init" state to "pending".
+// Tasks in "awaiting-approval" are left alone — they need explicit user action.
 func (s *Server) recoverOrphanedTasks() error {
 	runningTasks, err := s.database.GetRunningTasks()
 	if err != nil {
@@ -909,14 +912,17 @@ func (s *Server) recoverOrphanedTasks() error {
 		return nil // Non-critical, don't fail
 	}
 	for _, t := range allTasks {
-		if t.Status == task.StatusGeneratingTitle {
-			log.Printf("Recovering task #%d stuck in generating-title, resetting to pending", t.ID)
+		if t.Status == task.StatusInit {
+			log.Printf("Recovering task #%d stuck in init, resetting to pending", t.ID)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
 				log.Printf("Failed to reset task #%d: %v", t.ID, err)
 			}
 		}
 		if t.Status == task.StatusAwaitingApproval {
 			log.Printf("Task #%d is awaiting approval (use 'approve' or 'reject' command)", t.ID)
+		}
+		if t.Status == task.StatusTmux {
+			log.Printf("Task #%d has tmux session running (use 'approve' or 'reject' command)", t.ID)
 		}
 	}
 

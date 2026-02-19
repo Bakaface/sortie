@@ -10,9 +10,10 @@ type Status string
 
 const (
 	StatusPending          Status = "pending"
-	StatusGeneratingTitle  Status = "generating-title"
+	StatusInit             Status = "init"
 	StatusRunning          Status = "running"
-	StatusAwaitingApproval Status = "awaiting_approval"
+	StatusAwaitingApproval Status = "awaiting-approval"
+	StatusTmux             Status = "tmux"
 	StatusCompleted        Status = "completed"
 	StatusFailed           Status = "failed"
 )
@@ -26,7 +27,7 @@ func (s Status) IsTerminal() bool {
 }
 
 func (s Status) IsActive() bool {
-	return s == StatusRunning || s == StatusAwaitingApproval
+	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux
 }
 
 type Task struct {
