@@ -314,3 +314,9 @@ func newTaskInfoKeyMap() taskInfoKeyMap {
 func (k taskInfoKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.Attach, k.Back}
 }
+
+// Pre-allocated key maps to avoid allocations on every renderHelp() call.
+var (
+	cachedDetailFollowKeyMap = newDetailFollowKeyMap()
+	cachedDetailNormalKeyMap = newDetailNormalKeyMap()
+)
