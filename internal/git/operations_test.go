@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -129,5 +130,57 @@ func TestForceDeleteBranch_NonExistent(t *testing.T) {
 	err := ForceDeleteBranch(repo, "nonexistent-branch")
 	if err == nil {
 		t.Fatal("expected ForceDeleteBranch to fail for nonexistent branch")
+	}
+}
+
+func TestDiffStat_WithChanges(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create a feature branch with changes
+	for _, args := range [][]string{
+		{"git", "checkout", "-b", "feature"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v failed: %v\n%s", args, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new_file.go"), []byte("package main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"git", "add", "-A"},
+		{"git", "commit", "-m", "add new file"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	stat, err := DiffStat(repo, "main")
+	if err != nil {
+		t.Fatalf("DiffStat failed: %v", err)
+	}
+	if stat == "" {
+		t.Error("expected non-empty diff stat for branch with changes")
+	}
+	if !strings.Contains(stat, "new_file.go") {
+		t.Errorf("expected diff stat to mention new_file.go, got: %s", stat)
+	}
+}
+
+func TestDiffStat_NoChanges(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Stay on main, no changes
+	stat, err := DiffStat(repo, "main")
+	if err != nil {
+		t.Fatalf("DiffStat failed: %v", err)
+	}
+	if stat != "" {
+		t.Errorf("expected empty diff stat when no changes, got: %s", stat)
 	}
 }

@@ -453,9 +453,23 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 
 	// Collect all artifacts
 	artifacts := CollectArtifacts(t.WorktreePath, stepNames)
+
+	// Get git diff stat as fallback context when no artifacts are available
+	var diffStat string
 	if len(artifacts) == 0 {
-		log.Printf("No artifacts found for task #%d, skipping summarizer", t.ID)
-		return nil
+		baseBranch := e.cfg.Git.BaseBranch
+		if baseBranch == "" {
+			baseBranch = "main"
+		}
+		var err error
+		diffStat, err = gitpkg.DiffStat(t.WorktreePath, baseBranch)
+		if err != nil {
+			log.Printf("Warning: failed to get diff stat for task #%d: %v", t.ID, err)
+		}
+		if diffStat == "" {
+			log.Printf("No artifacts or changes found for task #%d, skipping summarizer", t.ID)
+			return nil
+		}
 	}
 
 	// Build the prompt
@@ -477,7 +491,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 			},
 		}
 		prompt = ResolveTemplate(wf.SummarizerPrompt, tmplCtx)
-	} else {
+	} else if len(artifacts) > 0 {
 		// Build default prompt with all artifacts
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("Summarize the progress made on task #%d: %s\n\n", t.ID, t.Title))
@@ -489,6 +503,18 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 		}
 		sb.WriteString("Provide a concise but comprehensive summary of what was accomplished, ")
 		sb.WriteString("any decisions made, and the current state of the implementation. ")
+		sb.WriteString("This summary will be used as context for future work on this task.")
+		prompt = sb.String()
+	} else {
+		// No artifacts — use git diff stat to generate a summary
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf("Summarize the progress made on task #%d: %s\n\n", t.ID, t.Title))
+		sb.WriteString("The task description was:\n")
+		sb.WriteString(t.Description)
+		sb.WriteString("\n\nThe following files were changed:\n\n```\n")
+		sb.WriteString(diffStat)
+		sb.WriteString("\n```\n\n")
+		sb.WriteString("Based on the task description and the files changed, provide a concise summary of what was accomplished. ")
 		sb.WriteString("This summary will be used as context for future work on this task.")
 		prompt = sb.String()
 	}

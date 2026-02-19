@@ -203,6 +203,39 @@ func HasMeaningfulChanges(workDir string, excludeFiles []string) (bool, error) {
 	return false, nil
 }
 
+// DiffStat returns the --stat output for all commits on the current branch
+// relative to the given base branch. Returns empty string if no diff is available.
+func DiffStat(workDir, baseBranch string) (string, error) {
+	// Find the merge base to diff against
+	mergeBaseCmd := exec.Command("git", "merge-base", baseBranch, "HEAD")
+	mergeBaseCmd.Dir = workDir
+	var mbOut, mbErr bytes.Buffer
+	mergeBaseCmd.Stdout = &mbOut
+	mergeBaseCmd.Stderr = &mbErr
+	if err := mergeBaseCmd.Run(); err != nil {
+		// Fallback: try diffing against HEAD~1
+		diffCmd := exec.Command("git", "diff", "--stat", "HEAD~1")
+		diffCmd.Dir = workDir
+		var diffOut bytes.Buffer
+		diffCmd.Stdout = &diffOut
+		if diffErr := diffCmd.Run(); diffErr != nil {
+			return "", nil
+		}
+		return strings.TrimSpace(diffOut.String()), nil
+	}
+
+	mergeBase := strings.TrimSpace(mbOut.String())
+	diffCmd := exec.Command("git", "diff", "--stat", mergeBase)
+	diffCmd.Dir = workDir
+	var diffOut, diffErr2 bytes.Buffer
+	diffCmd.Stdout = &diffOut
+	diffCmd.Stderr = &diffErr2
+	if err := diffCmd.Run(); err != nil {
+		return "", fmt.Errorf("git diff --stat failed: %w", err)
+	}
+	return strings.TrimSpace(diffOut.String()), nil
+}
+
 func GetLastCommitMessage(workDir string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--pretty=%B")
 	cmd.Dir = workDir
