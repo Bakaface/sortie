@@ -63,7 +63,7 @@ done:
 		t.Fatal("OutputFunc was never called — no parsed lines from claude output")
 	}
 
-	// Should have the expected text output
+	// Should have the expected text in output
 	foundText := false
 	for _, l := range capturedLines {
 		if contains(l, "HELLO_TEST_OUTPUT") {

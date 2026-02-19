@@ -264,15 +264,24 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	}
 	defer logFile.Close()
 
-	// Write step header and prompt
-	header := fmt.Sprintf("[%s] === Step: %s (task #%d) ===\n",
+	// Write step header and prompt to log file and outputFn
+	header := fmt.Sprintf("[%s] === Step: %s (task #%d) ===",
 		time.Now().Format("15:04:05"), step.Name, t.ID)
-	logFile.WriteString(header)
-	logFile.WriteString(fmt.Sprintf("[%s] Prompt:\n", time.Now().Format("15:04:05")))
+	promptHeader := fmt.Sprintf("[%s] Prompt:", time.Now().Format("15:04:05"))
+	var promptLines []string
+	promptLines = append(promptLines, header)
+	promptLines = append(promptLines, promptHeader)
 	for _, line := range strings.Split(prompt, "\n") {
-		logFile.WriteString(fmt.Sprintf("[%s]   %s\n", time.Now().Format("15:04:05"), line))
+		promptLines = append(promptLines, fmt.Sprintf("[%s]   %s", time.Now().Format("15:04:05"), line))
 	}
-	logFile.WriteString("\n")
+	promptLines = append(promptLines, "")
+
+	for _, line := range promptLines {
+		logFile.WriteString(line + "\n")
+	}
+	if outputFn != nil {
+		outputFn(promptLines)
+	}
 
 	// Compose OutputFunc: write to log file AND call the agent's outputFn
 	var logMu sync.Mutex
@@ -309,11 +318,14 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 				exitCode := proc.ExitCode()
 
 				// Write step footer
-				footer := fmt.Sprintf("[%s] === Step %s finished (exit=%d) ===\n",
+				footer := fmt.Sprintf("[%s] === Step %s finished (exit=%d) ===",
 					time.Now().Format("15:04:05"), step.Name, exitCode)
 				logMu.Lock()
-				logFile.WriteString(footer)
+				logFile.WriteString(footer + "\n")
 				logMu.Unlock()
+				if outputFn != nil {
+					outputFn([]string{footer})
+				}
 
 				var outputTail string
 				if exitCode != 0 {

@@ -94,10 +94,8 @@ func (p *StreamParser) parseAssistant(ev *streamEvent, ts string) []string {
 
 	var lines []string
 
-	// Track message ID to detect new turns
-	if ev.Message.ID != p.lastMsgID {
-		p.lastMsgID = ev.Message.ID
-	}
+	// Track message ID to detect new turns (no output — just state tracking)
+	p.lastMsgID = ev.Message.ID
 
 	for _, block := range ev.Message.Content {
 		switch block.Type {
