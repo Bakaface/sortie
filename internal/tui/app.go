@@ -186,11 +186,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Clear error on any keypress
-	if m.err != nil {
-		m.err = nil
-		return m, nil
-	}
+	// Clear error on any keypress, but still process the key
+	m.err = nil
 
 	switch m.view {
 	case viewList:

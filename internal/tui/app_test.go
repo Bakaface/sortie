@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/aface/ralph-tamer-kit/internal/client"
 	"github.com/aface/ralph-tamer-kit/internal/daemon"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -291,6 +293,58 @@ func TestListView_NoTmuxIndicatorWithoutSessions(t *testing.T) {
 	if strings.Contains(output, "[T]") {
 		t.Error("expected task list to NOT contain [T] indicator when no tmux sessions")
 	}
+}
+
+func TestHandleKey_ClearsErrorAndProcessesKey(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewList,
+		err:    fmt.Errorf("some background error"),
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 26, Title: "Test task", Status: "awaiting-approval"},
+	})
+
+	// Press "a" while m.err is set — should clear error AND trigger approve confirmation
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
+	result, _ := m.handleKey(msg)
+	updated := result.(Model)
+
+	if updated.err != nil {
+		t.Error("expected error to be cleared")
+	}
+	if updated.confirmAction != "approve" {
+		t.Errorf("expected confirmAction to be 'approve', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 26 {
+		t.Errorf("expected confirmTaskID to be 26, got %d", updated.confirmTaskID)
+	}
+}
+
+func TestHandleKey_ClearsErrorOnAnyKey(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(),
+		detail: newDetailView(),
+		view:   viewList,
+		err:    fmt.Errorf("some error"),
+	}
+
+	// Press "R" (refresh) while m.err is set — should clear error AND process the key
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}}
+	result, cmd := m.handleKey(msg)
+	updated := result.(Model)
+
+	if updated.err != nil {
+		t.Error("expected error to be cleared")
+	}
+	// "R" triggers refreshTasks which requires a client, so cmd should be non-nil only with client
+	// Without client, it returns nil — that's fine, the important thing is the error was cleared
+	// and we didn't just swallow the keypress
+	_ = cmd
 }
 
 func TestHandleListKey_QQuitsApp(t *testing.T) {
