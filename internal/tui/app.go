@@ -23,16 +23,19 @@ const (
 )
 
 type Model struct {
-	cfg      *config.Config
-	client   *client.Client
-	keys     keyMap
-	list     listView
-	detail   detailView
-	view     view
-	width    int
-	height   int
-	err      error
-	quitting bool
+	cfg         *config.Config
+	client      *client.Client
+	keys        keyMap
+	list        listView
+	detail      detailView
+	view        view
+	width       int
+	height      int
+	err         error
+	quitting    bool
+	projectID   int64  // 0 = global mode (show all projects)
+	projectPath string // project directory path, empty in global mode
+	globalMode  bool
 
 	// Confirmation state
 	confirmAction string // "approve", "reject", or "delete"; empty if no confirmation pending
@@ -62,13 +65,16 @@ type tickMsg time.Time
 type tmuxDetachedMsg struct{ taskID int64 }
 type tmuxSessionsMsg map[int64]bool
 
-func NewModel(cfg *config.Config) Model {
+func NewModel(cfg *config.Config, projectID int64, projectPath string, globalMode bool) Model {
 	return Model{
-		cfg:    cfg,
-		keys:   newKeyMap(),
-		list:   newListView(),
-		detail: newDetailView(),
-		view:   viewList,
+		cfg:         cfg,
+		keys:        newKeyMap(),
+		list:        newListView(globalMode),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectID:   projectID,
+		projectPath: projectPath,
+		globalMode:  globalMode,
 	}
 }
 
@@ -90,7 +96,7 @@ func (m Model) connectToDaemon() tea.Cmd {
 			return errorMsg(err)
 		}
 
-		tasks, err := c.ListTasks()
+		tasks, err := c.ListTasksFiltered(m.projectID)
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -454,7 +460,7 @@ func (m Model) refreshTasks() tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		tasks, err := m.client.ListTasks()
+		tasks, err := m.client.ListTasksFiltered(m.projectID)
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -552,7 +558,7 @@ func (m Model) handleEditorResult(path string) tea.Cmd {
 			return nil
 		}
 
-		info, err := m.client.CreateTask(description, m.selectedWorkflow)
+		info, err := m.client.CreateTask(description, m.selectedWorkflow, m.projectPath)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
@@ -696,9 +702,9 @@ func (m Model) View() string {
 	return content
 }
 
-func Run(cfg *config.Config) error {
+func Run(cfg *config.Config, projectID int64, projectPath string, globalMode bool) error {
 	p := tea.NewProgram(
-		NewModel(cfg),
+		NewModel(cfg, projectID, projectPath, globalMode),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

@@ -14,14 +14,16 @@ type listView struct {
 	width        int
 	height       int
 	showHelp     bool
+	globalMode   bool
 	tmuxSessions map[int64]bool
 }
 
-func newListView() listView {
+func newListView(globalMode bool) listView {
 	return listView{
-		tasks:    make([]daemon.TaskInfo, 0),
-		cursor:   0,
-		showHelp: false,
+		tasks:      make([]daemon.TaskInfo, 0),
+		cursor:     0,
+		showHelp:   false,
+		globalMode: globalMode,
 	}
 }
 
@@ -81,7 +83,13 @@ func (l *listView) SetSize(width, height int) {
 func (l *listView) View() string {
 	var b strings.Builder
 
-	title := titleStyle.Render(" Ralph Tamer Kit ")
+	var titleText string
+	if l.globalMode {
+		titleText = " Ralph Tamer Kit (Global) "
+	} else {
+		titleText = " Ralph Tamer Kit "
+	}
+	title := titleStyle.Render(titleText)
 	b.WriteString(title)
 	b.WriteString("\n\n")
 
@@ -89,8 +97,14 @@ func (l *listView) View() string {
 		b.WriteString(dimStyle.Render("  No tasks found. Use 'ralph-tamer-kit plan <PRD.md>' to create tasks."))
 		b.WriteString("\n")
 	} else {
-		header := fmt.Sprintf("  %-5s %-22s %s",
-			"ID", "STATUS", "TITLE")
+		var header string
+		if l.globalMode {
+			header = fmt.Sprintf("  %-5s %-14s %-22s %s",
+				"ID", "PROJECT", "STATUS", "TITLE")
+		} else {
+			header = fmt.Sprintf("  %-5s %-22s %s",
+				"ID", "STATUS", "TITLE")
+		}
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
 
@@ -166,9 +180,21 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 	idCol := lipgloss.NewStyle().Width(5).Render(taskID)
 
 	if selected {
-		// Plain white text on selected background — no per-column colors
 		statusCol := lipgloss.NewStyle().Width(22).Render(status)
-		line := fmt.Sprintf("  %s %s %s", idCol, statusCol, title)
+		var line string
+		if l.globalMode {
+			projName := task.ProjectName
+			if projName == "" {
+				projName = "-"
+			}
+			if len(projName) > 12 {
+				projName = projName[:12]
+			}
+			projCol := lipgloss.NewStyle().Width(14).Render(projName)
+			line = fmt.Sprintf("  %s %s %s %s", idCol, projCol, statusCol, title)
+		} else {
+			line = fmt.Sprintf("  %s %s %s", idCol, statusCol, title)
+		}
 		return selectedStyle.Render(line)
 	}
 
@@ -178,7 +204,20 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 		statusStyle = stateStyle("failed")
 	}
 	statusCol := statusStyle.Width(22).Render(status)
-	line := fmt.Sprintf("  %s %s %s", idCol, statusCol, title)
+	var line string
+	if l.globalMode {
+		projName := task.ProjectName
+		if projName == "" {
+			projName = "-"
+		}
+		if len(projName) > 12 {
+			projName = projName[:12]
+		}
+		projCol := lipgloss.NewStyle().Width(14).Render(projName)
+		line = fmt.Sprintf("  %s %s %s %s", idCol, projCol, statusCol, title)
+	} else {
+		line = fmt.Sprintf("  %s %s %s", idCol, statusCol, title)
+	}
 	return normalStyle.Render(line)
 }
 

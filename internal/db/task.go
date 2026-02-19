@@ -8,10 +8,10 @@ import (
 	"github.com/aface/ralph-tamer-kit/internal/task"
 )
 
-func (db *DB) CreateTask(title, description, slug, workflow, branch string, status task.Status) (*task.Task, error) {
+func (db *DB) CreateTask(projectID int64, title, description, slug, workflow, branch string, status task.Status) (*task.Task, error) {
 	result, err := db.Exec(
-		`INSERT INTO tasks (title, description, slug, workflow, branch, status) VALUES (?, ?, ?, ?, ?, ?)`,
-		title, description, slug, workflow, branch, status,
+		`INSERT INTO tasks (project_id, title, description, slug, workflow, branch, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		projectID, title, description, slug, workflow, branch, status,
 	)
 	if err != nil {
 		return nil, err
@@ -25,7 +25,7 @@ func (db *DB) CreateTask(title, description, slug, workflow, branch string, stat
 	return db.GetTask(id)
 }
 
-const taskColumns = `id, title, description, slug, workflow, status, step_index, current_step,
+const taskColumns = `id, project_id, title, description, slug, workflow, status, step_index, current_step,
 	branch, worktree_path, exit_code, error_message, context,
 	created_at, started_at, completed_at, updated_at`
 
@@ -103,6 +103,30 @@ func (db *DB) GetAllTasks() ([]*task.Task, error) {
 	}
 
 	// Load dependencies for all tasks
+	for _, t := range tasks {
+		deps, err := db.getBlockedBy(t.ID)
+		if err != nil {
+			return nil, err
+		}
+		t.BlockedBy = deps
+	}
+
+	return tasks, nil
+}
+
+// GetTasksByProject returns all tasks for a specific project.
+func (db *DB) GetTasksByProject(projectID int64) ([]*task.Task, error) {
+	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id = ? ORDER BY id ASC`, taskColumns), projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tasks, err := scanTasks(rows)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, t := range tasks {
 		deps, err := db.getBlockedBy(t.ID)
 		if err != nil {
@@ -242,6 +266,7 @@ func (db *DB) DeleteTask(id int64) error {
 
 func scanTask(row *sql.Row) (*task.Task, error) {
 	var t task.Task
+	var projectID sql.NullInt64
 	var title, slug, workflow, branch sql.NullString
 	var currentStep, worktreePath, errorMessage sql.NullString
 	var taskContext sql.NullString
@@ -250,7 +275,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	var updatedAt sql.NullTime
 
 	err := row.Scan(
-		&t.ID, &title, &t.Description, &slug, &workflow, &t.Status,
+		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status,
 		&t.StepIndex, &currentStep,
 		&branch, &worktreePath, &exitCode, &errorMessage, &taskContext,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
@@ -259,6 +284,9 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 		return nil, err
 	}
 
+	if projectID.Valid {
+		t.ProjectID = projectID.Int64
+	}
 	if title.Valid {
 		t.Title = title.String
 	}
@@ -305,6 +333,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 
 	for rows.Next() {
 		var t task.Task
+		var projectID sql.NullInt64
 		var title, slug, workflow, branch sql.NullString
 		var currentStep, worktreePath, errorMessage sql.NullString
 		var taskContext sql.NullString
@@ -313,7 +342,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		var updatedAt sql.NullTime
 
 		err := rows.Scan(
-			&t.ID, &title, &t.Description, &slug, &workflow, &t.Status,
+			&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status,
 			&t.StepIndex, &currentStep,
 			&branch, &worktreePath, &exitCode, &errorMessage, &taskContext,
 			&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
@@ -322,6 +351,9 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 			return nil, err
 		}
 
+		if projectID.Valid {
+			t.ProjectID = projectID.Int64
+		}
 		if title.Valid {
 			t.Title = title.String
 		}

@@ -319,10 +319,28 @@ func (c *Config) computePaths() {
 		c.ProjectDir = cwd
 	}
 
-	rtkDir := filepath.Join(c.ProjectDir, ".rtk")
-	c.DatabasePath = filepath.Join(rtkDir, "tasks.db")
-	c.SocketPath = filepath.Join(rtkDir, "daemon.sock")
-	c.PidFile = filepath.Join(rtkDir, "daemon.pid")
+	// Daemon paths are global (under ~/.config/ralph-tamer-kit/)
+	globalDir := getGlobalDataDir()
+	c.DatabasePath = filepath.Join(globalDir, "tasks.db")
+	c.SocketPath = filepath.Join(globalDir, "daemon.sock")
+	c.PidFile = filepath.Join(globalDir, "daemon.pid")
+}
+
+// getGlobalDataDir returns the global data directory for daemon state.
+func getGlobalDataDir() string {
+	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
+		return filepath.Join(xdgConfig, "ralph-tamer-kit")
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "ralph-tamer-kit")
+	}
+	return filepath.Join(homeDir, ".config", "ralph-tamer-kit")
+}
+
+// GetGlobalDataDir is the exported version for use by other packages.
+func GetGlobalDataDir() string {
+	return getGlobalDataDir()
 }
 
 func (c *Config) syncCompat() {
@@ -359,16 +377,9 @@ func (c *Config) EnsureDirs() error {
 	return nil
 }
 
-// GetDatabasePath returns the database path, potentially relative to projectDir.
-func (c *Config) GetDatabasePath(projectDir string) string {
-	if c.DatabasePath != "" && filepath.IsAbs(c.DatabasePath) {
-		return c.DatabasePath
-	}
-
-	if projectDir != "" {
-		return filepath.Join(projectDir, ".rtk", "tasks.db")
-	}
-
+// GetDatabasePath returns the global database path.
+// The projectDir parameter is kept for backward compatibility but is no longer used.
+func (c *Config) GetDatabasePath(_ string) string {
 	return c.DatabasePath
 }
 

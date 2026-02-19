@@ -13,7 +13,7 @@ import (
 func TestHandleDetailKey_QReturnsToList(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -36,7 +36,7 @@ func TestHandleDetailKey_QReturnsToList(t *testing.T) {
 func TestHandleDetailKey_EscReturnsToList(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -58,7 +58,7 @@ func TestHandleDetailKey_EscReturnsToList(t *testing.T) {
 func TestHandleDetailKey_EscInFollowModeExitsFollow(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -79,7 +79,7 @@ func TestHandleDetailKey_EscInFollowModeExitsFollow(t *testing.T) {
 func TestHandleDetailKey_QInFollowModeReturnsToList(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -143,7 +143,7 @@ func TestDetailView_ShowsOnlyLogs(t *testing.T) {
 func TestTmuxSessionsMsg_UpdatesListView(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -169,7 +169,7 @@ func TestTmuxSessionsMsg_UpdatesListView(t *testing.T) {
 func TestTmuxDetachedMsg_TriggersRefresh(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -185,7 +185,7 @@ func TestTmuxDetachedMsg_TriggersRefresh(t *testing.T) {
 func TestHandleListKey_TReturnsCommandWhenTaskSelected(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -204,7 +204,7 @@ func TestHandleListKey_TReturnsCommandWhenTaskSelected(t *testing.T) {
 func TestHandleListKey_TNoOpWithNoTasks(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -220,7 +220,7 @@ func TestHandleListKey_TNoOpWithNoTasks(t *testing.T) {
 func TestHandleDetailKey_TReturnsCommandWhenTaskSet(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -238,7 +238,7 @@ func TestHandleDetailKey_TReturnsCommandWhenTaskSet(t *testing.T) {
 func TestHandleDetailKey_TNoOpWithNoTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -252,7 +252,7 @@ func TestHandleDetailKey_TNoOpWithNoTask(t *testing.T) {
 }
 
 func TestListView_RendersTmuxIndicator(t *testing.T) {
-	l := newListView()
+	l := newListView(false)
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task with tmux", Status: "awaiting-approval", CurrentStep: "implement"},
 		{ID: 2, Title: "Task without tmux", Status: "running", CurrentStep: "review"},
@@ -268,7 +268,7 @@ func TestListView_RendersTmuxIndicator(t *testing.T) {
 }
 
 func TestListView_RendersTmuxStatus(t *testing.T) {
-	l := newListView()
+	l := newListView(false)
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task with tmux status", Status: "tmux", CurrentStep: "implement"},
 	})
@@ -282,7 +282,7 @@ func TestListView_RendersTmuxStatus(t *testing.T) {
 }
 
 func TestListView_NoTmuxIndicatorWithoutSessions(t *testing.T) {
-	l := newListView()
+	l := newListView(false)
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task without tmux", Status: "running", CurrentStep: "implement"},
 	})
@@ -299,7 +299,7 @@ func TestHandleKey_ClearsErrorAndProcessesKey(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewList,
 		err:    fmt.Errorf("some background error"),
@@ -327,7 +327,7 @@ func TestHandleKey_ClearsErrorAndProcessesKey(t *testing.T) {
 func TestHandleKey_ClearsErrorOnAnyKey(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewList,
 		err:    fmt.Errorf("some error"),
@@ -350,7 +350,7 @@ func TestHandleKey_ClearsErrorOnAnyKey(t *testing.T) {
 func TestHandleListKey_QQuitsApp(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(),
+		list:   newListView(false),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -364,5 +364,44 @@ func TestHandleListKey_QQuitsApp(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Error("expected quit command, got nil")
+	}
+}
+
+func TestListView_GlobalModeTitle(t *testing.T) {
+	l := newListView(true)
+	l.SetSize(100, 24)
+	output := l.View()
+
+	if !strings.Contains(output, "Global") {
+		t.Error("expected global mode title to contain 'Global'")
+	}
+}
+
+func TestListView_GlobalModeShowsProjectColumn(t *testing.T) {
+	l := newListView(true)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Task", Status: "running", ProjectName: "myproject"},
+	})
+	l.SetSize(120, 24)
+	output := l.View()
+
+	if !strings.Contains(output, "PROJECT") {
+		t.Error("expected global mode to show PROJECT header column")
+	}
+	if !strings.Contains(output, "myproject") {
+		t.Error("expected global mode to show project name 'myproject'")
+	}
+}
+
+func TestListView_NonGlobalModeHidesProjectColumn(t *testing.T) {
+	l := newListView(false)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Task", Status: "running", ProjectName: "myproject"},
+	})
+	l.SetSize(100, 24)
+	output := l.View()
+
+	if strings.Contains(output, "PROJECT") {
+		t.Error("expected non-global mode to NOT show PROJECT header column")
 	}
 }
