@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/aface/ralph-tamer-kit/internal/client"
+	"github.com/aface/ralph-tamer-kit/internal/config"
 	"github.com/aface/ralph-tamer-kit/internal/daemon"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -364,5 +365,225 @@ func TestHandleListKey_QQuitsApp(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Error("expected quit command, got nil")
+	}
+}
+
+func TestHandleListKey_EnterOpensTaskInfoView(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewList,
+		cfg:      &config.Config{},
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 7, Title: "Test task", Status: "running"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewTaskInfo {
+		t.Errorf("expected view to be viewTaskInfo (%d), got %d", viewTaskInfo, updated.view)
+	}
+	if updated.taskInfo.task == nil {
+		t.Fatal("expected taskInfo.task to be set")
+	}
+	if updated.taskInfo.task.ID != 7 {
+		t.Errorf("expected taskInfo task ID 7, got %d", updated.taskInfo.task.ID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (no log loading for task info), got non-nil")
+	}
+}
+
+func TestHandleListKey_LOpensLogsView(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 7, Title: "Test task", Status: "running"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewDetail {
+		t.Errorf("expected view to be viewDetail (%d), got %d", viewDetail, updated.view)
+	}
+	if updated.detail.task == nil {
+		t.Fatal("expected detail.task to be set")
+	}
+	if updated.detail.task.ID != 7 {
+		t.Errorf("expected detail task ID 7, got %d", updated.detail.task.ID)
+	}
+	if !updated.detail.IsFollowMode() {
+		t.Error("expected follow mode to be true")
+	}
+	if cmd == nil {
+		t.Error("expected loadOutput command, got nil")
+	}
+}
+
+func TestHandleTaskInfoKey_QReturnsToList(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewList {
+		t.Errorf("expected view to be viewList (%d), got %d", viewList, updated.view)
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestHandleTaskInfoKey_EscReturnsToList(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewList {
+		t.Errorf("expected view to be viewList (%d), got %d", viewList, updated.view)
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestHandleTaskInfoKey_LOpensLogsView(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+	}
+	task := daemon.TaskInfo{ID: 42, Title: "Test", Status: "running"}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewDetail {
+		t.Errorf("expected view to be viewDetail (%d), got %d", viewDetail, updated.view)
+	}
+	if updated.detail.task == nil {
+		t.Fatal("expected detail.task to be set")
+	}
+	if updated.detail.task.ID != 42 {
+		t.Errorf("expected detail task ID 42, got %d", updated.detail.task.ID)
+	}
+	if !updated.detail.IsFollowMode() {
+		t.Error("expected follow mode to be true")
+	}
+	if cmd == nil {
+		t.Error("expected loadOutput command, got nil")
+	}
+}
+
+func TestTaskInfoView_ShowsMetadata(t *testing.T) {
+	v := newTaskInfoView()
+	v.SetTask(&daemon.TaskInfo{
+		ID:          14,
+		Title:       "Test task",
+		Description: "Some description",
+		Status:      "running",
+		Branch:      "rtk/14-test",
+		CurrentStep: "implement",
+		StepIndex:   0,
+		Context:     "some context info",
+	})
+	v.SetWorkflow(&config.WorkflowConfig{
+		Name: "default",
+		Steps: []config.StepConfig{
+			{Name: "implement", Artifact: true},
+			{Name: "review", ApprovalRequired: true},
+			{Name: "test"},
+		},
+	})
+	v.SetSize(80, 40)
+
+	output := v.View()
+
+	// Should contain metadata
+	if !strings.Contains(output, "#14") {
+		t.Error("expected output to contain task ID '#14'")
+	}
+	if !strings.Contains(output, "Status:") {
+		t.Error("expected output to contain 'Status:'")
+	}
+	if !strings.Contains(output, "running") {
+		t.Error("expected output to contain status 'running'")
+	}
+	if !strings.Contains(output, "Branch:") {
+		t.Error("expected output to contain 'Branch:'")
+	}
+	if !strings.Contains(output, "rtk/14-test") {
+		t.Error("expected output to contain branch name")
+	}
+	if !strings.Contains(output, "Some description") {
+		t.Error("expected output to contain description")
+	}
+	if !strings.Contains(output, "some context info") {
+		t.Error("expected output to contain context")
+	}
+
+	// Should show workflow progress
+	if !strings.Contains(output, "implement") {
+		t.Error("expected output to contain step name 'implement'")
+	}
+	if !strings.Contains(output, "review") {
+		t.Error("expected output to contain step name 'review'")
+	}
+	if !strings.Contains(output, "[approval]") {
+		t.Error("expected output to contain '[approval]' indicator")
+	}
+	if !strings.Contains(output, "[artifact]") {
+		t.Error("expected output to contain '[artifact]' indicator")
+	}
+}
+
+func TestTaskInfoView_NoLogs(t *testing.T) {
+	v := newTaskInfoView()
+	v.SetTask(&daemon.TaskInfo{
+		ID:     14,
+		Title:  "Test task",
+		Status: "running",
+	})
+	v.SetSize(80, 24)
+
+	output := v.View()
+
+	// Should NOT contain log-style content or FOLLOW/NORMAL mode
+	if strings.Contains(output, "FOLLOW") {
+		t.Error("expected task info view to not contain FOLLOW mode indicator")
+	}
+	if strings.Contains(output, "NORMAL") {
+		t.Error("expected task info view to not contain NORMAL mode indicator")
 	}
 }

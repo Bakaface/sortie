@@ -20,6 +20,7 @@ type view int
 const (
 	viewList view = iota
 	viewDetail
+	viewTaskInfo
 )
 
 type Model struct {
@@ -28,6 +29,7 @@ type Model struct {
 	keys     keyMap
 	list     listView
 	detail   detailView
+	taskInfo taskInfoView
 	view     view
 	width    int
 	height   int
@@ -64,11 +66,12 @@ type tmuxSessionsMsg map[int64]bool
 
 func NewModel(cfg *config.Config) Model {
 	return Model{
-		cfg:    cfg,
-		keys:   newKeyMap(),
-		list:   newListView(),
-		detail: newDetailView(),
-		view:   viewList,
+		cfg:      cfg,
+		keys:     newKeyMap(),
+		list:     newListView(),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewList,
 	}
 }
 
@@ -121,6 +124,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.list.SetSize(msg.Width, msg.Height)
 		m.detail.SetSize(msg.Width, msg.Height)
+		m.taskInfo.SetSize(msg.Width, msg.Height)
 		return m, nil
 
 	case clientConnectedMsg:
@@ -137,6 +141,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.view == viewDetail && m.detail.task != nil && m.detail.task.ID == msg.ID {
 			task := daemon.TaskInfo(msg)
 			m.detail.SetTask(&task)
+		}
+		if m.view == viewTaskInfo && m.taskInfo.task != nil && m.taskInfo.task.ID == msg.ID {
+			task := daemon.TaskInfo(msg)
+			m.taskInfo.SetTask(&task)
 		}
 		return m, nil
 
@@ -194,6 +202,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleListKey(msg)
 	case viewDetail:
 		return m.handleDetailKey(msg)
+	case viewTaskInfo:
+		return m.handleTaskInfoKey(msg)
 	}
 	return m, nil
 }
@@ -268,6 +278,15 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
+		if task := m.list.Selected(); task != nil {
+			m.view = viewTaskInfo
+			m.taskInfo.SetTask(task)
+			m.taskInfo.SetWorkflow(m.cfg.GetWorkflow(task.Workflow))
+			return m, nil
+		}
+		return m, nil
+
+	case "l":
 		if task := m.list.Selected(); task != nil {
 			m.view = viewDetail
 			m.detail.SetTask(task)
@@ -443,6 +462,66 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.view = viewList
 		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
+func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case "q", "esc":
+		m.view = viewList
+		return m, nil
+	case "ctrl+c":
+		if m.taskInfo.task != nil && m.client != nil {
+			return m, m.stopTask(m.taskInfo.task.ID)
+		}
+		return m, nil
+	case "t":
+		if m.taskInfo.task != nil {
+			return m, m.attachTmuxSession(m.taskInfo.task.ID)
+		}
+		return m, nil
+	case "l":
+		if m.taskInfo.task != nil {
+			m.view = viewDetail
+			m.detail.SetTask(m.taskInfo.task)
+			m.detail.SetFollowMode(true)
+			return m, m.loadOutput(m.taskInfo.task.ID)
+		}
+		return m, nil
+	}
+
+	// Handle "gg" sequence
+	if keyStr == "g" {
+		if m.taskInfo.pendingG {
+			m.taskInfo.pendingG = false
+			m.taskInfo.GotoTop()
+			return m, nil
+		}
+		m.taskInfo.pendingG = true
+		return m, nil
+	}
+	m.taskInfo.pendingG = false
+
+	switch keyStr {
+	case "G":
+		m.taskInfo.GotoBottom()
+		return m, nil
+	case "j", "down":
+		m.taskInfo.ScrollDown()
+		return m, nil
+	case "k", "up":
+		m.taskInfo.ScrollUp()
+		return m, nil
+	case "ctrl+d":
+		m.taskInfo.PageDown()
+		return m, nil
+	case "ctrl+u":
+		m.taskInfo.PageUp()
 		return m, nil
 	}
 
@@ -684,6 +763,8 @@ func (m Model) View() string {
 	switch m.view {
 	case viewDetail:
 		content = m.detail.View()
+	case viewTaskInfo:
+		content = m.taskInfo.View()
 	default:
 		content = m.list.View()
 	}
