@@ -327,7 +327,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "n":
-		if m.client == nil {
+		if m.client == nil || m.projectPath == "" {
 			return m, nil
 		}
 		workflows := m.cfg.ListWorkflowNames()

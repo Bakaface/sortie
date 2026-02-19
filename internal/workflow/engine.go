@@ -268,9 +268,9 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	header := fmt.Sprintf("[%s] === Step: %s (task #%d) ===\n",
 		time.Now().Format("15:04:05"), step.Name, t.ID)
 	logFile.WriteString(header)
-	logFile.WriteString(fmt.Sprintf("[%s] Prompt:\n", time.Now().Format("15:04:05")))
+	fmt.Fprintf(logFile, "[%s] Prompt:\n", time.Now().Format("15:04:05"))
 	for _, line := range strings.Split(prompt, "\n") {
-		logFile.WriteString(fmt.Sprintf("[%s]   %s\n", time.Now().Format("15:04:05"), line))
+		fmt.Fprintf(logFile, "[%s]   %s\n", time.Now().Format("15:04:05"), line)
 	}
 	logFile.WriteString("\n")
 

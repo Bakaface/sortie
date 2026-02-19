@@ -149,7 +149,7 @@ func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, g
 		return 0, cwd, false
 	}
 
-	// Look up project in global DB to get its ID
+	// Look up or register project in global DB to get its ID
 	dbPath := cfg.GetDatabasePath("")
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -157,9 +157,8 @@ func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, g
 	}
 	defer database.Close()
 
-	proj, err := database.GetProjectByPath(repoRoot)
+	proj, err := database.GetOrCreateProject(repoRoot)
 	if err != nil {
-		// Project not yet registered — projectPath will be used for filtering
 		return 0, repoRoot, false
 	}
 
@@ -366,6 +365,10 @@ func showTaskDetailFromDB(taskID int64) error {
 		CreatedAt:    t.CreatedAt,
 		StartedAt:    t.StartedAt,
 		CompletedAt:  t.CompletedAt,
+	}
+	if proj, err := database.GetProject(t.ProjectID); err == nil {
+		info.ProjectName = proj.Name
+		info.ProjectPath = proj.Path
 	}
 	printTaskDetail(&info)
 	return nil
