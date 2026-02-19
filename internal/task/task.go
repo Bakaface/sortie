@@ -33,6 +33,7 @@ func (s Status) IsActive() bool {
 
 type Task struct {
 	ID           int64
+	ProjectID    int64
 	Title        string
 	Description  string
 	Slug         string

@@ -28,14 +28,23 @@ import (
 	"github.com/aface/ralph-tamer-kit/internal/workflow"
 )
 
+// projectContext holds per-project state: config, engine, and repoRoot.
+type projectContext struct {
+	cfg      *config.Config
+	engine   *workflow.Engine
+	repoRoot string
+}
+
 type Server struct {
 	cfg      *config.Config
 	listener net.Listener
 	manager  *agent.Manager
-	engine   *workflow.Engine
 	database *db.DB
 	notifier *notify.Notifier
-	repoRoot string
+
+	// Per-project engines, keyed by project ID
+	projectsMu sync.RWMutex
+	projects   map[int64]*projectContext
 
 	mu          sync.RWMutex
 	clients     map[net.Conn]bool
@@ -46,21 +55,76 @@ type Server struct {
 	wg     sync.WaitGroup
 }
 
-func NewServer(cfg *config.Config, database *db.DB, repoRoot string) *Server {
+func NewServer(cfg *config.Config, database *db.DB) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	notifier := notify.New(&cfg.Notifications)
 	return &Server{
 		cfg:         cfg,
 		database:    database,
-		repoRoot:    repoRoot,
 		manager:     agent.NewManager(cfg.Agents.MaxConcurrent, cfg.Agents.OutputBufferLines),
-		engine:      workflow.NewEngine(cfg, database, notifier, repoRoot),
 		notifier:    notifier,
+		projects:    make(map[int64]*projectContext),
 		clients:     make(map[net.Conn]bool),
 		subscribers: make(map[net.Conn]bool),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
+}
+
+// getProjectContext returns or creates the project context for a given project ID.
+func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
+	s.projectsMu.RLock()
+	if pc, ok := s.projects[projectID]; ok {
+		s.projectsMu.RUnlock()
+		return pc, nil
+	}
+	s.projectsMu.RUnlock()
+
+	// Load project from DB
+	proj, err := s.database.GetProject(projectID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get project: %w", err)
+	}
+
+	// Load project-specific config
+	projCfg, err := config.LoadForProject(proj.Path)
+	if err != nil {
+		log.Printf("Warning: failed to load config for project %s, using defaults: %v", proj.Path, err)
+		projCfg = s.cfg
+	}
+
+	engine := workflow.NewEngine(projCfg, s.database, s.notifier, proj.Path)
+
+	pc := &projectContext{
+		cfg:      projCfg,
+		engine:   engine,
+		repoRoot: proj.Path,
+	}
+
+	s.projectsMu.Lock()
+	s.projects[projectID] = pc
+	s.projectsMu.Unlock()
+
+	return pc, nil
+}
+
+// getProjectDataDir returns the .rtk data directory for a task's project.
+func (s *Server) getProjectDataDir(t *task.Task) string {
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		// Fallback: use global data dir
+		return config.GetGlobalDataDir()
+	}
+	return filepath.Join(pc.repoRoot, ".rtk")
+}
+
+// getProjectRepoRoot returns the repo root for a task's project.
+func (s *Server) getProjectRepoRoot(t *task.Task) string {
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		return ""
+	}
+	return pc.repoRoot
 }
 
 func (s *Server) Start(foreground bool) error {
@@ -168,7 +232,9 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		s.handleListAgents(conn)
 
 	case MsgListTasks:
-		s.handleListTasks(conn)
+		var req ListTasksRequest
+		msg.DecodePayload(&req) // gracefully handles nil payload (treats as zero value = all projects)
+		s.handleListTasks(conn, req)
 
 	case MsgStartAgent:
 		var req StartAgentRequest
@@ -283,8 +349,15 @@ func (s *Server) handleListAgents(conn net.Conn) {
 	s.sendMessage(conn, MsgAgentList, AgentListResponse{Agents: infos})
 }
 
-func (s *Server) handleListTasks(conn net.Conn) {
-	tasks, err := s.database.GetAllTasks()
+func (s *Server) handleListTasks(conn net.Conn, req ListTasksRequest) {
+	var tasks []*task.Task
+	var err error
+
+	if req.ProjectID > 0 {
+		tasks, err = s.database.GetTasksByProject(req.ProjectID)
+	} else {
+		tasks, err = s.database.GetAllTasks()
+	}
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to get tasks: %v", err))
 		return
@@ -292,7 +365,7 @@ func (s *Server) handleListTasks(conn net.Conn) {
 
 	infos := make([]TaskInfo, len(tasks))
 	for i, t := range tasks {
-		infos[i] = taskToInfo(t)
+		infos[i] = s.taskToInfo(t)
 	}
 
 	s.sendMessage(conn, MsgTaskList, TaskListResponse{Tasks: infos})
@@ -346,23 +419,26 @@ func (s *Server) handleUnsubscribe(conn net.Conn) {
 func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
 	lines, total, err := s.manager.GetOutput(req.AgentID, req.FromLine)
 	if err != nil {
-		// Agent not in memory — try reading logs from project data dir
+		// Agent not in memory — try reading logs from the task's project data dir
 		taskID, parseErr := strconv.ParseInt(req.AgentID, 10, 64)
 		if parseErr == nil {
-			dataDir := filepath.Join(s.repoRoot, ".rtk")
-			logsDir := workflow.ProjectLogsDir(dataDir, taskID)
-			entries, readErr := os.ReadDir(logsDir)
-			if readErr == nil {
-				var allLines []string
-				for _, entry := range entries {
-					if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
-						continue
+			t, getErr := s.database.GetTask(taskID)
+			if getErr == nil {
+				dataDir := s.getProjectDataDir(t)
+				logsDir := workflow.ProjectLogsDir(dataDir, taskID)
+				entries, readErr := os.ReadDir(logsDir)
+				if readErr == nil {
+					var allLines []string
+					for _, entry := range entries {
+						if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
+							continue
+						}
+						allLines = append(allLines, readLogFile(filepath.Join(logsDir, entry.Name()))...)
 					}
-					allLines = append(allLines, readLogFile(filepath.Join(logsDir, entry.Name()))...)
-				}
-				total = len(allLines)
-				if req.FromLine < total {
-					lines = allLines[req.FromLine:]
+					total = len(allLines)
+					if req.FromLine < total {
+						lines = allLines[req.FromLine:]
+					}
 				}
 			}
 		}
@@ -391,7 +467,7 @@ func (s *Server) handleGetTask(conn net.Conn, req GetTaskRequest) {
 		return
 	}
 
-	info := taskToInfo(t)
+	info := s.taskToInfo(t)
 	s.sendMessage(conn, MsgGetTask, GetTaskResponse{Task: info})
 }
 
@@ -451,16 +527,18 @@ func (s *Server) handleRejectTask(conn net.Conn, req RejectTaskRequest) {
 		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
 	}
 
+	repoRoot := s.getProjectRepoRoot(t)
+
 	// Remove worktree if it exists
-	if t.WorktreePath != "" {
-		if err := gitpkg.RemoveWorktree(s.repoRoot, t.WorktreePath); err != nil {
+	if t.WorktreePath != "" && repoRoot != "" {
+		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
 			log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, err)
 		}
 	}
 
 	// Delete branch if it exists
-	if t.Branch != "" {
-		if err := gitpkg.ForceDeleteBranch(s.repoRoot, t.Branch); err != nil {
+	if t.Branch != "" && repoRoot != "" {
+		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
 			log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, err)
 		}
 	}
@@ -484,7 +562,17 @@ func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 }
 
 func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {
-	dataDir := filepath.Join(s.repoRoot, ".rtk")
+	// Resolve the data dir from the task's project
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
+			TaskID: req.TaskID,
+			Lines:  []string{},
+		})
+		return
+	}
+
+	dataDir := s.getProjectDataDir(t)
 
 	if req.Step != "" {
 		// Read a specific step's log
@@ -557,6 +645,19 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		return
 	}
 
+	// Resolve project from path
+	projectPath := req.ProjectPath
+	if projectPath == "" {
+		s.sendError(conn, "project_path is required")
+		return
+	}
+
+	proj, err := s.database.GetOrCreateProject(projectPath)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to resolve project: %v", err))
+		return
+	}
+
 	// Generate title from first line, truncated to 80 chars
 	title := description
 	if idx := strings.IndexByte(title, '\n'); idx != -1 {
@@ -569,23 +670,23 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	slug := task.Slugify(title)
 
-	t, err := s.database.CreateTask(title, description, slug, req.Workflow, "", task.StatusInit)
+	t, err := s.database.CreateTask(proj.ID, title, description, slug, req.Workflow, "", task.StatusInit)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
 		return
 	}
 
 	// Broadcast to subscribers so TUI updates immediately
-	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: taskToInfo(t)})
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
 
-	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: taskToInfo(t)})
+	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
 
 	// Fire-and-forget goroutine for AI title generation
-	go s.refineTaskTitle(t.ID, description)
+	go s.refineTaskTitle(t.ID, t.ProjectID, description)
 }
 
 // refineTaskTitle generates an AI title for a task in the background and updates the DB.
-func (s *Server) refineTaskTitle(taskID int64, description string) {
+func (s *Server) refineTaskTitle(taskID, projectID int64, description string) {
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
@@ -600,8 +701,14 @@ func (s *Server) refineTaskTitle(taskID int64, description string) {
 		return
 	}
 
+	// Use per-project config for branch name resolution
+	branchCfg := s.cfg
+	if pc, err := s.getProjectContext(projectID); err == nil {
+		branchCfg = pc.cfg
+	}
+
 	slug := task.Slugify(title)
-	branch := s.cfg.ResolveBranchName(taskID, slug)
+	branch := branchCfg.ResolveBranchName(taskID, slug)
 
 	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {
 		log.Printf("Failed to update title for task #%d: %v", taskID, err)
@@ -629,7 +736,7 @@ func (s *Server) broadcastTaskUpdate(taskID int64) {
 		log.Printf("Failed to re-fetch task #%d for broadcast: %v", taskID, err)
 		return
 	}
-	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: taskToInfo(t)})
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
 }
 
 // generateTitle invokes Claude CLI to produce a concise title from a task description.
@@ -680,22 +787,24 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
 	}
 
+	repoRoot := s.getProjectRepoRoot(t)
+
 	// Remove worktree if it exists
-	if t.WorktreePath != "" {
-		if err := gitpkg.RemoveWorktree(s.repoRoot, t.WorktreePath); err != nil {
+	if t.WorktreePath != "" && repoRoot != "" {
+		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
 			log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, err)
 		}
 	}
 
 	// Force-delete branch if it exists
-	if t.Branch != "" {
-		if err := gitpkg.ForceDeleteBranch(s.repoRoot, t.Branch); err != nil {
+	if t.Branch != "" && repoRoot != "" {
+		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
 			log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, err)
 		}
 	}
 
 	// Remove log directory
-	dataDir := filepath.Join(s.repoRoot, ".rtk")
+	dataDir := s.getProjectDataDir(t)
 	logDir := workflow.ProjectLogsDir(dataDir, t.ID)
 	if err := os.RemoveAll(logDir); err != nil {
 		log.Printf("Warning: failed to remove log dir for task #%d: %v", t.ID, err)
@@ -742,8 +851,8 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		}
 		s.notifier.AgentCompleted(a.ID, taskTitle)
 
-		// Check if all tasks are now terminal
-		s.checkAllTasksDone()
+		// Check if all tasks in the same project are done
+		s.checkProjectTasksDone(a.Task.ProjectID)
 
 	case agent.StateFailed:
 		log.Printf("Agent %s failed task #%d: %s", a.ID, a.Task.ID, a.Error)
@@ -756,27 +865,28 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		}
 		s.notifier.AgentFailed(a.ID, taskTitle, a.Error)
 
-		// Check if all tasks are now terminal
-		s.checkAllTasksDone()
+		// Check if all tasks in the same project are done
+		s.checkProjectTasksDone(a.Task.ProjectID)
 
 	case agent.StateWaitingForInput:
 		s.notifier.AgentWaitingForInput(a.ID, taskTitle)
 	}
 }
 
-func (s *Server) checkAllTasksDone() {
-	tasks, err := s.database.GetAllTasks()
+// checkProjectTasksDone checks if all tasks in a project are in a terminal state.
+func (s *Server) checkProjectTasksDone(projectID int64) {
+	tasks, err := s.database.GetTasksByProject(projectID)
 	if err != nil || len(tasks) == 0 {
 		return
 	}
 	for _, t := range tasks {
 		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusSummarizing:
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusSummarizing, task.StatusInit:
 			return // Still active work
 		}
 	}
-	// All tasks are in a terminal state (completed, failed, or stopped)
-	log.Println("All tasks completed")
+	// All tasks in this project are in a terminal state
+	log.Printf("All tasks completed for project %d", projectID)
 	s.notifier.AllTasksCompleted()
 }
 
@@ -866,14 +976,19 @@ func (s *Server) startTaskAgent(t *task.Task) error {
 		}
 	}
 
-	// The workflow engine handles worktree creation, so we just need a workdir placeholder.
-	// Use the expected worktree path so the agent tracks it.
-	workDir := t.WorktreePath
-	if workDir == "" {
-		workDir = s.repoRoot // Temporary; engine will create and set the real worktree path
+	// Get per-project engine
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		return fmt.Errorf("failed to get project context: %w", err)
 	}
 
-	engine := s.engine
+	// The workflow engine handles worktree creation, so we just need a workdir placeholder.
+	workDir := t.WorktreePath
+	if workDir == "" {
+		workDir = pc.repoRoot // Temporary; engine will create and set the real worktree path
+	}
+
+	engine := pc.engine
 	manager := s.manager
 	runner := func(ctx context.Context) error {
 		var outputFn func([]string)
@@ -889,7 +1004,6 @@ func (s *Server) startTaskAgent(t *task.Task) error {
 
 	return nil
 }
-
 
 // recoverOrphanedTasks resets any tasks stuck in "running" or "init" state to "pending".
 // Tasks in "awaiting-approval" are left alone — they need explicit user action.
@@ -1001,9 +1115,11 @@ func agentToInfo(a *agent.Agent) AgentInfo {
 	}
 }
 
-func taskToInfo(t *task.Task) TaskInfo {
-	return TaskInfo{
+// taskToInfo converts a task.Task to a TaskInfo for IPC, populating project fields.
+func (s *Server) taskToInfo(t *task.Task) TaskInfo {
+	info := TaskInfo{
 		ID:           t.ID,
+		ProjectID:    t.ProjectID,
 		Title:        t.Title,
 		Description:  t.Description,
 		Slug:         t.Slug,
@@ -1020,23 +1136,24 @@ func taskToInfo(t *task.Task) TaskInfo {
 		StartedAt:    t.StartedAt,
 		CompletedAt:  t.CompletedAt,
 	}
+
+	// Populate project info
+	if proj, err := s.database.GetProject(t.ProjectID); err == nil {
+		info.ProjectName = proj.Name
+		info.ProjectPath = proj.Path
+	}
+
+	return info
 }
 
 func Start(cfg *config.Config, foreground bool) error {
-	repoRoot, err := gitpkg.GetRepoRoot(".")
-	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
-	}
-
-	cfg.ApplyDetectedProject(repoRoot)
-
-	dbPath := cfg.GetDatabasePath(repoRoot)
+	dbPath := cfg.GetDatabasePath("")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 
-	server := NewServer(cfg, database, repoRoot)
+	server := NewServer(cfg, database)
 	return server.Start(foreground)
 }
 

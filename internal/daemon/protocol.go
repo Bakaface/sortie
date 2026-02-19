@@ -106,9 +106,14 @@ type GetLogsRequest struct {
 	Tail   int    `json:"tail"`
 }
 
+type ListTasksRequest struct {
+	ProjectID int64 `json:"project_id,omitempty"` // 0 means all projects
+}
+
 type CreateTaskRequest struct {
 	Description string `json:"description"`
 	Workflow    string `json:"workflow,omitempty"`
+	ProjectPath string `json:"project_path,omitempty"` // resolved to project_id by daemon
 }
 
 type DeleteTaskRequest struct {
@@ -143,6 +148,9 @@ type AgentInfo struct {
 
 type TaskInfo struct {
 	ID           int64      `json:"id"`
+	ProjectID    int64      `json:"project_id"`
+	ProjectName  string     `json:"project_name,omitempty"`
+	ProjectPath  string     `json:"project_path,omitempty"`
 	Title        string     `json:"title"`
 	Description  string     `json:"description"`
 	Slug         string     `json:"slug"`

@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (4)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (5)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -100,6 +100,47 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to rename awaiting_approval status: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 4`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 5: Add projects table and project_id to tasks
+	if version < 5 {
+		_, err := db.Exec(`CREATE TABLE IF NOT EXISTS projects (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			path TEXT NOT NULL UNIQUE,
+			name TEXT NOT NULL DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`)
+		if err != nil {
+			return fmt.Errorf("failed to create projects table: %w", err)
+		}
+
+		// Add project_id column (nullable initially for migration)
+		_, err = db.Exec(`ALTER TABLE tasks ADD COLUMN project_id INTEGER REFERENCES projects(id)`)
+		if err != nil {
+			return fmt.Errorf("failed to add project_id column: %w", err)
+		}
+
+		// Create a default project for existing tasks
+		_, err = db.Exec(`INSERT OR IGNORE INTO projects (path, name) VALUES ('unknown', 'unknown')`)
+		if err != nil {
+			return fmt.Errorf("failed to create default project: %w", err)
+		}
+
+		// Assign all existing tasks to the default project
+		_, err = db.Exec(`UPDATE tasks SET project_id = (SELECT id FROM projects WHERE path = 'unknown') WHERE project_id IS NULL`)
+		if err != nil {
+			return fmt.Errorf("failed to assign tasks to default project: %w", err)
+		}
+
+		_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id)`)
+		if err != nil {
+			return fmt.Errorf("failed to create project_id index: %w", err)
+		}
+
+		_, err = db.Exec(`UPDATE schema_version SET version = 5`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}

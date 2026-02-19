@@ -22,13 +22,17 @@ import (
 
 var cfg *config.Config
 
-// Commands that don't require a project config
+// Commands that don't require a project config (.rtk.yaml)
 var noProjectRequired = map[string]bool{
 	"init":             true,
 	"help":             true,
 	"completion":       true,
 	"__complete":       true,
 	"__completeNoDesc": true,
+	// Daemon commands are global — they don't need a project config
+	"start":  true, // daemon start
+	"stop":   true, // daemon stop
+	"status": true, // daemon status
 }
 
 var rootCmd = &cobra.Command{
@@ -44,6 +48,11 @@ dedicated git worktrees, and provides real-time monitoring via TUI.`,
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
+		// Daemon subcommands and TUI can run without .rtk.yaml
+		if isDaemonSubcommand(cmd) || cmd.Name() == "tui" {
+			return nil
+		}
+
 		// Check for .rtk.yaml unless this is a command that doesn't need it
 		if !noProjectRequired[cmd.Name()] && !cfg.ProjectConfigFound {
 			return fmt.Errorf("no .rtk.yaml found — run 'rtk init' first")
@@ -51,6 +60,16 @@ dedicated git worktrees, and provides real-time monitoring via TUI.`,
 
 		return nil
 	},
+}
+
+// isDaemonSubcommand returns true if the command is a daemon subcommand.
+func isDaemonSubcommand(cmd *cobra.Command) bool {
+	for p := cmd; p != nil; p = p.Parent() {
+		if p.Name() == "daemon" {
+			return true
+		}
+	}
+	return false
 }
 
 var daemonCmd = &cobra.Command{
@@ -96,8 +115,54 @@ var tuiCmd = &cobra.Command{
 	Use:   "tui",
 	Short: "Launch the TUI (connects to daemon)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return tui.Run(cfg)
+		globalFlag, _ := cmd.Flags().GetBool("global")
+
+		projectID, projectPath, globalMode := resolveProjectMode(globalFlag)
+		return tui.Run(cfg, projectID, projectPath, globalMode)
 	},
+}
+
+// resolveProjectMode determines the project filter for commands.
+// If globalFlag is true, returns global mode.
+// Otherwise, tries to detect the current project from cwd.
+// If not in a project dir, defaults to global mode.
+func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, globalMode bool) {
+	if globalFlag {
+		return 0, "", true
+	}
+
+	// Try to detect project from cwd
+	cwd, err := os.Getwd()
+	if err != nil {
+		return 0, "", true
+	}
+
+	// Check if cwd has .rtk.yaml (is a project)
+	if _, err := os.Stat(filepath.Join(cwd, ".rtk.yaml")); err != nil {
+		// Not in a project dir — global mode
+		return 0, "", true
+	}
+
+	// Resolve to git repo root for consistent path
+	repoRoot, err := gitpkg.GetRepoRoot(cwd)
+	if err != nil {
+		return 0, cwd, false
+	}
+
+	// Look up or register project in global DB to get its ID
+	dbPath := cfg.GetDatabasePath("")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		return 0, repoRoot, false
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject(repoRoot)
+	if err != nil {
+		return 0, repoRoot, false
+	}
+
+	return proj.ID, repoRoot, false
 }
 
 var initCmd = &cobra.Command{
@@ -208,12 +273,7 @@ var tasksCmd = &cobra.Command{
 }
 
 func listTasksFromDB() error {
-	repoRoot, err := gitpkg.GetRepoRoot(".")
-	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
-	}
-
-	dbPath := cfg.GetDatabasePath(repoRoot)
+	dbPath := cfg.GetDatabasePath("")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
@@ -277,12 +337,7 @@ func showTaskDetail(idStr string) error {
 }
 
 func showTaskDetailFromDB(taskID int64) error {
-	repoRoot, err := gitpkg.GetRepoRoot(".")
-	if err != nil {
-		return fmt.Errorf("not in a git repository: %w", err)
-	}
-
-	dbPath := cfg.GetDatabasePath(repoRoot)
+	dbPath := cfg.GetDatabasePath("")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
@@ -296,6 +351,7 @@ func showTaskDetailFromDB(taskID int64) error {
 
 	info := daemon.TaskInfo{
 		ID:           t.ID,
+		ProjectID:    t.ProjectID,
 		Title:        t.Title,
 		Description:  t.Description,
 		Slug:         t.Slug,
@@ -310,6 +366,10 @@ func showTaskDetailFromDB(taskID int64) error {
 		StartedAt:    t.StartedAt,
 		CompletedAt:  t.CompletedAt,
 	}
+	if proj, err := database.GetProject(t.ProjectID); err == nil {
+		info.ProjectName = proj.Name
+		info.ProjectPath = proj.Path
+	}
 	printTaskDetail(&info)
 	return nil
 }
@@ -319,6 +379,9 @@ func printTaskDetail(t *daemon.TaskInfo) {
 	fmt.Printf("  Title:       %s\n", t.Title)
 	fmt.Printf("  Status:      %s\n", t.Status)
 	fmt.Printf("  Slug:        %s\n", t.Slug)
+	if t.ProjectName != "" {
+		fmt.Printf("  Project:     %s\n", t.ProjectName)
+	}
 	if t.Branch != "" {
 		fmt.Printf("  Branch:      %s\n", t.Branch)
 	}
@@ -562,12 +625,7 @@ var cleanupCmd = &cobra.Command{
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeTaskIDs(task.StatusCompleted, task.StatusFailed),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		repoRoot, err := gitpkg.GetRepoRoot(".")
-		if err != nil {
-			return fmt.Errorf("not in a git repository: %w", err)
-		}
-
-		dbPath := cfg.GetDatabasePath(repoRoot)
+		dbPath := cfg.GetDatabasePath("")
 		database, err := db.Open(dbPath)
 		if err != nil {
 			return fmt.Errorf("failed to open database: %w", err)
@@ -579,7 +637,7 @@ var cleanupCmd = &cobra.Command{
 			if err != nil {
 				return fmt.Errorf("invalid task ID: %s", args[0])
 			}
-			return cleanupTask(database, repoRoot, taskID)
+			return cleanupTask(database, taskID)
 		}
 
 		// Clean up all completed/failed tasks
@@ -591,7 +649,7 @@ var cleanupCmd = &cobra.Command{
 		cleaned := 0
 		for _, t := range tasks {
 			if t.Status == "completed" || t.Status == "failed" {
-				if err := cleanupTask(database, repoRoot, t.ID); err != nil {
+				if err := cleanupTask(database, t.ID); err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to cleanup task #%d: %v\n", t.ID, err)
 				} else {
 					cleaned++
@@ -608,15 +666,21 @@ var cleanupCmd = &cobra.Command{
 	},
 }
 
-func cleanupTask(database *db.DB, repoRoot string, taskID int64) error {
+func cleanupTask(database *db.DB, taskID int64) error {
 	t, err := database.GetTask(taskID)
 	if err != nil {
 		return fmt.Errorf("task not found: %w", err)
 	}
 
+	// Resolve repo root from the task's project
+	var repoRoot string
+	if proj, err := database.GetProject(t.ProjectID); err == nil {
+		repoRoot = proj.Path
+	}
+
 	cleaned := false
 
-	if t.WorktreePath != "" {
+	if t.WorktreePath != "" && repoRoot != "" {
 		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
 			return fmt.Errorf("failed to remove worktree: %w", err)
 		}
@@ -627,12 +691,14 @@ func cleanupTask(database *db.DB, repoRoot string, taskID int64) error {
 	}
 
 	// Remove log directory
-	dataDir := filepath.Join(repoRoot, ".rtk")
-	logDir := workflow.ProjectLogsDir(dataDir, taskID)
-	if err := os.RemoveAll(logDir); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to remove log dir for task #%d: %v\n", taskID, err)
-	} else {
-		cleaned = true
+	if repoRoot != "" {
+		dataDir := filepath.Join(repoRoot, ".rtk")
+		logDir := workflow.ProjectLogsDir(dataDir, taskID)
+		if err := os.RemoveAll(logDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove log dir for task #%d: %v\n", taskID, err)
+		} else {
+			cleaned = true
+		}
 	}
 
 	if cleaned {
@@ -701,16 +767,11 @@ func completeTaskIDs(statuses ...task.Status) func(*cobra.Command, []string, str
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		repoRoot, err := gitpkg.GetRepoRoot(".")
-		if err != nil {
-			return nil, cobra.ShellCompDirectiveNoFileComp
-		}
-
 		if cfg == nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
 
-		dbPath := cfg.GetDatabasePath(repoRoot)
+		dbPath := cfg.GetDatabasePath("")
 		database, err := db.Open(dbPath)
 		if err != nil {
 			return nil, cobra.ShellCompDirectiveNoFileComp
@@ -745,6 +806,7 @@ func completeTaskIDs(statuses ...task.Status) func(*cobra.Command, []string, str
 
 func init() {
 	daemonStartCmd.Flags().BoolP("foreground", "f", false, "Run daemon in foreground")
+	tuiCmd.Flags().BoolP("global", "g", false, "Show tasks from all projects")
 	logsCmd.Flags().IntP("tail", "n", 0, "Show only the last N lines")
 
 	daemonCmd.AddCommand(daemonStartCmd)

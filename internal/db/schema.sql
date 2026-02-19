@@ -1,5 +1,13 @@
+CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL DEFAULT '',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id),
     title TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL,
     slug TEXT NOT NULL DEFAULT '',
@@ -19,6 +27,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON tasks(project_id);
 
 CREATE TABLE IF NOT EXISTS task_dependencies (
     task_id INTEGER NOT NULL REFERENCES tasks(id),

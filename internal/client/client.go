@@ -185,7 +185,18 @@ func (c *Client) ListAgents() ([]daemon.AgentInfo, error) {
 }
 
 func (c *Client) ListTasks() ([]daemon.TaskInfo, error) {
-	msg, err := c.sendAndWait(daemon.MsgListTasks, nil)
+	return c.ListTasksFiltered(0)
+}
+
+// ListTasksFiltered returns tasks optionally filtered by project ID.
+// A projectID of 0 returns all tasks.
+func (c *Client) ListTasksFiltered(projectID int64) ([]daemon.TaskInfo, error) {
+	var payload any
+	if projectID > 0 {
+		payload = daemon.ListTasksRequest{ProjectID: projectID}
+	}
+
+	msg, err := c.sendAndWait(daemon.MsgListTasks, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -349,8 +360,12 @@ func (c *Client) RetryTask(id int64) error {
 	return nil
 }
 
-func (c *Client) CreateTask(description string, workflow string) (*daemon.TaskInfo, error) {
-	msg, err := c.sendAndWait(daemon.MsgCreateTask, daemon.CreateTaskRequest{Description: description, Workflow: workflow})
+func (c *Client) CreateTask(description, workflow, projectPath string) (*daemon.TaskInfo, error) {
+	msg, err := c.sendAndWait(daemon.MsgCreateTask, daemon.CreateTaskRequest{
+		Description: description,
+		Workflow:    workflow,
+		ProjectPath: projectPath,
+	})
 	if err != nil {
 		return nil, err
 	}
