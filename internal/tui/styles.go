@@ -41,6 +41,7 @@ var (
 		"waiting_for_input": lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Bold(true),
 		"awaiting-approval": lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")).Bold(true),
 		"tmux":              lipgloss.NewStyle().Foreground(lipgloss.Color("#FF69B4")).Bold(true),
+		"summarizing":       lipgloss.NewStyle().Foreground(lipgloss.Color("#6CA0DC")),
 		"completed":         lipgloss.NewStyle().Foreground(lipgloss.Color("#43BF6D")),
 		"failed":            lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")),
 		"stopped":           lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")),

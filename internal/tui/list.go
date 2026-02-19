@@ -123,6 +123,8 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 		statusIcon = "○"
 	case "failed":
 		statusIcon = "✗"
+	case "summarizing":
+		statusIcon = "◉"
 	case "stopped":
 		statusIcon = "■"
 	default:

@@ -771,7 +771,7 @@ func (s *Server) checkAllTasksDone() {
 	}
 	for _, t := range tasks {
 		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux:
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusSummarizing:
 			return // Still active work
 		}
 	}
@@ -915,6 +915,12 @@ func (s *Server) recoverOrphanedTasks() error {
 		if t.Status == task.StatusInit {
 			log.Printf("Recovering task #%d stuck in init, resetting to pending", t.ID)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
+				log.Printf("Failed to reset task #%d: %v", t.ID, err)
+			}
+		}
+		if t.Status == task.StatusSummarizing {
+			log.Printf("Recovering task #%d stuck in summarizing, resetting to pending", t.ID)
+			if err := s.database.ResetTaskForRetry(t.ID); err != nil {
 				log.Printf("Failed to reset task #%d: %v", t.ID, err)
 			}
 		}

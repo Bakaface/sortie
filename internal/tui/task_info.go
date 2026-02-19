@@ -173,7 +173,7 @@ func (v *taskInfoView) renderMetadata() string {
 			} else if i == t.StepIndex && (t.Status == "running" || t.Status == "awaiting_approval") {
 				icon = "●"  // active
 				style = stateStyle(t.Status)
-			} else if t.Status == "completed" {
+			} else if t.Status == "completed" || t.Status == "summarizing" {
 				icon = "✓"
 				style = stateStyle("completed")
 			} else if t.Status == "failed" && i == t.StepIndex {

@@ -186,6 +186,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	}
 
 	// Run summarizer to generate task context
+	if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
+		log.Printf("Warning: failed to set summarizing status for task #%d: %v", t.ID, err)
+	}
 	if err := e.runSummarizer(ctx, t, wf); err != nil {
 		log.Printf("Warning: summarizer failed for task #%d: %v", t.ID, err)
 	}
