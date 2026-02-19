@@ -124,13 +124,28 @@ func (c *Client) send(msgType daemon.MessageType, payload any) error {
 }
 
 func (c *Client) sendAndWait(msgType daemon.MessageType, payload any) (*daemon.Message, error) {
-	if err := c.send(msgType, payload); err != nil {
+	// Hold the lock for the entire send+wait cycle to prevent concurrent
+	// sendAndWait calls from receiving each other's responses.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	msg, err := daemon.NewMessage(msgType, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := daemon.EncodeMessage(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err = c.conn.Write(data); err != nil {
 		return nil, err
 	}
 
 	select {
-	case msg := <-c.respChan:
-		return msg, nil
+	case resp := <-c.respChan:
+		return resp, nil
 	case err := <-c.errChan:
 		return nil, err
 	case <-c.done:
