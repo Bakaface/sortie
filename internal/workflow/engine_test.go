@@ -94,9 +94,10 @@ func TestSummarizerStepNameFiltering(t *testing.T) {
 	}
 }
 
-func TestSummarizerSkipsWhenNoArtifacts(t *testing.T) {
+func TestSummarizerCollectsNoArtifactsWhenNoArtifactSteps(t *testing.T) {
 	// When all steps have artifact: false, stepNames is empty,
-	// CollectArtifacts returns empty map, summarizer should skip
+	// CollectArtifacts returns empty map. The summarizer should then
+	// fall through to the git diff stat path instead of skipping entirely.
 	steps := []config.StepConfig{
 		{Name: "implement", Artifact: false},
 		{Name: "review", Artifact: false},
@@ -118,6 +119,60 @@ func TestSummarizerSkipsWhenNoArtifacts(t *testing.T) {
 	if len(artifacts) != 0 {
 		t.Errorf("expected 0 artifacts when no steps have artifact: true, got %d", len(artifacts))
 	}
+}
+
+func TestSummarizerPromptBuildWithArtifacts(t *testing.T) {
+	// Verify that when artifacts are present, the prompt includes artifact content
+	dir := t.TempDir()
+	artifactsDir := filepath.Join(dir, ".rtk", "artifacts")
+	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("Added feature X"), 0644)
+
+	stepNames := []string{"implement"}
+	artifacts := CollectArtifacts(dir, stepNames)
+
+	if len(artifacts) != 1 {
+		t.Fatalf("expected 1 artifact, got %d", len(artifacts))
+	}
+	if artifacts["implement"] != "Added feature X" {
+		t.Errorf("expected artifact content 'Added feature X', got %q", artifacts["implement"])
+	}
+}
+
+func TestSummarizerPromptBuildWithoutArtifacts(t *testing.T) {
+	// Verify that when no artifacts exist and no steps have artifact: true,
+	// the summarizer should use the diff stat fallback path.
+	// This tests the condition that previously caused empty tasks.context.
+	steps := []config.StepConfig{
+		{Name: "implementing", Artifact: false},
+	}
+
+	var stepNames []string
+	for _, s := range steps {
+		if s.Artifact {
+			stepNames = append(stepNames, s.Name)
+		}
+	}
+
+	if len(stepNames) != 0 {
+		t.Errorf("expected 0 artifact step names for workflow without artifacts, got %d", len(stepNames))
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".rtk", "artifacts"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts := CollectArtifacts(dir, stepNames)
+	if len(artifacts) != 0 {
+		t.Fatalf("expected 0 artifacts, got %d", len(artifacts))
+	}
+
+	// With the fix, the summarizer should not bail out here — it should
+	// proceed to check git diff stat. The empty artifacts map triggers
+	// the fallback path.
 }
 
 func TestWriteTmuxLogMessage(t *testing.T) {
