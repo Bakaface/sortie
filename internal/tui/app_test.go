@@ -914,6 +914,34 @@ func TestHandleListKey_CtrlUClampsToStart(t *testing.T) {
 	}
 }
 
+func TestHandleListKey_PgDownPageDown(t *testing.T) {
+	m := newTestModelWithTasks(30)
+	m.list.cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyPgDown}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// height=30, visibleRows=25, half=12
+	if updated.list.cursor != 12 {
+		t.Errorf("expected cursor at 12 after pgdown, got %d", updated.list.cursor)
+	}
+}
+
+func TestHandleListKey_PgUpPageUp(t *testing.T) {
+	m := newTestModelWithTasks(30)
+	m.list.cursor = 20
+
+	msg := tea.KeyMsg{Type: tea.KeyPgUp}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// height=30, visibleRows=25, half=12
+	if updated.list.cursor != 8 {
+		t.Errorf("expected cursor at 8 after pgup, got %d", updated.list.cursor)
+	}
+}
+
 func TestListView_GotoTopAndBottom(t *testing.T) {
 	l := newListView(false)
 	tasks := make([]daemon.TaskInfo, 10)

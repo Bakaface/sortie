@@ -248,11 +248,11 @@ func newDetailNormalKeyMap() detailNormalKeyMap {
 			key.WithHelp("j", "down"),
 		),
 		HalfUp: key.NewBinding(
-			key.WithKeys("ctrl+u"),
+			key.WithKeys("ctrl+u", "pgup"),
 			key.WithHelp("ctrl+u", "half up"),
 		),
 		HalfDown: key.NewBinding(
-			key.WithKeys("ctrl+d"),
+			key.WithKeys("ctrl+d", "pgdown"),
 			key.WithHelp("ctrl+d", "half down"),
 		),
 		Follow: key.NewBinding(
@@ -302,11 +302,11 @@ func newTaskInfoKeyMap() taskInfoKeyMap {
 			key.WithHelp("j", "down"),
 		),
 		HalfUp: key.NewBinding(
-			key.WithKeys("ctrl+u"),
+			key.WithKeys("ctrl+u", "pgup"),
 			key.WithHelp("ctrl+u", "half up"),
 		),
 		HalfDown: key.NewBinding(
-			key.WithKeys("ctrl+d"),
+			key.WithKeys("ctrl+d", "pgdown"),
 			key.WithHelp("ctrl+d", "half down"),
 		),
 		GotoTop: key.NewBinding(

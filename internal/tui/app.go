@@ -387,11 +387,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.list.GotoBottom()
 		return m, nil
 
-	case "ctrl+d":
+	case "ctrl+d", "pgdown":
 		m.list.PageDown()
 		return m, nil
 
-	case "ctrl+u":
+	case "ctrl+u", "pgup":
 		m.list.PageUp()
 		return m, nil
 
@@ -671,11 +671,11 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.detail.SetFollowMode(false)
 		m.detail.ScrollUp()
 		return m, nil
-	case "ctrl+d":
+	case "ctrl+d", "pgdown":
 		m.detail.SetFollowMode(false)
 		m.detail.PageDown()
 		return m, nil
-	case "ctrl+u":
+	case "ctrl+u", "pgup":
 		m.detail.SetFollowMode(false)
 		m.detail.PageUp()
 		return m, nil
@@ -743,10 +743,10 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		m.taskInfo.ScrollUp()
 		return m, nil
-	case "ctrl+d":
+	case "ctrl+d", "pgdown":
 		m.taskInfo.PageDown()
 		return m, nil
-	case "ctrl+u":
+	case "ctrl+u", "pgup":
 		m.taskInfo.PageUp()
 		return m, nil
 	}
