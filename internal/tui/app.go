@@ -13,6 +13,7 @@ import (
 	"github.com/aface/sortie/internal/daemon"
 	"github.com/aface/sortie/internal/tmux"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type view int
@@ -289,6 +290,15 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	keyStr := msg.String()
+
+	// Handle help overlay — consume all keys except ? and esc which dismiss it
+	if m.list.showHelp {
+		if keyStr == "?" || keyStr == "esc" {
+			m.list.showHelp = false
+			return m, nil
+		}
+		return m, nil
+	}
 
 	// Handle "d" key for dd delete sequence
 	if keyStr == "d" {
@@ -1041,6 +1051,11 @@ func (m Model) View() string {
 		return fmt.Sprintf("Error: %v\n\nPress any key to continue.", m.err)
 	}
 
+	// Show help overlay
+	if m.list.showHelp && m.view == viewList {
+		return m.renderHelpOverlay()
+	}
+
 	// Show priority selection as its own screen
 	if m.selectingPriority {
 		priorities := []string{"low", "medium", "high", "urgent"}
@@ -1114,6 +1129,31 @@ func (m Model) View() string {
 	}
 
 	return content
+}
+
+func (m Model) renderHelpOverlay() string {
+	keys := newKeyMap()
+	groups := keys.FullHelp()
+
+	groupNames := []string{"Navigation", "Actions", "General"}
+
+	headingStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(" Help ") + "\n\n")
+
+	for i, group := range groups {
+		if i < len(groupNames) {
+			b.WriteString("  " + headingStyle.Render(groupNames[i]) + "\n")
+		}
+		for _, binding := range group {
+			fmt.Fprintf(&b, "    %-12s %s\n", dimStyle.Render(binding.Help().Key), helpStyle.Render(binding.Help().Desc))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(dimStyle.Render("  Press ? or esc to close"))
+	return b.String()
 }
 
 func Run(cfg *config.Config, projectID int64, projectPath string, globalMode bool) error {

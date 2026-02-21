@@ -1649,3 +1649,144 @@ func TestTaskInfoView_ShowsPriority(t *testing.T) {
 		t.Error("expected task info to show priority value 'high'")
 	}
 }
+
+func TestHandleListKey_QuestionMarkTogglesHelp(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+
+	// Press "?" to open help
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if !updated.list.showHelp {
+		t.Error("expected showHelp to be true after '?'")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+
+	// Press "?" again to close help
+	result, cmd = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	if updated.list.showHelp {
+		t.Error("expected showHelp to be false after second '?'")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestHandleListKey_EscClosesHelp(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.showHelp = true
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.list.showHelp {
+		t.Error("expected showHelp to be false after esc")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestHandleListKey_HelpConsumesKeys(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Test", Status: "running"},
+	})
+	m.list.showHelp = true
+
+	// Press "j" while help is shown — should NOT move cursor
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.list.cursor != 0 {
+		t.Errorf("expected cursor to stay at 0 while help shown, got %d", updated.list.cursor)
+	}
+	if !updated.list.showHelp {
+		t.Error("expected showHelp to remain true")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestViewRendersHelpOverlay(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.showHelp = true
+
+	output := m.View()
+
+	if !strings.Contains(output, "Help") {
+		t.Error("expected help overlay to contain 'Help' title")
+	}
+	if !strings.Contains(output, "Navigation") {
+		t.Error("expected help overlay to contain 'Navigation' group")
+	}
+	if !strings.Contains(output, "Actions") {
+		t.Error("expected help overlay to contain 'Actions' group")
+	}
+	if !strings.Contains(output, "General") {
+		t.Error("expected help overlay to contain 'General' group")
+	}
+	// Check some keybindings are shown
+	if !strings.Contains(output, "task info") {
+		t.Error("expected help overlay to contain 'task info' binding")
+	}
+	if !strings.Contains(output, "new task") {
+		t.Error("expected help overlay to contain 'new task' binding")
+	}
+	if !strings.Contains(output, "quit") {
+		t.Error("expected help overlay to contain 'quit' binding")
+	}
+}
+
+func TestShortHelp_ContainsHelpBinding(t *testing.T) {
+	keys := newKeyMap()
+	bindings := keys.ShortHelp()
+
+	found := false
+	for _, b := range bindings {
+		if b.Help().Key == "?" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected ShortHelp to contain '?' help binding")
+	}
+}
+
+func TestShortHelp_IsConcise(t *testing.T) {
+	keys := newKeyMap()
+	bindings := keys.ShortHelp()
+
+	if len(bindings) > 10 {
+		t.Errorf("expected ShortHelp to have at most 10 bindings for conciseness, got %d", len(bindings))
+	}
+}
