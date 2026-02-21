@@ -50,6 +50,10 @@ type Model struct {
 	selectingWorkflow bool
 	workflowCursor    int
 	selectedWorkflow  string
+
+	// Predefined task selection state
+	selectingTask bool
+	taskCursor    int
 }
 
 type clientConnectedMsg struct {
@@ -226,6 +230,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleWorkflowSelectKey(msg)
 	}
 
+	// Handle predefined task selection if active
+	if m.selectingTask {
+		return m.handleTaskSelectKey(msg)
+	}
+
 	// Handle confirmation prompt if active
 	if m.confirmAction != "" {
 		switch msg.String() {
@@ -355,9 +364,19 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
+		// Retry if selected task is failed
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "failed" {
 				return m, m.retryTask(task.ID)
+			}
+		}
+		// Show predefined task selection if tasks are configured
+		if m.client != nil && m.projectPath != "" {
+			tasks := m.cfg.ListPredefinedTaskNames()
+			if len(tasks) > 0 {
+				m.selectingTask = true
+				m.taskCursor = 0
+				return m, nil
 			}
 		}
 		// Otherwise just refresh
@@ -449,6 +468,61 @@ func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.prompt.Reset()
 			m.prompt.Focus()
 			return m, nil
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	tasks := m.cfg.ListPredefinedTaskNames()
+
+	switch msg.String() {
+	case "up", "k":
+		if m.taskCursor > 0 {
+			m.taskCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.taskCursor < len(tasks)-1 {
+			m.taskCursor++
+		}
+		return m, nil
+	case "enter":
+		taskName := tasks[m.taskCursor]
+		taskCfg := m.cfg.GetPredefinedTask(taskName)
+		m.selectingTask = false
+		if taskCfg == nil {
+			return m, nil
+		}
+		// Create task directly with the predefined description and workflow
+		m.selectedWorkflow = "task:" + taskCfg.Name
+		description := taskCfg.Description
+		if description == "" {
+			description = taskCfg.Name
+		}
+		return m, m.createTaskWithPrompt(description, nil)
+	case "esc", "q":
+		m.selectingTask = false
+		return m, nil
+	}
+
+	// Number keys for quick selection (1-9)
+	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
+		idx := int(msg.String()[0] - '1')
+		if idx < len(tasks) {
+			taskName := tasks[idx]
+			taskCfg := m.cfg.GetPredefinedTask(taskName)
+			m.selectingTask = false
+			if taskCfg == nil {
+				return m, nil
+			}
+			m.selectedWorkflow = "task:" + taskCfg.Name
+			description := taskCfg.Description
+			if description == "" {
+				description = taskCfg.Name
+			}
+			return m, m.createTaskWithPrompt(description, nil)
 		}
 	}
 
@@ -861,18 +935,39 @@ func (m Model) View() string {
 	// Show workflow selection as its own screen
 	if m.selectingWorkflow {
 		workflows := m.cfg.ListWorkflowNames()
-		var content string
-		content += titleStyle.Render("Select Workflow") + "\n\n"
+		var b strings.Builder
+		b.WriteString(titleStyle.Render("Select Workflow") + "\n\n")
 		for i, name := range workflows {
 			label := fmt.Sprintf("  %d. %s", i+1, name)
 			if i == m.workflowCursor {
-				content += selectedStyle.Render("> "+label) + "\n"
+				b.WriteString(selectedStyle.Render("> "+label) + "\n")
 			} else {
-				content += "    " + label + "\n"
+				b.WriteString("    " + label + "\n")
 			}
 		}
-		content += "\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel")
-		return content
+		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel"))
+		return b.String()
+	}
+
+	// Show predefined task selection as its own screen
+	if m.selectingTask {
+		tasks := m.cfg.ListPredefinedTaskNames()
+		var b strings.Builder
+		b.WriteString(titleStyle.Render("Run Predefined Task") + "\n\n")
+		for i, name := range tasks {
+			taskCfg := m.cfg.GetPredefinedTask(name)
+			label := fmt.Sprintf("  %d. %s", i+1, name)
+			if i == m.taskCursor {
+				b.WriteString(selectedStyle.Render("> "+label) + "\n")
+				if taskCfg != nil && taskCfg.Description != "" {
+					b.WriteString(dimStyle.Render("     "+taskCfg.Description) + "\n")
+				}
+			} else {
+				b.WriteString("    " + label + "\n")
+			}
+		}
+		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel"))
+		return b.String()
 	}
 
 	var content string

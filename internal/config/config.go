@@ -16,6 +16,16 @@ type ProjectConfig struct {
 	Git        GitConfig        `yaml:"git"`
 	Workflows  []WorkflowConfig `yaml:"workflows"`
 	Workflow   WorkflowConfig   `yaml:"workflow"` // deprecated, backward compat
+	Tasks      []TaskConfig     `yaml:"tasks"`
+}
+
+// TaskConfig defines a predefined task with a built-in description and workflow steps.
+// Unlike workflows, predefined tasks don't require the user to enter a prompt.
+type TaskConfig struct {
+	Name             string       `yaml:"name"`
+	Description      string       `yaml:"description"`
+	Steps            []StepConfig `yaml:"steps"`
+	SummarizerPrompt string       `yaml:"summarizer_prompt"`
 }
 
 type GitConfig struct {
@@ -95,6 +105,7 @@ type Config struct {
 	MaxWorkers int
 	Git        GitConfig
 	Workflows  []WorkflowConfig
+	Tasks      []TaskConfig
 
 	// From global config
 	Notifications            NotificationsConfig
@@ -310,6 +321,23 @@ func loadProjectConfig(path string, cfg *Config) error {
 		}
 	}
 
+	// Load predefined tasks and register their steps as synthetic workflows
+	if len(proj.Tasks) > 0 {
+		cfg.Tasks = proj.Tasks
+		for i, task := range cfg.Tasks {
+			if task.Name == "" {
+				cfg.Tasks[i].Name = fmt.Sprintf("task-%d", i+1)
+			}
+			// Register as a workflow so the engine can resolve it
+			wfName := "task:" + cfg.Tasks[i].Name
+			cfg.Workflows = append(cfg.Workflows, WorkflowConfig{
+				Name:             wfName,
+				Steps:            task.Steps,
+				SummarizerPrompt: task.SummarizerPrompt,
+			})
+		}
+	}
+
 	return nil
 }
 
@@ -401,17 +429,41 @@ func (c *Config) GetWorkflow(name string) *WorkflowConfig {
 	return &def
 }
 
-// ListWorkflowNames returns the names of all configured workflows.
-// If no workflows are configured, returns ["default"].
+// ListWorkflowNames returns the names of all configured workflows,
+// excluding synthetic task: workflows. If no workflows are configured, returns ["default"].
 func (c *Config) ListWorkflowNames() []string {
 	if len(c.Workflows) == 0 {
 		return []string{"default"}
 	}
-	names := make([]string, len(c.Workflows))
-	for i, w := range c.Workflows {
-		names[i] = w.Name
+	var names []string
+	for _, w := range c.Workflows {
+		if !strings.HasPrefix(w.Name, "task:") {
+			names = append(names, w.Name)
+		}
+	}
+	if len(names) == 0 {
+		return []string{"default"}
 	}
 	return names
+}
+
+// ListPredefinedTaskNames returns the names of all configured predefined tasks.
+func (c *Config) ListPredefinedTaskNames() []string {
+	names := make([]string, len(c.Tasks))
+	for i, t := range c.Tasks {
+		names[i] = t.Name
+	}
+	return names
+}
+
+// GetPredefinedTask returns the predefined task config with the given name, or nil.
+func (c *Config) GetPredefinedTask(name string) *TaskConfig {
+	for i := range c.Tasks {
+		if c.Tasks[i].Name == name {
+			return &c.Tasks[i]
+		}
+	}
+	return nil
 }
 
 // GetWorkflowSteps returns configured steps or the default single step.

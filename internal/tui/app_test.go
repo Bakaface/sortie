@@ -987,6 +987,304 @@ func TestListView_ShowsRealTaskID(t *testing.T) {
 	}
 }
 
+func TestHandleListKey_RShowsTaskSelection(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Housekeeping", Description: "Clean up code"},
+				{Name: "Security", Description: "Security scan"},
+			},
+		},
+	}
+	// Set a non-failed task so "r" doesn't trigger retry
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Running task", Status: "running"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if !updated.selectingTask {
+		t.Error("expected selectingTask to be true")
+	}
+	if updated.taskCursor != 0 {
+		t.Errorf("expected taskCursor to be 0, got %d", updated.taskCursor)
+	}
+	if cmd != nil {
+		t.Error("expected no command (selection screen shown), got non-nil")
+	}
+}
+
+func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Housekeeping", Description: "Clean up code"},
+			},
+		},
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 5, Title: "Failed task", Status: "failed"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Should retry, not show task selection
+	if updated.selectingTask {
+		t.Error("expected selectingTask to be false when retrying failed task")
+	}
+	if cmd == nil {
+		t.Error("expected retry command, got nil")
+	}
+}
+
+func TestHandleListKey_RRefreshesWithNoTasks(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg:         &config.Config{},
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Running task", Status: "running"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// No predefined tasks configured — should just refresh
+	if updated.selectingTask {
+		t.Error("expected selectingTask to be false when no predefined tasks")
+	}
+	if cmd == nil {
+		t.Error("expected refresh command, got nil")
+	}
+}
+
+func TestHandleTaskSelectKey_Navigation(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    0,
+		projectPath:   "/tmp/test",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Task A", Description: "Desc A"},
+				{Name: "Task B", Description: "Desc B"},
+				{Name: "Task C", Description: "Desc C"},
+			},
+		},
+	}
+
+	// Move down
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	result, _ := m.handleTaskSelectKey(msg)
+	updated := result.(Model)
+	if updated.taskCursor != 1 {
+		t.Errorf("expected cursor at 1 after j, got %d", updated.taskCursor)
+	}
+
+	// Move down again
+	m = updated
+	result, _ = m.handleTaskSelectKey(msg)
+	updated = result.(Model)
+	if updated.taskCursor != 2 {
+		t.Errorf("expected cursor at 2 after j, got %d", updated.taskCursor)
+	}
+
+	// Move down at bottom — should stay
+	m = updated
+	result, _ = m.handleTaskSelectKey(msg)
+	updated = result.(Model)
+	if updated.taskCursor != 2 {
+		t.Errorf("expected cursor to stay at 2, got %d", updated.taskCursor)
+	}
+
+	// Move up
+	m = updated
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}
+	result, _ = m.handleTaskSelectKey(msg)
+	updated = result.(Model)
+	if updated.taskCursor != 1 {
+		t.Errorf("expected cursor at 1 after k, got %d", updated.taskCursor)
+	}
+}
+
+func TestHandleTaskSelectKey_EscCancels(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		selectingTask: true,
+		taskCursor:    1,
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Task A"},
+			},
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, _ := m.handleTaskSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.selectingTask {
+		t.Error("expected selectingTask to be false after esc")
+	}
+}
+
+func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    0,
+		projectPath:   "/tmp/test",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Housekeeping", Description: "Clean up code"},
+			},
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	result, cmd := m.handleTaskSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.selectingTask {
+		t.Error("expected selectingTask to be false after enter")
+	}
+	if updated.selectedWorkflow != "task:Housekeeping" {
+		t.Errorf("expected selectedWorkflow 'task:Housekeeping', got %q", updated.selectedWorkflow)
+	}
+	if cmd == nil {
+		t.Error("expected create task command, got nil")
+	}
+}
+
+func TestHandleTaskSelectKey_NumberKeyCreatesTask(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    0,
+		projectPath:   "/tmp/test",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "First", Description: "First task"},
+				{Name: "Second", Description: "Second task"},
+			},
+		},
+	}
+
+	// Press "2" to select second task
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}}
+	result, cmd := m.handleTaskSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.selectingTask {
+		t.Error("expected selectingTask to be false after number key")
+	}
+	if updated.selectedWorkflow != "task:Second" {
+		t.Errorf("expected selectedWorkflow 'task:Second', got %q", updated.selectedWorkflow)
+	}
+	if cmd == nil {
+		t.Error("expected create task command, got nil")
+	}
+}
+
+func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    0,
+		projectPath:   "/tmp/test",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "NoDesc"},
+			},
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	result, cmd := m.handleTaskSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.selectingTask {
+		t.Error("expected selectingTask to be false")
+	}
+	// When description is empty, the task name is used as description
+	if updated.selectedWorkflow != "task:NoDesc" {
+		t.Errorf("expected selectedWorkflow 'task:NoDesc', got %q", updated.selectedWorkflow)
+	}
+	if cmd == nil {
+		t.Error("expected create task command, got nil")
+	}
+}
+
+func TestViewRendersTaskSelection(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    0,
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Housekeeping", Description: "Clean up code"},
+				{Name: "Security Scan", Description: "Run security audit"},
+			},
+		},
+	}
+
+	output := m.View()
+
+	if !strings.Contains(output, "Run Predefined Task") {
+		t.Error("expected task selection screen to contain title 'Run Predefined Task'")
+	}
+	if !strings.Contains(output, "Housekeeping") {
+		t.Error("expected task selection screen to contain 'Housekeeping'")
+	}
+	if !strings.Contains(output, "Security Scan") {
+		t.Error("expected task selection screen to contain 'Security Scan'")
+	}
+	if !strings.Contains(output, "Clean up code") {
+		t.Error("expected task selection screen to show description for selected task")
+	}
+}
+
 func TestListView_PageWithSmallHeight(t *testing.T) {
 	l := newListView(false)
 	tasks := make([]daemon.TaskInfo, 10)

@@ -13,6 +13,7 @@ type keyMap struct {
 	Approve    key.Binding
 	Reject     key.Binding
 	Retry      key.Binding
+	RunTask    key.Binding
 	Delete     key.Binding
 	NewTask    key.Binding
 	Continue   key.Binding
@@ -60,6 +61,10 @@ func newKeyMap() keyMap {
 		Retry: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "retry"),
+		),
+		RunTask: key.NewBinding(
+			key.WithKeys("r"),
+			key.WithHelp("r", "run task"),
 		),
 		Delete: key.NewBinding(
 			key.WithKeys("d"),
@@ -113,13 +118,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.Approve, k.Reject, k.Retry, k.Continue, k.Delete, k.Stop, k.Attach, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.RunTask, k.Approve, k.Reject, k.Retry, k.Continue, k.Delete, k.Stop, k.Attach, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.Enter, k.Logs},
-		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Continue, k.Delete, k.Attach, k.Refresh},
+		{k.NewTask, k.RunTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Continue, k.Delete, k.Attach, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }
