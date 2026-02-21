@@ -1,10 +1,12 @@
 package git
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -182,5 +184,154 @@ func TestDiffStat_NoChanges(t *testing.T) {
 	}
 	if stat != "" {
 		t.Errorf("expected empty diff stat when no changes, got: %s", stat)
+	}
+}
+
+func TestMergeBranch_SequentialMerges(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create two feature branches with non-overlapping changes
+	branches := []struct {
+		name string
+		file string
+		body string
+	}{
+		{"feature-a", "a.txt", "feature A content"},
+		{"feature-b", "b.txt", "feature B content"},
+	}
+
+	for _, b := range branches {
+		for _, args := range [][]string{
+			{"git", "checkout", "main"},
+			{"git", "checkout", "-b", b.name},
+		} {
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Dir = repo
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v failed: %v\n%s", args, err, out)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(repo, b.file), []byte(b.body), 0644); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{
+			{"git", "add", "-A"},
+			{"git", "commit", "-m", "add " + b.file},
+		} {
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Dir = repo
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v failed: %v\n%s", args, err, out)
+			}
+		}
+	}
+
+	// Return to main before merging
+	cmd := exec.Command("git", "checkout", "main")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("checkout main failed: %v\n%s", err, out)
+	}
+
+	// Merge both branches sequentially (as the mutex would enforce)
+	if err := MergeBranch(repo, "feature-a", "main"); err != nil {
+		t.Fatalf("MergeBranch feature-a failed: %v", err)
+	}
+	if err := MergeBranch(repo, "feature-b", "main"); err != nil {
+		t.Fatalf("MergeBranch feature-b failed: %v", err)
+	}
+
+	// Verify both files exist on main
+	for _, b := range branches {
+		content, err := os.ReadFile(filepath.Join(repo, b.file))
+		if err != nil {
+			t.Fatalf("expected %s to exist on main after merge: %v", b.file, err)
+		}
+		if string(content) != b.body {
+			t.Errorf("expected %s content %q, got %q", b.file, b.body, string(content))
+		}
+	}
+
+	// Verify we're on main
+	branch, err := GetCurrentBranch(repo)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch failed: %v", err)
+	}
+	if branch != "main" {
+		t.Errorf("expected to be on main, got %s", branch)
+	}
+}
+
+func TestMergeBranch_ConcurrentWithMutex(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create multiple feature branches with non-overlapping changes
+	const numBranches = 5
+	for i := range numBranches {
+		branchName := fmt.Sprintf("feature-%d", i)
+		fileName := fmt.Sprintf("file-%d.txt", i)
+
+		for _, args := range [][]string{
+			{"git", "checkout", "main"},
+			{"git", "checkout", "-b", branchName},
+		} {
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Dir = repo
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v failed: %v\n%s", args, err, out)
+			}
+		}
+		if err := os.WriteFile(filepath.Join(repo, fileName), []byte(fmt.Sprintf("content %d", i)), 0644); err != nil {
+			t.Fatal(err)
+		}
+		for _, args := range [][]string{
+			{"git", "add", "-A"},
+			{"git", "commit", "-m", fmt.Sprintf("add %s", fileName)},
+		} {
+			cmd := exec.Command(args[0], args[1:]...)
+			cmd.Dir = repo
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v failed: %v\n%s", args, err, out)
+			}
+		}
+	}
+
+	// Return to main
+	cmd := exec.Command("git", "checkout", "main")
+	cmd.Dir = repo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("checkout main failed: %v\n%s", err, out)
+	}
+
+	// Merge all branches concurrently, protected by a mutex (simulating the Engine behavior)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	errs := make([]error, numBranches)
+
+	for i := range numBranches {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			branchName := fmt.Sprintf("feature-%d", idx)
+			mu.Lock()
+			errs[idx] = MergeBranch(repo, branchName, "main")
+			mu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+
+	// All merges should succeed when serialized by the mutex
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("MergeBranch feature-%d failed: %v", i, err)
+		}
+	}
+
+	// Verify all files exist on main
+	for i := range numBranches {
+		fileName := fmt.Sprintf("file-%d.txt", i)
+		if _, err := os.ReadFile(filepath.Join(repo, fileName)); err != nil {
+			t.Errorf("expected %s to exist on main after merge: %v", fileName, err)
+		}
 	}
 }

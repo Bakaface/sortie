@@ -28,6 +28,7 @@ type Engine struct {
 	notifier *notify.Notifier
 	repoRoot string
 	dataDir  string
+	mergeMu  sync.Mutex // serializes merge operations to prevent concurrent git merge conflicts
 }
 
 func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, repoRoot string) *Engine {
@@ -212,7 +213,7 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 		return gitpkg.Commit(t.WorktreePath, "rtk: "+t.Title)
 
 	case "merge":
-		// Commit any uncommitted changes first
+		// Commit any uncommitted changes first (operates on the worktree, safe to do concurrently)
 		if err := gitpkg.Commit(t.WorktreePath, "rtk: "+t.Title); err != nil {
 			return fmt.Errorf("commit failed: %w", err)
 		}
@@ -220,11 +221,15 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
-		// Merge happens from the main repo, not the worktree
-		if err := gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch); err != nil {
-			return fmt.Errorf("merge failed: %w", err)
+		// Serialize merge operations: MergeBranch runs checkout+merge+commit on the
+		// shared repoRoot, so concurrent calls would corrupt the working tree and index.
+		e.mergeMu.Lock()
+		mergeErr := gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch)
+		e.mergeMu.Unlock()
+		if mergeErr != nil {
+			return fmt.Errorf("merge failed: %w", mergeErr)
 		}
-		// Clean up worktree and branch
+		// Clean up worktree and branch (safe to run concurrently)
 		if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
 			log.Printf("Warning: failed to remove worktree: %v", err)
 		}
