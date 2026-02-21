@@ -1131,6 +1131,7 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		WorktreePath: t.WorktreePath,
 		ErrorMessage: t.ErrorMessage,
 		Context:      t.Context,
+		Images:       t.Images,
 		BlockedBy:    t.BlockedBy,
 		CreatedAt:    t.CreatedAt,
 		StartedAt:    t.StartedAt,
