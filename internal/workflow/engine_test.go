@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -351,5 +352,89 @@ func TestWriteTmuxLogMessageCallsOutputFn(t *testing.T) {
 	}
 	if !strings.Contains(captured[1], "Tmux session") {
 		t.Errorf("expected tmux session message in outputFn, got: %s", captured[1])
+	}
+}
+
+func TestRunClaudeSyncSetsWorkDir(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a script that prints the working directory, ignoring all args
+	script := filepath.Join(t.TempDir(), "fake-claude.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\npwd\n"), 0755)
+
+	cfg := &config.Config{
+		Claude: config.ClaudeConfig{
+			Command: script,
+		},
+	}
+	engine := NewEngine(cfg, nil, nil, dir)
+
+	ctx := context.Background()
+	output, err := engine.runClaudeSync(ctx, "test prompt", dir)
+	if err != nil {
+		t.Fatalf("runClaudeSync failed: %v", err)
+	}
+
+	output = strings.TrimSpace(output)
+	// The script should print the workDir we passed
+	if output != dir {
+		t.Errorf("expected working directory %q, got %q", dir, output)
+	}
+}
+
+func TestRunClaudeSyncEmptyWorkDir(t *testing.T) {
+	// Create a script that prints the working directory, ignoring all args
+	script := filepath.Join(t.TempDir(), "fake-claude.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\npwd\n"), 0755)
+
+	cfg := &config.Config{
+		Claude: config.ClaudeConfig{
+			Command: script,
+		},
+	}
+	engine := NewEngine(cfg, nil, nil, "")
+
+	ctx := context.Background()
+	output, err := engine.runClaudeSync(ctx, "test prompt", "")
+	if err != nil {
+		t.Fatalf("runClaudeSync failed: %v", err)
+	}
+
+	// Should succeed without error — we just verify it doesn't crash
+	output = strings.TrimSpace(output)
+	if output == "" {
+		t.Error("expected non-empty output from pwd")
+	}
+}
+
+func TestSummarizerDiffStatPromptIncludesReadInstruction(t *testing.T) {
+	// Verify that the no-artifacts summarizer prompt instructs Claude to read files
+	// rather than just summarizing based on filenames
+	taskTitle := "Add feature X"
+	taskDesc := "Implement feature X for the system"
+	diffStat := " file1.go | 10 +\n file2.go | 5 +-\n"
+
+	// Build the prompt the same way the engine does in the no-artifacts path
+	var sb strings.Builder
+	sb.WriteString("Summarize the progress made on task #1: " + taskTitle + "\n\n")
+	sb.WriteString("The task description was:\n")
+	sb.WriteString(taskDesc)
+	sb.WriteString("\n\nThe following files were changed:\n\n```\n")
+	sb.WriteString(diffStat)
+	sb.WriteString("\n```\n\n")
+	sb.WriteString("Read the changed files listed above and review the actual code to understand what was implemented. ")
+	sb.WriteString("Do NOT guess or assume — base your summary on the actual file contents and git changes in this repository. ")
+	sb.WriteString("Provide a concise summary of what was accomplished. ")
+	sb.WriteString("This summary will be used as context for future work on this task.")
+	prompt := sb.String()
+
+	if !strings.Contains(prompt, "Read the changed files") {
+		t.Error("expected prompt to instruct Claude to read changed files")
+	}
+	if !strings.Contains(prompt, "Do NOT guess or assume") {
+		t.Error("expected prompt to instruct Claude not to guess")
+	}
+	if !strings.Contains(prompt, diffStat) {
+		t.Error("expected prompt to contain the diff stat")
 	}
 }

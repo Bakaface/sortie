@@ -548,7 +548,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 		sb.WriteString("This summary will be used as context for future work on this task.")
 		prompt = sb.String()
 	} else {
-		// No artifacts — use git diff stat to generate a summary
+		// No artifacts — use git diff stat and instruct Claude to read the actual changes
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("Summarize the progress made on task #%d: %s\n\n", t.ID, t.Title))
 		sb.WriteString("The task description was:\n")
@@ -556,7 +556,9 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 		sb.WriteString("\n\nThe following files were changed:\n\n```\n")
 		sb.WriteString(diffStat)
 		sb.WriteString("\n```\n\n")
-		sb.WriteString("Based on the task description and the files changed, provide a concise summary of what was accomplished. ")
+		sb.WriteString("Read the changed files listed above and review the actual code to understand what was implemented. ")
+		sb.WriteString("Do NOT guess or assume — base your summary on the actual file contents and git changes in this repository. ")
+		sb.WriteString("Provide a concise summary of what was accomplished. ")
 		sb.WriteString("This summary will be used as context for future work on this task.")
 		prompt = sb.String()
 	}
@@ -564,7 +566,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 	log.Printf("Running summarizer for task #%d", t.ID)
 
 	// Run Claude synchronously to capture the summary text
-	summary, err := e.runClaudeSync(ctx, prompt)
+	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath)
 	if err != nil {
 		return fmt.Errorf("summarizer claude invocation failed: %w", err)
 	}
@@ -586,11 +588,16 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 }
 
 // runClaudeSync runs Claude Code synchronously and captures its stdout output.
-func (e *Engine) runClaudeSync(ctx context.Context, prompt string) (string, error) {
+// workDir sets the working directory for the Claude process so it can access
+// the task's worktree files.
+func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir string) (string, error) {
 	args := []string{"-p", prompt, "--output-format", "text"}
 	args = append(args, e.cfg.Claude.DefaultArgs...)
 
 	cmd := exec.CommandContext(ctx, e.cfg.Claude.Command, args...)
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
