@@ -748,7 +748,7 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keyStr := msg.String()
 
 	switch keyStr {
-	case "ctrl+d":
+	case "enter":
 		// Submit the task
 		description := m.prompt.Value()
 		if description == "" {

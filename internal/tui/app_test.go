@@ -1332,7 +1332,7 @@ func TestHandlePromptKey_CtrlGOpensEditor(t *testing.T) {
 	}
 }
 
-func TestHandlePromptKey_CtrlDSubmitsTask(t *testing.T) {
+func TestHandlePromptKey_EnterSubmitsTask(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
@@ -1343,19 +1343,19 @@ func TestHandlePromptKey_CtrlDSubmitsTask(t *testing.T) {
 	m.prompt.SetSize(80, 24)
 	m.prompt.textarea.SetValue("test description")
 
-	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
 	result, cmd := m.handlePromptKey(msg)
 	updated := result.(Model)
 
 	if updated.view != viewList {
-		t.Errorf("expected view to be viewList after ctrl+d, got %d", updated.view)
+		t.Errorf("expected view to be viewList after enter, got %d", updated.view)
 	}
 	if cmd == nil {
-		t.Error("expected create task command from ctrl+d, got nil")
+		t.Error("expected create task command from enter, got nil")
 	}
 }
 
-func TestHandlePromptKey_CtrlDEmptyDoesNothing(t *testing.T) {
+func TestHandlePromptKey_EnterEmptyDoesNothing(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
@@ -1364,7 +1364,7 @@ func TestHandlePromptKey_CtrlDEmptyDoesNothing(t *testing.T) {
 	}
 	m.prompt.SetSize(80, 24)
 
-	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
 	result, cmd := m.handlePromptKey(msg)
 	updated := result.(Model)
 
@@ -1457,6 +1457,52 @@ func TestPromptView_HelpShowsEditorShortcut(t *testing.T) {
 	}
 	if !strings.Contains(output, "editor") {
 		t.Error("expected prompt help to contain 'editor'")
+	}
+}
+
+func TestPromptView_HelpShowsEnterAndCtrlJ(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(100, 24)
+
+	output := p.View()
+
+	if !strings.Contains(output, "enter") {
+		t.Error("expected prompt help to contain 'enter'")
+	}
+	if !strings.Contains(output, "submit") {
+		t.Error("expected prompt help to contain 'submit'")
+	}
+	if !strings.Contains(output, "ctrl+j") {
+		t.Error("expected prompt help to contain 'ctrl+j'")
+	}
+	if !strings.Contains(output, "newline") {
+		t.Error("expected prompt help to contain 'newline'")
+	}
+	if strings.Contains(output, "ctrl+d") {
+		t.Error("expected prompt help to NOT contain 'ctrl+d'")
+	}
+}
+
+func TestHandlePromptKey_CtrlJInsertsNewline(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		prompt: newPromptView(),
+		view:   viewPrompt,
+	}
+	m.prompt.SetSize(80, 24)
+	m.prompt.textarea.SetValue("line one")
+
+	// Move cursor to end of text
+	msg := tea.KeyMsg{Type: tea.KeyCtrlE}
+	m.prompt.Update(msg)
+
+	// Ctrl+J should insert a newline (handled by textarea's InsertNewline binding)
+	msg = tea.KeyMsg{Type: tea.KeyCtrlJ}
+	m.prompt.Update(msg)
+
+	val := m.prompt.textarea.Value()
+	if !strings.Contains(val, "\n") {
+		t.Errorf("expected ctrl+j to insert newline, got %q", val)
 	}
 }
 

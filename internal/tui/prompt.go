@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -32,6 +33,7 @@ func newPromptView() promptView {
 	ta.Focus()
 	ta.CharLimit = 0 // unlimited
 	ta.ShowLineNumbers = false
+	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j"), key.WithHelp("ctrl+j", "new line"))
 	return promptView{
 		textarea: ta,
 		images:   make([]string, 0),
@@ -193,8 +195,11 @@ func (p *promptView) View() string {
 	// Help
 	b.WriteString("\n")
 	b.WriteString(helpStyle.Render("  "))
-	b.WriteString(dimStyle.Render("ctrl+d"))
+	b.WriteString(dimStyle.Render("enter"))
 	b.WriteString(helpStyle.Render(" submit"))
+	b.WriteString(helpStyle.Render(" | "))
+	b.WriteString(dimStyle.Render("ctrl+j"))
+	b.WriteString(helpStyle.Render(" newline"))
 	b.WriteString(helpStyle.Render(" | "))
 	b.WriteString(dimStyle.Render("esc"))
 	b.WriteString(helpStyle.Render(" cancel"))
