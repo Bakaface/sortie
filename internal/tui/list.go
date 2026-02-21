@@ -90,6 +90,13 @@ func (l *listView) GotoBottom() {
 	}
 }
 
+// GotoIndex moves the cursor to the task at the given row index.
+func (l *listView) GotoIndex(index int) {
+	if index >= 0 && index < len(l.tasks) {
+		l.cursor = index
+	}
+}
+
 // visibleRows returns the number of task rows visible in the list.
 // Layout: title(1) + blank(1) + header(1) + tasks + blank(1) + help(1) = 5 lines overhead.
 func (l *listView) visibleRows() int {
@@ -144,17 +151,17 @@ func (l *listView) View() string {
 	} else {
 		var header string
 		if l.globalMode {
-			header = fmt.Sprintf("  %-5s %-2s %-14s %-22s %s",
-				"ID", "P", "PROJECT", "STATUS", "TITLE")
+			header = fmt.Sprintf("  %-2s %-5s %-2s %-14s %-22s %s",
+				"#", "ID", "P", "PROJECT", "STATUS", "TITLE")
 		} else {
-			header = fmt.Sprintf("  %-5s %-2s %-22s %s",
-				"ID", "P", "STATUS", "TITLE")
+			header = fmt.Sprintf("  %-2s %-5s %-2s %-22s %s",
+				"#", "ID", "P", "STATUS", "TITLE")
 		}
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
 
 		for i, task := range l.tasks {
-			line := l.renderTask(task, i == l.cursor)
+			line := l.renderTask(task, i, i == l.cursor)
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
@@ -166,7 +173,7 @@ func (l *listView) View() string {
 	return b.String()
 }
 
-func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
+func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) string {
 	// Status icons
 	statusIcon := ""
 	switch task.Status {
@@ -191,6 +198,13 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 	}
 
 	// Format columns
+	// Descending index column: only show for the first 10 tasks (indices 0-9)
+	idxStr := " "
+	if index < 10 {
+		idxStr = fmt.Sprintf("%d", 9-index)
+	}
+	idxCol := lipgloss.NewStyle().Width(2).Render(idxStr)
+
 	taskID := fmt.Sprintf("#%-2d", task.ID)
 
 	// Merge step info into status: show step name for active states
@@ -240,9 +254,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 				projName = projName[:12]
 			}
 			projCol := lipgloss.NewStyle().Width(14).Render(projName)
-			line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
+			line = fmt.Sprintf("  %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
 		} else {
-			line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
+			line = fmt.Sprintf("  %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
 		}
 		return selectedStyle.Render(line)
 	}
@@ -264,9 +278,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 			projName = projName[:12]
 		}
 		projCol := lipgloss.NewStyle().Width(14).Render(projName)
-		line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
+		line = fmt.Sprintf("  %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
 	} else {
-		line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
+		line = fmt.Sprintf("  %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
 	}
 	return normalStyle.Render(line)
 }

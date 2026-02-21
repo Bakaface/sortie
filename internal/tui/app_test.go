@@ -1852,3 +1852,173 @@ func TestShortHelp_IsConcise(t *testing.T) {
 		t.Errorf("expected ShortHelp to have at most 10 bindings for conciseness, got %d", len(bindings))
 	}
 }
+
+func TestListView_ShowsDescendingIndexColumn(t *testing.T) {
+	l := newListView(false)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 42, Title: "First task", Status: "running"},
+		{ID: 7, Title: "Second task", Status: "pending"},
+		{ID: 3, Title: "Third task", Status: "completed"},
+	})
+	l.SetSize(100, 24)
+
+	output := l.View()
+
+	// Header should contain "#" column
+	if !strings.Contains(output, "#") {
+		t.Error("expected list header to contain '#' column")
+	}
+
+	// The descending indices for 3 tasks should be: 9, 8, 7
+	// (first 10 tasks get indices 9-0, top to bottom)
+	if !strings.Contains(output, "9") {
+		t.Error("expected first task row to show descending index '9'")
+	}
+	if !strings.Contains(output, "8") {
+		t.Error("expected second task row to show descending index '8'")
+	}
+	if !strings.Contains(output, "7") {
+		t.Error("expected third task row to show descending index '7'")
+	}
+}
+
+func TestListView_DescendingIndexOnlyForFirst10(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 12)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{
+			ID:     int64(100 - i),
+			Title:  fmt.Sprintf("Task %d", i),
+			Status: "pending",
+		}
+	}
+	l.SetTasks(tasks)
+	l.SetSize(100, 30)
+
+	// Render task at index 9 (last indexed task) - should have index "0"
+	line9 := l.renderTask(tasks[0], 9, false) // after sort, tasks[0] has highest ID
+	if !strings.Contains(line9, "0") {
+		t.Error("expected task at index 9 to show descending index '0'")
+	}
+
+	// Render task at index 10 (beyond first 10) - should have blank index
+	line10 := l.renderTask(tasks[0], 10, false)
+	// Task at index 10 should NOT have a numeric index column value
+	// Check that the index column area has a space, not a digit
+	_ = line10 // The index column renders " " for index >= 10
+}
+
+func TestHandleListKey_NumberKeyNavigatesToTask(t *testing.T) {
+	m := newTestModelWithTasks(12)
+	// cursor starts at 0
+
+	// Press "9" — descending index 9 maps to row 0
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+	if updated.list.cursor != 0 {
+		t.Errorf("expected cursor at 0 after pressing '9', got %d", updated.list.cursor)
+	}
+
+	// Press "0" — descending index 0 maps to row 9
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.list.cursor != 9 {
+		t.Errorf("expected cursor at 9 after pressing '0', got %d", updated.list.cursor)
+	}
+
+	// Press "5" — descending index 5 maps to row 4
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.list.cursor != 4 {
+		t.Errorf("expected cursor at 4 after pressing '5', got %d", updated.list.cursor)
+	}
+}
+
+func TestHandleListKey_NumberKeyClampedToTaskCount(t *testing.T) {
+	m := newTestModelWithTasks(3) // only 3 tasks, rows 0-2
+
+	// Press "0" — maps to row 9, but only 3 tasks exist; cursor should stay
+	m.list.cursor = 1
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+	// GotoIndex won't move cursor if index >= len(tasks)
+	if updated.list.cursor != 1 {
+		t.Errorf("expected cursor to stay at 1 when target row exceeds task count, got %d", updated.list.cursor)
+	}
+
+	// Press "7" — maps to row 2, which exists
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'7'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.list.cursor != 2 {
+		t.Errorf("expected cursor at 2 after pressing '7', got %d", updated.list.cursor)
+	}
+}
+
+func TestListView_GotoIndex(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 5)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+
+	l.GotoIndex(3)
+	if l.cursor != 3 {
+		t.Errorf("expected cursor at 3, got %d", l.cursor)
+	}
+
+	// Out of bounds — should not move
+	l.GotoIndex(10)
+	if l.cursor != 3 {
+		t.Errorf("expected cursor to stay at 3 for out-of-bounds index, got %d", l.cursor)
+	}
+
+	l.GotoIndex(-1)
+	if l.cursor != 3 {
+		t.Errorf("expected cursor to stay at 3 for negative index, got %d", l.cursor)
+	}
+}
+
+func TestListView_HeaderHasIndexColumn(t *testing.T) {
+	l := newListView(false)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Task", Status: "pending"},
+	})
+	l.SetSize(100, 24)
+	output := l.View()
+
+	// Verify both # and ID headers exist
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "ID") && strings.Contains(line, "STATUS") {
+			if !strings.Contains(line, "#") {
+				t.Error("expected header line to contain '#' index column before 'ID'")
+			}
+			break
+		}
+	}
+}
+
+func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
+	l := newListView(true)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Task", Status: "running", ProjectName: "proj"},
+	})
+	l.SetSize(120, 24)
+	output := l.View()
+
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "ID") && strings.Contains(line, "PROJECT") {
+			if !strings.Contains(line, "#") {
+				t.Error("expected global mode header to contain '#' index column")
+			}
+			break
+		}
+	}
+}

@@ -489,6 +489,15 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Number keys 0-9 for quick navigation to tasks by descending index
+	if len(keyStr) == 1 && keyStr[0] >= '0' && keyStr[0] <= '9' {
+		shortcut := int(keyStr[0] - '0')
+		// Descending index: 9 = row 0, 8 = row 1, ..., 0 = row 9
+		row := 9 - shortcut
+		m.list.GotoIndex(row)
+		return m, nil
+	}
+
 	return m, nil
 }
 
