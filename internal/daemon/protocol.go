@@ -112,9 +112,10 @@ type ListTasksRequest struct {
 }
 
 type CreateTaskRequest struct {
-	Description string `json:"description"`
-	Workflow    string `json:"workflow,omitempty"`
-	ProjectPath string `json:"project_path,omitempty"` // resolved to project_id by daemon
+	Description string   `json:"description"`
+	Workflow    string   `json:"workflow,omitempty"`
+	ProjectPath string   `json:"project_path,omitempty"` // resolved to project_id by daemon
+	Images      []string `json:"images,omitempty"`
 }
 
 type ContinueTaskRequest struct {
@@ -167,6 +168,7 @@ type TaskInfo struct {
 	WorktreePath string     `json:"worktree_path,omitempty"`
 	ErrorMessage string     `json:"error_message,omitempty"`
 	Context      string     `json:"context,omitempty"`
+	Images       []string   `json:"images,omitempty"`
 	BlockedBy    []int64    `json:"blocked_by,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	StartedAt    *time.Time `json:"started_at,omitempty"`

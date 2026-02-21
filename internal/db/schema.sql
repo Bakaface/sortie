@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     exit_code INTEGER,
     error_message TEXT,
     context TEXT,
+    images TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME,
     completed_at DATETIME,

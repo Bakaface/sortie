@@ -70,6 +70,16 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		return fmt.Errorf("failed to create rtk dirs: %w", err)
 	}
 
+	// Copy attached images to worktree
+	var imageRelPaths []string
+	if len(t.Images) > 0 {
+		var err error
+		imageRelPaths, err = CopyImagesToWorktree(t.WorktreePath, t.Images)
+		if err != nil {
+			log.Printf("Warning: failed to copy images to worktree: %v", err)
+		}
+	}
+
 	// Loop through steps from current index
 	for i := t.StepIndex; i < len(steps); i++ {
 		select {
@@ -102,6 +112,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 				Description: t.Description,
 				Slug:        t.Slug,
 				Branch:      t.Branch,
+				Images:      imageRelPaths,
 			},
 			Artifacts: artifacts,
 			Git: GitVars{
@@ -118,7 +129,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			artifactPath := filepath.Join(artifactsDir, step.Name+".md")
 			resolvedPrompt += fmt.Sprintf("\n\n---\n\nIMPORTANT: When you are done, write a summary of what you did to `%s`. Include: files changed, decisions made, and any issues encountered. This artifact is required for subsequent workflow steps.", artifactPath)
 		}
-		if err := InjectClaudeMD(t.WorktreePath, resolvedPrompt); err != nil {
+		if err := InjectClaudeMD(t.WorktreePath, resolvedPrompt, imageRelPaths); err != nil {
 			return fmt.Errorf("failed to inject CLAUDE.md: %w", err)
 		}
 

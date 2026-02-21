@@ -2,16 +2,27 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/aface/ralph-tamer-kit/internal/task"
 )
 
-func (db *DB) CreateTask(projectID int64, title, description, slug, workflow, branch string, status task.Status) (*task.Task, error) {
+func (db *DB) CreateTask(projectID int64, title, description, slug, workflow, branch string, status task.Status, images []string) (*task.Task, error) {
+	var imagesJSON *string
+	if len(images) > 0 {
+		data, err := json.Marshal(images)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal images: %w", err)
+		}
+		s := string(data)
+		imagesJSON = &s
+	}
+
 	result, err := db.Exec(
-		`INSERT INTO tasks (project_id, title, description, slug, workflow, branch, status) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		projectID, title, description, slug, workflow, branch, status,
+		`INSERT INTO tasks (project_id, title, description, slug, workflow, branch, status, images) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		projectID, title, description, slug, workflow, branch, status, imagesJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -26,7 +37,7 @@ func (db *DB) CreateTask(projectID int64, title, description, slug, workflow, br
 }
 
 const taskColumns = `id, project_id, title, description, slug, workflow, status, step_index, current_step,
-	branch, worktree_path, exit_code, error_message, context,
+	branch, worktree_path, exit_code, error_message, context, images,
 	created_at, started_at, completed_at, updated_at`
 
 func (db *DB) GetTask(id int64) (*task.Task, error) {
@@ -270,6 +281,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	var title, slug, workflow, branch sql.NullString
 	var currentStep, worktreePath, errorMessage sql.NullString
 	var taskContext sql.NullString
+	var imagesJSON sql.NullString
 	var exitCode sql.NullInt64
 	var startedAt, completedAt sql.NullTime
 	var updatedAt sql.NullTime
@@ -277,7 +289,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	err := row.Scan(
 		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status,
 		&t.StepIndex, &currentStep,
-		&branch, &worktreePath, &exitCode, &errorMessage, &taskContext,
+		&branch, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 	)
 	if err != nil {
@@ -315,6 +327,11 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	if taskContext.Valid {
 		t.Context = taskContext.String
 	}
+	if imagesJSON.Valid && imagesJSON.String != "" {
+		if err := json.Unmarshal([]byte(imagesJSON.String), &t.Images); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal images: %w", err)
+		}
+	}
 	if startedAt.Valid {
 		t.StartedAt = &startedAt.Time
 	}
@@ -337,6 +354,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		var title, slug, workflow, branch sql.NullString
 		var currentStep, worktreePath, errorMessage sql.NullString
 		var taskContext sql.NullString
+		var imagesJSON sql.NullString
 		var exitCode sql.NullInt64
 		var startedAt, completedAt sql.NullTime
 		var updatedAt sql.NullTime
@@ -344,7 +362,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		err := rows.Scan(
 			&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status,
 			&t.StepIndex, &currentStep,
-			&branch, &worktreePath, &exitCode, &errorMessage, &taskContext,
+			&branch, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
 			&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 		)
 		if err != nil {
@@ -381,6 +399,11 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		}
 		if taskContext.Valid {
 			t.Context = taskContext.String
+		}
+		if imagesJSON.Valid && imagesJSON.String != "" {
+			if err := json.Unmarshal([]byte(imagesJSON.String), &t.Images); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal images: %w", err)
+			}
 		}
 		if startedAt.Valid {
 			t.StartedAt = &startedAt.Time

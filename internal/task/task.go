@@ -47,6 +47,7 @@ type Task struct {
 	ErrorMessage string
 	Context      string
 	BlockedBy    []int64
+	Images       []string
 	CreatedAt    time.Time
 	StartedAt    *time.Time
 	CompletedAt  *time.Time

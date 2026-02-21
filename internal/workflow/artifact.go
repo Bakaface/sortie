@@ -63,3 +63,40 @@ func CollectArtifacts(worktreePath string, priorStepNames []string) map[string]s
 	}
 	return artifacts
 }
+
+// ImagesDir returns the path to the images directory in a worktree.
+func ImagesDir(worktreePath string) string {
+	return filepath.Join(worktreePath, ".rtk", "images")
+}
+
+// CopyImagesToWorktree copies the given image files into .rtk/images/ in the worktree.
+// Returns the list of worktree-relative paths for the copied images.
+func CopyImagesToWorktree(worktreePath string, imagePaths []string) ([]string, error) {
+	if len(imagePaths) == 0 {
+		return nil, nil
+	}
+
+	imagesDir := ImagesDir(worktreePath)
+	if err := os.MkdirAll(imagesDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create images dir: %w", err)
+	}
+
+	var relativePaths []string
+	for _, src := range imagePaths {
+		name := filepath.Base(src)
+		dst := filepath.Join(imagesDir, name)
+
+		data, err := os.ReadFile(src)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read image %s: %w", src, err)
+		}
+		if err := os.WriteFile(dst, data, 0644); err != nil {
+			return nil, fmt.Errorf("failed to write image %s: %w", dst, err)
+		}
+
+		relPath, _ := filepath.Rel(worktreePath, dst)
+		relativePaths = append(relativePaths, relPath)
+	}
+
+	return relativePaths, nil
+}

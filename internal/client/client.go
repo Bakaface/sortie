@@ -360,11 +360,12 @@ func (c *Client) RetryTask(id int64) error {
 	return nil
 }
 
-func (c *Client) CreateTask(description, workflow, projectPath string) (*daemon.TaskInfo, error) {
+func (c *Client) CreateTask(description, workflow, projectPath string, images []string) (*daemon.TaskInfo, error) {
 	msg, err := c.sendAndWait(daemon.MsgCreateTask, daemon.CreateTaskRequest{
 		Description: description,
 		Workflow:    workflow,
 		ProjectPath: projectPath,
+		Images:      images,
 	})
 	if err != nil {
 		return nil, err

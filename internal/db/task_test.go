@@ -19,15 +19,15 @@ func TestGetAllTasks_SortedDescending(t *testing.T) {
 	}
 
 	// Create tasks in ascending order
-	_, err = database.CreateTask(proj.ID, "First", "First task", "first", "", "", "pending")
+	_, err = database.CreateTask(proj.ID, "First", "First task", "first", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTask(proj.ID, "Second", "Second task", "second", "", "", "pending")
+	_, err = database.CreateTask(proj.ID, "Second", "Second task", "second", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTask(proj.ID, "Third", "Third task", "third", "", "", "pending")
+	_, err = database.CreateTask(proj.ID, "Third", "Third task", "third", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,15 +63,15 @@ func TestGetTasksByProject_SortedDescending(t *testing.T) {
 	}
 
 	// Create tasks in ascending order
-	_, err = database.CreateTask(proj.ID, "First", "First task", "first", "", "", "pending")
+	_, err = database.CreateTask(proj.ID, "First", "First task", "first", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTask(proj.ID, "Second", "Second task", "second", "", "", "pending")
+	_, err = database.CreateTask(proj.ID, "Second", "Second task", "second", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTask(proj.ID, "Third", "Third task", "third", "", "", "pending")
+	_, err = database.CreateTask(proj.ID, "Third", "Third task", "third", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
