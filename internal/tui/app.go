@@ -637,7 +637,7 @@ func (m Model) handleEditorResult(path string) tea.Cmd {
 			return nil
 		}
 
-		info, err := m.client.CreateTask(description, m.selectedWorkflow, m.projectPath)
+		info, err := m.client.CreateTask(description, m.selectedWorkflow, m.projectPath, nil)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
