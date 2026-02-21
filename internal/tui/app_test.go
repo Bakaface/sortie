@@ -898,6 +898,49 @@ func TestListView_PageDownPageUp(t *testing.T) {
 	}
 }
 
+func TestListView_ShowsRealTaskID(t *testing.T) {
+	l := newListView(false)
+	// Use non-sequential IDs to prove the ID column shows real task IDs,
+	// not positional indices (e.g., 1, 2, 3).
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 42, Title: "First task", Status: "running"},
+		{ID: 7, Title: "Second task", Status: "pending"},
+		{ID: 137, Title: "Third task", Status: "completed"},
+	})
+	l.SetSize(100, 24)
+
+	output := l.View()
+
+	if !strings.Contains(output, "#42") {
+		t.Error("expected list to show real task ID #42, not a sequential number")
+	}
+	if !strings.Contains(output, "#7") {
+		t.Error("expected list to show real task ID #7, not a sequential number")
+	}
+	if !strings.Contains(output, "#137") {
+		t.Error("expected list to show real task ID #137, not a sequential number")
+	}
+	// Ensure sequential indices are NOT shown (tasks should not appear as #1, #2, #3)
+	// Check that #1, #2, #3 don't appear (they shouldn't since IDs are 42, 7, 137)
+	// Note: #1 could appear inside other text, so check more specifically
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		// Skip header line
+		if strings.Contains(line, "TITLE") {
+			continue
+		}
+		if strings.Contains(line, "#1 ") && !strings.Contains(line, "#137") {
+			t.Error("list should show real task IDs, not sequential indices like #1")
+		}
+		if strings.Contains(line, "#2 ") {
+			t.Error("list should show real task IDs, not sequential indices like #2")
+		}
+		if strings.Contains(line, "#3 ") {
+			t.Error("list should show real task IDs, not sequential indices like #3")
+		}
+	}
+}
+
 func TestListView_PageWithSmallHeight(t *testing.T) {
 	l := newListView(false)
 	tasks := make([]daemon.TaskInfo, 10)
