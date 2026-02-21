@@ -522,7 +522,7 @@ func TestTaskInfoView_ShowsMetadata(t *testing.T) {
 		Name: "default",
 		Steps: []config.StepConfig{
 			{Name: "implement", Artifact: true},
-			{Name: "review", ApprovalRequired: true},
+			{Name: "review", Human: true},
 			{Name: "test"},
 		},
 	})
@@ -560,8 +560,8 @@ func TestTaskInfoView_ShowsMetadata(t *testing.T) {
 	if !strings.Contains(output, "review") {
 		t.Error("expected output to contain step name 'review'")
 	}
-	if !strings.Contains(output, "[approval]") {
-		t.Error("expected output to contain '[approval]' indicator")
+	if !strings.Contains(output, "[human]") {
+		t.Error("expected output to contain '[human]' indicator")
 	}
 	if !strings.Contains(output, "[artifact]") {
 		t.Error("expected output to contain '[artifact]' indicator")

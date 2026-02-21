@@ -182,8 +182,8 @@ func (v *taskInfoView) renderMetadata() string {
 			}
 
 			suffix := ""
-			if step.ApprovalRequired {
-				suffix = " [approval]"
+			if step.Human {
+				suffix = " [human]"
 			}
 			if step.Artifact {
 				suffix += " [artifact]"

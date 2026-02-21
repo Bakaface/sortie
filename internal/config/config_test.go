@@ -68,7 +68,7 @@ tasks:
         artifact: true
       - name: refactor
         prompt: "Apply refactoring based on audit"
-        approval_required: true
+        human: true
   - name: "Security Scan"
     description: "Run security audit"
     steps:
@@ -101,8 +101,8 @@ tasks:
 	if !cfg.Tasks[0].Steps[0].Artifact {
 		t.Error("expected audit step to have artifact: true")
 	}
-	if !cfg.Tasks[0].Steps[1].ApprovalRequired {
-		t.Error("expected refactor step to have approval_required: true")
+	if !cfg.Tasks[0].Steps[1].Human {
+		t.Error("expected refactor step to have human: true")
 	}
 
 	// Check synthetic workflows were registered

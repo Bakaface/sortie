@@ -47,7 +47,7 @@ type StepConfig struct {
 	Mode             string `yaml:"mode"`
 	Tmux             *bool  `yaml:"tmux,omitempty"`
 	Timeout          string `yaml:"timeout"`
-	ApprovalRequired bool   `yaml:"approval_required"`
+	Human            bool   `yaml:"human"`
 	Artifact         bool   `yaml:"artifact"`
 }
 

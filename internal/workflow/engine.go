@@ -167,7 +167,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 		// Validate that the step produced meaningful changes
 		// Skip for review steps and tmux steps (agent may still be working)
-		if !step.ApprovalRequired && !useTmux {
+		if !step.Human && !useTmux {
 			noiseFiles := []string{".claude-output.log", "CLAUDE.md"}
 			hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
 			if err != nil {
@@ -180,7 +180,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 
 		// Check if approval required before continuing
-		needsApproval := step.ApprovalRequired || useTmux
+		needsApproval := step.Human || useTmux
 		if needsApproval {
 			// Set status to pause the task. The daemon will wait for user action.
 			if err := e.database.UpdateTaskStep(t.ID, i+1, ""); err != nil {
@@ -396,7 +396,7 @@ func readLastLines(path string, n int) ([]string, error) {
 
 // runClaudeStepTmux starts a Claude session in a detached tmux session and returns
 // immediately. The tmux session persists for the user to attach and interact with.
-// The workflow engine treats tmux steps as approval_required, so the task will pause
+// The workflow engine treats tmux steps as human steps, so the task will pause
 // at tmux status until the user manually approves.
 func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string)) (int, string, error) {
 	if !tmux.IsAvailable() {
