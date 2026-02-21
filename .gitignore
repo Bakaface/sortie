@@ -1,12 +1,9 @@
 # Binary
-/rtk
+/sortie
 
-# RTK config and data
-.rtk.yaml
-.rtk/
-
-# Legacy data directory
-.ralph-tamer-kit/
+# Sortie config and data
+.sortie.yml
+.sortie/
 
 # Test files
 TEST_PRD.md

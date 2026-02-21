@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const SessionPrefix = "ralph-tamer-kit-"
+const SessionPrefix = "sortie-"
 
 type Session struct {
 	Name    string
@@ -22,7 +22,7 @@ func NewSession(taskID, workDir string) *Session {
 	}
 }
 
-// NewStepSession creates a session with name format: ralph-tamer-kit-<taskID>-<stepName>
+// NewStepSession creates a session with name format: sortie-<taskID>-<stepName>
 func NewStepSession(taskID, stepName, workDir string) *Session {
 	return &Session{
 		Name:    SessionPrefix + taskID + "-" + stepName,
@@ -166,7 +166,7 @@ func ListSessions(prefix string) ([]*Session, error) {
 }
 
 // ExtractTaskID extracts the task ID from a session name.
-// Handles both "ralph-tamer-kit-<taskID>" and "ralph-tamer-kit-<taskID>-<stepName>".
+// Handles both "sortie-<taskID>" and "sortie-<taskID>-<stepName>".
 func ExtractTaskID(sessionName string) string {
 	if !strings.HasPrefix(sessionName, SessionPrefix) {
 		return sessionName
@@ -193,7 +193,7 @@ func (s *Session) PipePane(logFile string) error {
 	return nil
 }
 
-// KillSessionsForTask kills all tmux sessions matching ralph-tamer-kit-<taskID>-*.
+// KillSessionsForTask kills all tmux sessions matching sortie-<taskID>-*.
 func KillSessionsForTask(taskID string) error {
 	prefix := SessionPrefix + taskID + "-"
 	sessions, err := ListSessions(prefix)

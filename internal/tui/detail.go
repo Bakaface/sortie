@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/aface/ralph-tamer-kit/internal/daemon"
+	"github.com/aface/sortie/internal/daemon"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
@@ -72,7 +72,7 @@ func (d *detailView) SetSize(width, height int) {
 }
 
 func (d *detailView) headerLines() int {
-	// "Ralph Tamer Kit" + blank line = 2 lines
+	// "Sortie" + blank line = 2 lines
 	base := 2
 	if d.task != nil && d.width > 0 {
 		taskTitle := d.task.Title
@@ -175,7 +175,7 @@ func (d *detailView) View() string {
 	var b strings.Builder
 
 	// App title
-	b.WriteString(titleStyle.Render(" Ralph Tamer Kit "))
+	b.WriteString(titleStyle.Render(" Sortie "))
 	b.WriteString("\n")
 
 	// Task title with word wrapping

@@ -8,8 +8,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/aface/ralph-tamer-kit/internal/config"
-	"github.com/aface/ralph-tamer-kit/internal/daemon"
+	"github.com/aface/sortie/internal/config"
+	"github.com/aface/sortie/internal/daemon"
 )
 
 type Client struct {

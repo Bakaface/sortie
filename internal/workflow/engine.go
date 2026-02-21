@@ -13,13 +13,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aface/ralph-tamer-kit/internal/claude"
-	"github.com/aface/ralph-tamer-kit/internal/config"
-	"github.com/aface/ralph-tamer-kit/internal/db"
-	gitpkg "github.com/aface/ralph-tamer-kit/internal/git"
-	"github.com/aface/ralph-tamer-kit/internal/notify"
-	"github.com/aface/ralph-tamer-kit/internal/task"
-	"github.com/aface/ralph-tamer-kit/internal/tmux"
+	"github.com/aface/sortie/internal/claude"
+	"github.com/aface/sortie/internal/config"
+	"github.com/aface/sortie/internal/db"
+	gitpkg "github.com/aface/sortie/internal/git"
+	"github.com/aface/sortie/internal/notify"
+	"github.com/aface/sortie/internal/task"
+	"github.com/aface/sortie/internal/tmux"
 )
 
 type Engine struct {
@@ -37,7 +37,7 @@ func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, r
 		database: database,
 		notifier: notifier,
 		repoRoot: repoRoot,
-		dataDir:  filepath.Join(repoRoot, ".rtk"),
+		dataDir:  filepath.Join(repoRoot, ".sortie"),
 	}
 }
 
@@ -65,9 +65,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 	}
 
-	// Ensure .rtk directories exist in worktree
+	// Ensure .sortie directories exist in worktree
 	if err := EnsureRTKDirs(t.WorktreePath); err != nil {
-		return fmt.Errorf("failed to create rtk dirs: %w", err)
+		return fmt.Errorf("failed to create sortie dirs: %w", err)
 	}
 
 	// Copy attached images to worktree
@@ -135,10 +135,10 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 		// Set environment variables
 		env := map[string]string{
-			"RTK_TASK_ID":       fmt.Sprintf("%d", t.ID),
-			"RTK_STEP":          step.Name,
-			"RTK_WORKTREE":      t.WorktreePath,
-			"RTK_ARTIFACTS_DIR": artifactsDir,
+			"SORTIE_TASK_ID":       fmt.Sprintf("%d", t.ID),
+			"SORTIE_STEP":          step.Name,
+			"SORTIE_WORKTREE":      t.WorktreePath,
+			"SORTIE_ARTIFACTS_DIR": artifactsDir,
 		}
 
 		// Spawn Claude process (tmux or direct)
@@ -221,11 +221,11 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 		return nil
 
 	case "commit":
-		return gitpkg.Commit(t.WorktreePath, "rtk: "+t.Title)
+		return gitpkg.Commit(t.WorktreePath, "sortie: "+t.Title)
 
 	case "merge":
 		// Commit any uncommitted changes first (operates on the worktree, safe to do concurrently)
-		if err := gitpkg.Commit(t.WorktreePath, "rtk: "+t.Title); err != nil {
+		if err := gitpkg.Commit(t.WorktreePath, "sortie: "+t.Title); err != nil {
 			return fmt.Errorf("commit failed: %w", err)
 		}
 		baseBranch := e.cfg.Git.BaseBranch
@@ -411,9 +411,9 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 		session.Kill()
 	}
 
-	rtkDir := filepath.Join(t.WorktreePath, ".rtk")
-	promptFile := filepath.Join(rtkDir, fmt.Sprintf("step-prompt-%s.txt", step.Name))
-	scriptFile := filepath.Join(rtkDir, fmt.Sprintf("run-step-%s.sh", step.Name))
+	sortieDir := filepath.Join(t.WorktreePath, ".sortie")
+	promptFile := filepath.Join(sortieDir, fmt.Sprintf("step-prompt-%s.txt", step.Name))
+	scriptFile := filepath.Join(sortieDir, fmt.Sprintf("run-step-%s.sh", step.Name))
 	logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
 	if err := os.MkdirAll(ProjectLogsDir(e.dataDir, t.ID), 0755); err != nil {
 		return 1, "", fmt.Errorf("failed to create log dir: %w", err)
@@ -452,7 +452,7 @@ exec bash
 		outputFn(logLines)
 	}
 
-	log.Printf("Tmux session %q started for task #%d step %q (attach with: rtk attach %s %s)",
+	log.Printf("Tmux session %q started for task #%d step %q (attach with: sortie attach %s %s)",
 		session.Name, t.ID, step.Name, taskID, step.Name)
 
 	// Fire-and-forget: return immediately, workflow will pause at approval gate
@@ -466,7 +466,7 @@ func writeTmuxLogMessage(logPath string, taskID int64, stepName, sessionName, ta
 	lines := []string{
 		fmt.Sprintf("[%s] === Step: %s (task #%d) ===", ts, stepName, taskID),
 		fmt.Sprintf("[%s] Tmux session %q initiated", ts, sessionName),
-		fmt.Sprintf("[%s] Attach with: rtk attach %s %s", ts, taskIDStr, stepName),
+		fmt.Sprintf("[%s] Attach with: sortie attach %s %s", ts, taskIDStr, stepName),
 	}
 
 	logFile, err := os.Create(logPath)

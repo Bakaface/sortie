@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aface/ralph-tamer-kit/internal/config"
+	"github.com/aface/sortie/internal/config"
 )
 
 func TestCollectArtifactsOnlyFromArtifactSteps(t *testing.T) {
 	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".rtk", "artifacts")
+	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
 	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestCollectArtifactsOnlyFromArtifactSteps(t *testing.T) {
 
 func TestCollectArtifactsEmptyWhenNoArtifactSteps(t *testing.T) {
 	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".rtk", "artifacts")
+	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
 	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestSummarizerCollectsNoArtifactsWhenNoArtifactSteps(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".rtk", "artifacts"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".sortie", "artifacts"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -124,7 +124,7 @@ func TestSummarizerCollectsNoArtifactsWhenNoArtifactSteps(t *testing.T) {
 func TestSummarizerPromptBuildWithArtifacts(t *testing.T) {
 	// Verify that when artifacts are present, the prompt includes artifact content
 	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".rtk", "artifacts")
+	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
 	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestSummarizerPromptBuildWithoutArtifacts(t *testing.T) {
 	}
 
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".rtk", "artifacts"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".sortie", "artifacts"), 0755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,12 +228,12 @@ func TestTemplateTaskImages(t *testing.T) {
 			ID:          1,
 			Title:       "Test task",
 			Description: "A test",
-			Images:      []string{".rtk/images/screenshot.png", ".rtk/images/diagram.jpg"},
+			Images:      []string{".sortie/images/screenshot.png", ".sortie/images/diagram.jpg"},
 		},
 	}
 
 	result := ResolveTemplate("Images:\n{{task.images}}", ctx)
-	expected := "Images:\n.rtk/images/screenshot.png\n.rtk/images/diagram.jpg"
+	expected := "Images:\n.sortie/images/screenshot.png\n.sortie/images/diagram.jpg"
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)
 	}
@@ -255,7 +255,7 @@ func TestTemplateTaskImagesEmpty(t *testing.T) {
 
 func TestInjectClaudeMDWithImages(t *testing.T) {
 	dir := t.TempDir()
-	images := []string{".rtk/images/screenshot.png", ".rtk/images/diagram.jpg"}
+	images := []string{".sortie/images/screenshot.png", ".sortie/images/diagram.jpg"}
 
 	err := InjectClaudeMD(dir, "Implement the feature", images)
 	if err != nil {
@@ -271,10 +271,10 @@ func TestInjectClaudeMDWithImages(t *testing.T) {
 	if !strings.Contains(s, "Attached Images") {
 		t.Error("expected CLAUDE.md to contain 'Attached Images' section")
 	}
-	if !strings.Contains(s, ".rtk/images/screenshot.png") {
+	if !strings.Contains(s, ".sortie/images/screenshot.png") {
 		t.Error("expected CLAUDE.md to reference screenshot.png")
 	}
-	if !strings.Contains(s, ".rtk/images/diagram.jpg") {
+	if !strings.Contains(s, ".sortie/images/diagram.jpg") {
 		t.Error("expected CLAUDE.md to reference diagram.jpg")
 	}
 }
@@ -301,7 +301,7 @@ func TestWriteTmuxLogMessage(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "step.log")
 
-	lines := writeTmuxLogMessage(logPath, 42, "implement", "ralph-tamer-kit-42-implement", "42")
+	lines := writeTmuxLogMessage(logPath, 42, "implement", "sortie-42-implement", "42")
 
 	// Verify returned lines
 	if len(lines) != 3 {
@@ -310,10 +310,10 @@ func TestWriteTmuxLogMessage(t *testing.T) {
 	if !strings.Contains(lines[0], "=== Step: implement (task #42) ===") {
 		t.Errorf("expected step header in line 0, got: %s", lines[0])
 	}
-	if !strings.Contains(lines[1], `Tmux session "ralph-tamer-kit-42-implement" initiated`) {
+	if !strings.Contains(lines[1], `Tmux session "sortie-42-implement" initiated`) {
 		t.Errorf("expected tmux session initiated message in line 1, got: %s", lines[1])
 	}
-	if !strings.Contains(lines[2], "Attach with: rtk attach 42 implement") {
+	if !strings.Contains(lines[2], "Attach with: sortie attach 42 implement") {
 		t.Errorf("expected attach instructions in line 2, got: %s", lines[2])
 	}
 
@@ -329,7 +329,7 @@ func TestWriteTmuxLogMessage(t *testing.T) {
 	if !strings.Contains(logContent, "Tmux session") {
 		t.Error("log file missing tmux session message")
 	}
-	if !strings.Contains(logContent, "rtk attach 42 implement") {
+	if !strings.Contains(logContent, "sortie attach 42 implement") {
 		t.Error("log file missing attach instructions")
 	}
 }
@@ -343,7 +343,7 @@ func TestWriteTmuxLogMessageCallsOutputFn(t *testing.T) {
 		captured = append(captured, lines...)
 	}
 
-	lines := writeTmuxLogMessage(logPath, 7, "review", "ralph-tamer-kit-7-review", "7")
+	lines := writeTmuxLogMessage(logPath, 7, "review", "sortie-7-review", "7")
 	outputFn(lines)
 
 	if len(captured) != 3 {

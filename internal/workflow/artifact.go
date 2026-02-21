@@ -8,12 +8,12 @@ import (
 
 // ArtifactsDir returns the path to the artifacts directory in a worktree.
 func ArtifactsDir(worktreePath string) string {
-	return filepath.Join(worktreePath, ".rtk", "artifacts")
+	return filepath.Join(worktreePath, ".sortie", "artifacts")
 }
 
 // LogsDir returns the path to the logs directory in a worktree.
 func LogsDir(worktreePath string) string {
-	return filepath.Join(worktreePath, ".rtk", "logs")
+	return filepath.Join(worktreePath, ".sortie", "logs")
 }
 
 // LogPath returns the log file path for a specific step.
@@ -21,7 +21,7 @@ func LogPath(worktreePath, stepName string) string {
 	return filepath.Join(LogsDir(worktreePath), stepName+".log")
 }
 
-// EnsureRTKDirs creates the .rtk/artifacts and .rtk/logs directories in a worktree.
+// EnsureRTKDirs creates the .sortie/artifacts and .sortie/logs directories in a worktree.
 func EnsureRTKDirs(worktreePath string) error {
 	if err := os.MkdirAll(ArtifactsDir(worktreePath), 0755); err != nil {
 		return err
@@ -66,10 +66,10 @@ func CollectArtifacts(worktreePath string, priorStepNames []string) map[string]s
 
 // ImagesDir returns the path to the images directory in a worktree.
 func ImagesDir(worktreePath string) string {
-	return filepath.Join(worktreePath, ".rtk", "images")
+	return filepath.Join(worktreePath, ".sortie", "images")
 }
 
-// CopyImagesToWorktree copies the given image files into .rtk/images/ in the worktree.
+// CopyImagesToWorktree copies the given image files into .sortie/images/ in the worktree.
 // Returns the list of worktree-relative paths for the copied images.
 func CopyImagesToWorktree(worktreePath string, imagePaths []string) ([]string, error) {
 	if len(imagePaths) == 0 {

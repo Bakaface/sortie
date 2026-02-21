@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ProjectConfig is loaded from .rtk.yaml at repo root
+// ProjectConfig is loaded from .sortie.yml at repo root
 type ProjectConfig struct {
 	MaxWorkers      int              `yaml:"max_workers"`
 	DefaultPriority string           `yaml:"default_priority"`
@@ -73,7 +73,7 @@ func (c *Config) GetStepTimeout(step StepConfig) time.Duration {
 	return DefaultStepTimeout
 }
 
-// GlobalConfig from ~/.config/ralph-tamer-kit/config.yaml
+// GlobalConfig from ~/.config/sortie/config.yaml
 type GlobalConfig struct {
 	MaxWorkers               int                 `yaml:"max_workers"`
 	Notifications            NotificationsConfig `yaml:"notifications"`
@@ -100,9 +100,9 @@ type CommandsConfig struct {
 }
 
 // Config is the merged runtime config used by all components.
-// It combines global config, project config (.rtk.yaml), and computed paths.
+// It combines global config, project config (.sortie.yml), and computed paths.
 type Config struct {
-	// From .rtk.yaml (project config)
+	// From .sortie.yml (project config)
 	MaxWorkers      int
 	DefaultPriority string
 	Git             GitConfig
@@ -116,7 +116,7 @@ type Config struct {
 	// Internal defaults (not in yaml)
 	Claude ClaudeConfig
 
-	// Whether a project config (.rtk.yaml) was found
+	// Whether a project config (.sortie.yml) was found
 	ProjectConfigFound bool
 
 	// Computed paths (project-local)
@@ -161,7 +161,7 @@ func defaultConfig() *Config {
 	return &Config{
 		MaxWorkers: 3,
 		Git: GitConfig{
-			BranchTemplate: "rtk/{{task_id}}-{{task_slug}}",
+			BranchTemplate: "sortie/{{task_id}}-{{task_slug}}",
 			OnComplete:     "commit",
 		},
 		Workflows: nil, // Empty - DefaultWorkflow() handles fallback
@@ -204,7 +204,7 @@ func DefaultWorkflowSteps() []StepConfig {
 	return DefaultWorkflow().Steps
 }
 
-// Load loads config from global + project .rtk.yaml, returning a merged Config.
+// Load loads config from global + project .sortie.yml, returning a merged Config.
 func Load() (*Config, error) {
 	cfg := defaultConfig()
 
@@ -216,7 +216,7 @@ func Load() (*Config, error) {
 		}
 	}
 
-	// Load project config (.rtk.yaml at repo root)
+	// Load project config (.sortie.yml at repo root)
 	projectPath := getProjectConfigPath()
 	if projectPath != "" {
 		if err := loadProjectConfig(projectPath, cfg); err != nil && !os.IsNotExist(err) {
@@ -243,7 +243,7 @@ func LoadForProject(projectDir string) (*Config, error) {
 		}
 	}
 
-	projectPath := filepath.Join(projectDir, ".rtk.yaml")
+	projectPath := filepath.Join(projectDir, ".sortie.yml")
 	if _, err := os.Stat(projectPath); err == nil {
 		if err := loadProjectConfig(projectPath, cfg); err != nil {
 			return nil, err
@@ -352,7 +352,7 @@ func (c *Config) computePaths() {
 		c.ProjectDir = cwd
 	}
 
-	// Daemon paths are global (under ~/.config/ralph-tamer-kit/)
+	// Daemon paths are global (under ~/.config/sortie/)
 	globalDir := getGlobalDataDir()
 	c.DatabasePath = filepath.Join(globalDir, "tasks.db")
 	c.SocketPath = filepath.Join(globalDir, "daemon.sock")
@@ -362,13 +362,13 @@ func (c *Config) computePaths() {
 // getGlobalDataDir returns the global data directory for daemon state.
 func getGlobalDataDir() string {
 	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		return filepath.Join(xdgConfig, "ralph-tamer-kit")
+		return filepath.Join(xdgConfig, "sortie")
 	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(os.TempDir(), "ralph-tamer-kit")
+		return filepath.Join(os.TempDir(), "sortie")
 	}
-	return filepath.Join(homeDir, ".config", "ralph-tamer-kit")
+	return filepath.Join(homeDir, ".config", "sortie")
 }
 
 // GetGlobalDataDir is the exported version for use by other packages.
@@ -393,7 +393,7 @@ func (c *Config) syncCompat() {
 	c.Project.AutoDetect = true
 }
 
-// EnsureDirs creates the .rtk directory and any parent dirs needed.
+// EnsureDirs creates the .sortie directory and any parent dirs needed.
 func (c *Config) EnsureDirs() error {
 	dirs := []string{
 		filepath.Dir(c.SocketPath),
@@ -486,7 +486,7 @@ func (c *Config) ResolveBranchName(taskID int64, taskSlug string) string {
 	return tmpl
 }
 
-// WriteProjectConfig writes a .rtk.yaml file.
+// WriteProjectConfig writes a .sortie.yml file.
 func WriteProjectConfig(path string, proj *ProjectConfig) error {
 	data, err := yaml.Marshal(proj)
 	if err != nil {
@@ -521,7 +521,7 @@ func (c *Config) Save() error {
 
 func getGlobalConfigPath() string {
 	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
-		return filepath.Join(xdgConfig, "ralph-tamer-kit", "config.yaml")
+		return filepath.Join(xdgConfig, "sortie", "config.yaml")
 	}
 
 	homeDir, err := os.UserHomeDir()
@@ -529,7 +529,7 @@ func getGlobalConfigPath() string {
 		return ""
 	}
 
-	return filepath.Join(homeDir, ".config", "ralph-tamer-kit", "config.yaml")
+	return filepath.Join(homeDir, ".config", "sortie", "config.yaml")
 }
 
 func getProjectConfigPath() string {
@@ -538,16 +538,10 @@ func getProjectConfigPath() string {
 		return ""
 	}
 
-	// Look for .rtk.yaml at repo root
-	path := filepath.Join(cwd, ".rtk.yaml")
+	// Look for .sortie.yml at repo root
+	path := filepath.Join(cwd, ".sortie.yml")
 	if _, err := os.Stat(path); err == nil {
 		return path
-	}
-
-	// Legacy: .ralph-tamer-kit/config.yaml
-	legacyPath := filepath.Join(cwd, ".ralph-tamer-kit", "config.yaml")
-	if _, err := os.Stat(legacyPath); err == nil {
-		return legacyPath
 	}
 
 	return ""

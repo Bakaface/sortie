@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aface/ralph-tamer-kit/internal/config"
+	"github.com/aface/sortie/internal/config"
 )
 
 // Process represents a Claude Code CLI process running in automatic mode.

@@ -8,21 +8,21 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/aface/ralph-tamer-kit/internal/client"
-	"github.com/aface/ralph-tamer-kit/internal/config"
-	"github.com/aface/ralph-tamer-kit/internal/daemon"
-	"github.com/aface/ralph-tamer-kit/internal/db"
-	gitpkg "github.com/aface/ralph-tamer-kit/internal/git"
-	"github.com/aface/ralph-tamer-kit/internal/task"
-	"github.com/aface/ralph-tamer-kit/internal/tmux"
-	"github.com/aface/ralph-tamer-kit/internal/tui"
-	"github.com/aface/ralph-tamer-kit/internal/workflow"
+	"github.com/aface/sortie/internal/client"
+	"github.com/aface/sortie/internal/config"
+	"github.com/aface/sortie/internal/daemon"
+	"github.com/aface/sortie/internal/db"
+	gitpkg "github.com/aface/sortie/internal/git"
+	"github.com/aface/sortie/internal/task"
+	"github.com/aface/sortie/internal/tmux"
+	"github.com/aface/sortie/internal/tui"
+	"github.com/aface/sortie/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
 var cfg *config.Config
 
-// Commands that don't require a project config (.rtk.yaml)
+// Commands that don't require a project config (.sortie.yml)
 var noProjectRequired = map[string]bool{
 	"init":             true,
 	"help":             true,
@@ -36,9 +36,9 @@ var noProjectRequired = map[string]bool{
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "rtk",
-	Short: "Ralph Tamer Kit orchestrates Claude Code agents",
-	Long: `Ralph Tamer Kit orchestrates Claude Code agents to work through tasks
+	Use:   "sortie",
+	Short: "Sortie orchestrates Claude Code agents",
+	Long: `Sortie orchestrates Claude Code agents to work through tasks
 systematically. It runs tasks through configurable multi-step workflows in
 dedicated git worktrees, and provides real-time monitoring via TUI.`,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -48,14 +48,14 @@ dedicated git worktrees, and provides real-time monitoring via TUI.`,
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
-		// Daemon subcommands and TUI can run without .rtk.yaml
+		// Daemon subcommands and TUI can run without .sortie.yml
 		if isDaemonSubcommand(cmd) || cmd.Name() == "tui" {
 			return nil
 		}
 
-		// Check for .rtk.yaml unless this is a command that doesn't need it
+		// Check for .sortie.yml unless this is a command that doesn't need it
 		if !noProjectRequired[cmd.Name()] && !cfg.ProjectConfigFound {
-			return fmt.Errorf("no .rtk.yaml found — run 'rtk init' first")
+			return fmt.Errorf("no .sortie.yml found — run 'sortie init' first")
 		}
 
 		return nil
@@ -74,7 +74,7 @@ func isDaemonSubcommand(cmd *cobra.Command) bool {
 
 var daemonCmd = &cobra.Command{
 	Use:   "daemon",
-	Short: "Manage the Ralph Tamer Kit daemon",
+	Short: "Manage the Sortie daemon",
 }
 
 var daemonStartCmd = &cobra.Command{
@@ -137,8 +137,8 @@ func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, g
 		return 0, "", true
 	}
 
-	// Check if cwd has .rtk.yaml (is a project)
-	if _, err := os.Stat(filepath.Join(cwd, ".rtk.yaml")); err != nil {
+	// Check if cwd has .sortie.yml (is a project)
+	if _, err := os.Stat(filepath.Join(cwd, ".sortie.yml")); err != nil {
 		// Not in a project dir — global mode
 		return 0, "", true
 	}
@@ -167,7 +167,7 @@ func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, g
 
 var initCmd = &cobra.Command{
 	Use:   "init",
-	Short: "Initialize Ralph Tamer Kit in the current project",
+	Short: "Initialize Sortie in the current project",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -178,15 +178,15 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("not a git repository")
 		}
 
-		configPath := filepath.Join(cwd, ".rtk.yaml")
+		configPath := filepath.Join(cwd, ".sortie.yml")
 		if _, err := os.Stat(configPath); err == nil {
-			fmt.Println(".rtk.yaml already exists")
+			fmt.Println(".sortie.yml already exists")
 			return nil
 		}
 
-		rtkDir := filepath.Join(cwd, ".rtk")
-		if err := os.MkdirAll(rtkDir, 0755); err != nil {
-			return fmt.Errorf("failed to create .rtk directory: %w", err)
+		sortieDir := filepath.Join(cwd, ".sortie")
+		if err := os.MkdirAll(sortieDir, 0755); err != nil {
+			return fmt.Errorf("failed to create .sortie directory: %w", err)
 		}
 
 		detected := config.DetectProject(cwd)
@@ -194,18 +194,18 @@ var initCmd = &cobra.Command{
 		proj := &config.ProjectConfig{
 			MaxWorkers: 3,
 			Git: config.GitConfig{
-				BranchTemplate: "rtk/{{task_id}}-{{task_slug}}",
+				BranchTemplate: "sortie/{{task_id}}-{{task_slug}}",
 				OnComplete:     "commit",
 			},
 		}
 
 		if err := config.WriteProjectConfig(configPath, proj); err != nil {
-			return fmt.Errorf("failed to write .rtk.yaml: %w", err)
+			return fmt.Errorf("failed to write .sortie.yml: %w", err)
 		}
 
-		fmt.Printf("Initialized Ralph Tamer Kit\n")
+		fmt.Printf("Initialized Sortie\n")
 		fmt.Printf("  Config: %s\n", configPath)
-		fmt.Printf("  Data:   %s/\n", rtkDir)
+		fmt.Printf("  Data:   %s/\n", sortieDir)
 		fmt.Printf("Detected project type: %s\n", detected.Type)
 		if detected.Commands.Test != "" {
 			fmt.Printf("  Test command: %s\n", detected.Commands.Test)
@@ -718,7 +718,7 @@ func cleanupTask(database *db.DB, taskID int64) error {
 
 	// Remove log directory
 	if repoRoot != "" {
-		dataDir := filepath.Join(repoRoot, ".rtk")
+		dataDir := filepath.Join(repoRoot, ".sortie")
 		logDir := workflow.ProjectLogsDir(dataDir, taskID)
 		if err := os.RemoveAll(logDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to remove log dir for task #%d: %v\n", taskID, err)

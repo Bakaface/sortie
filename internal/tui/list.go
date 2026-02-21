@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aface/ralph-tamer-kit/internal/daemon"
+	"github.com/aface/sortie/internal/daemon"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -130,16 +130,16 @@ func (l *listView) View() string {
 
 	var titleText string
 	if l.globalMode {
-		titleText = " Ralph Tamer Kit (Global) "
+		titleText = " Sortie (Global) "
 	} else {
-		titleText = " Ralph Tamer Kit "
+		titleText = " Sortie "
 	}
 	title := titleStyle.Render(titleText)
 	b.WriteString(title)
 	b.WriteString("\n\n")
 
 	if len(l.tasks) == 0 {
-		b.WriteString(dimStyle.Render("  No tasks found. Use 'ralph-tamer-kit plan <PRD.md>' to create tasks."))
+		b.WriteString(dimStyle.Render("  No tasks found. Use 'sortie plan <PRD.md>' to create tasks."))
 		b.WriteString("\n")
 	} else {
 		var header string

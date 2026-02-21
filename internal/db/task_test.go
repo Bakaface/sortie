@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aface/ralph-tamer-kit/internal/task"
+	"github.com/aface/sortie/internal/task"
 )
 
 func TestGetAllTasks_SortedDescending(t *testing.T) {

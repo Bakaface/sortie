@@ -18,14 +18,14 @@ import (
 
 	"path/filepath"
 
-	"github.com/aface/ralph-tamer-kit/internal/agent"
-	"github.com/aface/ralph-tamer-kit/internal/config"
-	"github.com/aface/ralph-tamer-kit/internal/db"
-	gitpkg "github.com/aface/ralph-tamer-kit/internal/git"
-	"github.com/aface/ralph-tamer-kit/internal/notify"
-	"github.com/aface/ralph-tamer-kit/internal/task"
-	"github.com/aface/ralph-tamer-kit/internal/tmux"
-	"github.com/aface/ralph-tamer-kit/internal/workflow"
+	"github.com/aface/sortie/internal/agent"
+	"github.com/aface/sortie/internal/config"
+	"github.com/aface/sortie/internal/db"
+	gitpkg "github.com/aface/sortie/internal/git"
+	"github.com/aface/sortie/internal/notify"
+	"github.com/aface/sortie/internal/task"
+	"github.com/aface/sortie/internal/tmux"
+	"github.com/aface/sortie/internal/workflow"
 )
 
 // projectContext holds per-project state: config, engine, and repoRoot.
@@ -108,14 +108,14 @@ func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 	return pc, nil
 }
 
-// getProjectDataDir returns the .rtk data directory for a task's project.
+// getProjectDataDir returns the .sortie data directory for a task's project.
 func (s *Server) getProjectDataDir(t *task.Task) string {
 	pc, err := s.getProjectContext(t.ProjectID)
 	if err != nil {
 		// Fallback: use global data dir
 		return config.GetGlobalDataDir()
 	}
-	return filepath.Join(pc.repoRoot, ".rtk")
+	return filepath.Join(pc.repoRoot, ".sortie")
 }
 
 // getProjectRepoRoot returns the repo root for a task's project.
@@ -641,13 +641,13 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 
 	// Write prompt file and wrapper script
-	rtkDir := filepath.Join(t.WorktreePath, ".rtk")
-	if err := os.MkdirAll(rtkDir, 0755); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to create rtk dir: %v", err))
+	sortieDir := filepath.Join(t.WorktreePath, ".sortie")
+	if err := os.MkdirAll(sortieDir, 0755); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to create sortie dir: %v", err))
 		return
 	}
-	promptFile := filepath.Join(rtkDir, "continue-prompt.txt")
-	scriptFile := filepath.Join(rtkDir, "run-continue.sh")
+	promptFile := filepath.Join(sortieDir, "continue-prompt.txt")
+	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
 	if err := os.WriteFile(promptFile, []byte(prompt), 0644); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to write prompt file: %v", err))
@@ -1218,7 +1218,7 @@ func (s *Server) Shutdown() {
 	// Shutdown agents with grace period
 	s.manager.Shutdown(30 * time.Second)
 
-	// Kill all RTK tmux sessions
+	// Kill all Sortie tmux sessions
 	if sessions, err := tmux.ListSessions(tmux.SessionPrefix); err == nil {
 		for _, sess := range sessions {
 			sess.Kill()

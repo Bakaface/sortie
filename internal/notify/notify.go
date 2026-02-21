@@ -3,7 +3,7 @@ package notify
 import (
 	"os/exec"
 
-	"github.com/aface/ralph-tamer-kit/internal/config"
+	"github.com/aface/sortie/internal/config"
 )
 
 type Notifier struct {
@@ -28,7 +28,7 @@ func (n *Notifier) Send(title, body string, urgency Urgency) error {
 	}
 
 	args := []string{
-		"--app-name=Ralph Tamer Kit",
+		"--app-name=Sortie",
 		"--urgency=" + string(urgency),
 	}
 

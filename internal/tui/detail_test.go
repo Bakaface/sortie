@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aface/ralph-tamer-kit/internal/daemon"
+	"github.com/aface/sortie/internal/daemon"
 )
 
 func setupDetailView(lines []string) detailView {

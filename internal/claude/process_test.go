@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aface/ralph-tamer-kit/internal/config"
+	"github.com/aface/sortie/internal/config"
 )
 
 func TestProcessOutputFunc(t *testing.T) {

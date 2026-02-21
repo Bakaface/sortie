@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aface/ralph-tamer-kit/internal/client"
-	"github.com/aface/ralph-tamer-kit/internal/config"
-	"github.com/aface/ralph-tamer-kit/internal/daemon"
+	"github.com/aface/sortie/internal/client"
+	"github.com/aface/sortie/internal/config"
+	"github.com/aface/sortie/internal/daemon"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -102,7 +102,7 @@ func TestDetailView_ShowsOnlyLogs(t *testing.T) {
 		Title:        "Test task",
 		Description:  "Some description",
 		Status:       "running",
-		Branch:       "rtk/14-test",
+		Branch:       "sortie/14-test",
 		CurrentStep:  "implement",
 		StepIndex:    1,
 		Context:      "some context info",
@@ -513,7 +513,7 @@ func TestTaskInfoView_ShowsMetadata(t *testing.T) {
 		Title:       "Test task",
 		Description: "Some description",
 		Status:      "running",
-		Branch:      "rtk/14-test",
+		Branch:      "sortie/14-test",
 		CurrentStep: "implement",
 		StepIndex:   0,
 		Context:     "some context info",
@@ -543,7 +543,7 @@ func TestTaskInfoView_ShowsMetadata(t *testing.T) {
 	if !strings.Contains(output, "Branch:") {
 		t.Error("expected output to contain 'Branch:'")
 	}
-	if !strings.Contains(output, "rtk/14-test") {
+	if !strings.Contains(output, "sortie/14-test") {
 		t.Error("expected output to contain branch name")
 	}
 	if !strings.Contains(output, "Some description") {

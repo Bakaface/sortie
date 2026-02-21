@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aface/ralph-tamer-kit/internal/client"
-	"github.com/aface/ralph-tamer-kit/internal/config"
-	"github.com/aface/ralph-tamer-kit/internal/daemon"
-	"github.com/aface/ralph-tamer-kit/internal/tmux"
+	"github.com/aface/sortie/internal/client"
+	"github.com/aface/sortie/internal/config"
+	"github.com/aface/sortie/internal/daemon"
+	"github.com/aface/sortie/internal/tmux"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -823,7 +823,7 @@ func (m Model) rejectTask(taskID int64) tea.Cmd {
 }
 
 func (m Model) openEditorForNewTask() tea.Cmd {
-	f, err := os.CreateTemp("", "rtk-new-task-*.md")
+	f, err := os.CreateTemp("", "sortie-new-task-*.md")
 	if err != nil {
 		return func() tea.Msg { return errorMsg(fmt.Errorf("failed to create temp file: %w", err)) }
 	}

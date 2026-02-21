@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aface/ralph-tamer-kit/internal/task"
+	"github.com/aface/sortie/internal/task"
 )
 
 var (

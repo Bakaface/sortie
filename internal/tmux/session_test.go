@@ -6,8 +6,8 @@ import (
 
 func TestNewSession(t *testing.T) {
 	s := NewSession("42", "/tmp/work")
-	if s.Name != "ralph-tamer-kit-42" {
-		t.Errorf("expected name ralph-tamer-kit-42, got %s", s.Name)
+	if s.Name != "sortie-42" {
+		t.Errorf("expected name sortie-42, got %s", s.Name)
 	}
 	if s.WorkDir != "/tmp/work" {
 		t.Errorf("expected workdir /tmp/work, got %s", s.WorkDir)
@@ -16,8 +16,8 @@ func TestNewSession(t *testing.T) {
 
 func TestNewStepSession(t *testing.T) {
 	s := NewStepSession("42", "implement", "/tmp/work")
-	if s.Name != "ralph-tamer-kit-42-implement" {
-		t.Errorf("expected name ralph-tamer-kit-42-implement, got %s", s.Name)
+	if s.Name != "sortie-42-implement" {
+		t.Errorf("expected name sortie-42-implement, got %s", s.Name)
 	}
 }
 
@@ -27,11 +27,11 @@ func TestExtractTaskID(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"task only", "ralph-tamer-kit-42", "42"},
-		{"task with step", "ralph-tamer-kit-42-implement", "42"},
-		{"task with multi-word step", "ralph-tamer-kit-7-code-review", "7"},
+		{"task only", "sortie-42", "42"},
+		{"task with step", "sortie-42-implement", "42"},
+		{"task with multi-word step", "sortie-7-code-review", "7"},
 		{"no prefix", "other-session", "other-session"},
-		{"prefix only", "ralph-tamer-kit-", ""},
+		{"prefix only", "sortie-", ""},
 	}
 
 	for _, tt := range tests {

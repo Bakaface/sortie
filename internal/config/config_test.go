@@ -8,7 +8,7 @@ import (
 
 func TestStepConfigArtifactParsing(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".rtk.yaml")
+	configPath := filepath.Join(dir, ".sortie.yml")
 
 	yaml := `
 workflow:
@@ -56,7 +56,7 @@ func TestDefaultWorkflowArtifactDefault(t *testing.T) {
 
 func TestPredefinedTasksParsing(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".rtk.yaml")
+	configPath := filepath.Join(dir, ".sortie.yml")
 
 	yamlContent := `
 tasks:
@@ -122,7 +122,7 @@ tasks:
 
 func TestPredefinedTasksAutoNaming(t *testing.T) {
 	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".rtk.yaml")
+	configPath := filepath.Join(dir, ".sortie.yml")
 
 	yamlContent := `
 tasks:

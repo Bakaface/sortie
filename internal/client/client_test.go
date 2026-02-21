@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aface/ralph-tamer-kit/internal/daemon"
+	"github.com/aface/sortie/internal/daemon"
 )
 
 // mockServer simulates a daemon that reads requests and sends back typed responses.

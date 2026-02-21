@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const WorktreePrefix = "ralph-tamer-kit-task-"
+const WorktreePrefix = "sortie-task-"
 
 type Worktree struct {
 	Path       string
@@ -24,7 +24,7 @@ func CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string
 	}
 	// Sanitize branch name for use as directory name (replace / with -)
 	dirName := strings.ReplaceAll(branchName, "/", "-")
-	worktreePath := filepath.Join(repoRoot, ".rtk", "worktrees", dirName)
+	worktreePath := filepath.Join(repoRoot, ".sortie", "worktrees", dirName)
 
 	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create worktree directory: %w", err)
@@ -107,7 +107,7 @@ func ListWorktrees(repoRoot string) ([]string, error) {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "worktree ") {
 			path := strings.TrimPrefix(line, "worktree ")
-			if strings.Contains(path, WorktreePrefix) || strings.Contains(path, "rtk-") {
+			if strings.Contains(path, WorktreePrefix) || strings.Contains(path, "sortie-") {
 				worktrees = append(worktrees, path)
 			}
 		}

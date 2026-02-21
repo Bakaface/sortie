@@ -1,4 +1,4 @@
-module github.com/aface/ralph-tamer-kit
+module github.com/aface/sortie
 
 go 1.24.0
 
