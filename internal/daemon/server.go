@@ -589,6 +589,19 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
+	// Failed tasks: retry from the last failed step
+	if t.Status == task.StatusFailed {
+		if err := s.database.ResetTaskForRetryFromStep(req.TaskID); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
+			return
+		}
+		s.broadcastTaskUpdate(t.ID)
+		log.Printf("Task #%d retrying from step %d", t.ID, t.StepIndex)
+		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d retrying from step %d", t.ID, t.StepIndex)})
+		return
+	}
+
+	// Completed tasks: open tmux session with context loaded (not auto-sent)
 	if !tmux.IsAvailable() {
 		s.sendError(conn, "tmux is not installed or not in PATH")
 		return
@@ -616,22 +629,27 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		}
 	}
 
-	// Build a continue prompt using the task's context
-	var promptBuilder strings.Builder
-	promptBuilder.WriteString(fmt.Sprintf("# Continue Task #%d: %s\n\n", t.ID, t.Title))
-	promptBuilder.WriteString("You are continuing work on a previously completed task.\n\n")
-	promptBuilder.WriteString("## Task Description\n\n")
-	promptBuilder.WriteString(t.Description)
-	promptBuilder.WriteString("\n\n")
+	// Write context into CLAUDE.md so claude loads it without auto-sending
+	var claudeMD strings.Builder
+	fmt.Fprintf(&claudeMD, "# Continue Task #%d: %s\n\n", t.ID, t.Title)
+	claudeMD.WriteString("You are continuing work on a previously completed task.\n\n")
+	claudeMD.WriteString("## Task Description\n\n")
+	claudeMD.WriteString(t.Description)
+	claudeMD.WriteString("\n\n")
 	if t.Context != "" {
-		promptBuilder.WriteString("## Previous Context\n\n")
-		promptBuilder.WriteString(t.Context)
-		promptBuilder.WriteString("\n\n")
+		claudeMD.WriteString("## Previous Context\n\n")
+		claudeMD.WriteString(t.Context)
+		claudeMD.WriteString("\n\n")
 	}
-	promptBuilder.WriteString("The user wants to continue working on this task. Help them with whatever they need.")
-	prompt := promptBuilder.String()
+	claudeMD.WriteString("The user wants to continue working on this task. Help them with whatever they need.\n")
 
-	// Create tmux session
+	claudeMDPath := filepath.Join(t.WorktreePath, "CLAUDE.md")
+	if err := os.WriteFile(claudeMDPath, []byte(claudeMD.String()), 0644); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to write CLAUDE.md: %v", err))
+		return
+	}
+
+	// Create tmux session with just `claude` (no prompt arg — waits for user input)
 	taskID := fmt.Sprintf("%d", t.ID)
 	session := tmux.NewStepSession(taskID, "continue", t.WorktreePath)
 
@@ -640,21 +658,15 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		session.Kill()
 	}
 
-	// Write prompt file and wrapper script
+	// Write wrapper script that runs claude without a prompt argument
 	sortieDir := filepath.Join(t.WorktreePath, ".sortie")
 	if err := os.MkdirAll(sortieDir, 0755); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create sortie dir: %v", err))
 		return
 	}
-	promptFile := filepath.Join(sortieDir, "continue-prompt.txt")
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := os.WriteFile(promptFile, []byte(prompt), 0644); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to write prompt file: %v", err))
-		return
-	}
-
-	script := fmt.Sprintf("#!/bin/bash\nPROMPT=$(cat %q)\nclaude \"$PROMPT\"\nexec bash\n", promptFile)
+	script := "#!/bin/bash\nclaude\nexec bash\n"
 	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to write wrapper script: %v", err))
 		return

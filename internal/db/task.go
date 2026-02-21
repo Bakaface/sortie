@@ -286,6 +286,16 @@ func (db *DB) ResetTaskForRetry(id int64) error {
 	return err
 }
 
+func (db *DB) ResetTaskForRetryFromStep(id int64) error {
+	_, err := db.Exec(
+		`UPDATE tasks SET status = ?, current_step = NULL,
+		 exit_code = NULL, error_message = NULL, started_at = NULL,
+		 completed_at = NULL, updated_at = ? WHERE id = ?`,
+		task.StatusPending, time.Now(), id,
+	)
+	return err
+}
+
 func (db *DB) DeleteTask(id int64) error {
 	_, err := db.Exec("DELETE FROM task_dependencies WHERE task_id = ? OR blocked_by = ?", id, id)
 	if err != nil {
