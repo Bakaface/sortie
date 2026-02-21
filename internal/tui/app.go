@@ -231,6 +231,8 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			switch action {
 			case "approve":
 				return m, m.approveTask(taskID)
+			case "continue":
+				return m, m.continueTask(taskID)
 			case "delete":
 				return m, m.deleteTask(taskID)
 			default:
@@ -336,6 +338,16 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			return m, m.stopTask(task.ID)
+		}
+		return m, nil
+
+	case "c":
+		if task := m.list.Selected(); task != nil && m.client != nil {
+			if task.Status == "completed" || task.Status == "failed" {
+				m.confirmAction = "continue"
+				m.confirmTaskID = task.ID
+				return m, nil
+			}
 		}
 		return m, nil
 
@@ -657,6 +669,18 @@ func (m Model) deleteTask(taskID int64) tea.Cmd {
 			return errorMsg(err)
 		}
 		return taskDeletedMsg(taskID)
+	}
+}
+
+func (m Model) continueTask(taskID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+		if err := m.client.ContinueTask(taskID); err != nil {
+			return errorMsg(err)
+		}
+		return nil
 	}
 }
 

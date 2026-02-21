@@ -23,6 +23,7 @@ const (
 	MsgRetryTask    MessageType = "retry_task"
 	MsgGetLogs      MessageType = "get_logs"
 	MsgCreateTask   MessageType = "create_task"
+	MsgContinueTask MessageType = "continue_task"
 	MsgDeleteTask   MessageType = "delete_task"
 	MsgAgentList    MessageType = "agent_list"
 	MsgTaskList     MessageType = "task_list"
@@ -114,6 +115,10 @@ type CreateTaskRequest struct {
 	Description string `json:"description"`
 	Workflow    string `json:"workflow,omitempty"`
 	ProjectPath string `json:"project_path,omitempty"` // resolved to project_id by daemon
+}
+
+type ContinueTaskRequest struct {
+	TaskID int64 `json:"task_id"`
 }
 
 type DeleteTaskRequest struct {
