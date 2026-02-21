@@ -264,8 +264,21 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Any other key resets pending delete
+	// Handle "gg" sequence for go-to-top
+	if keyStr == "g" {
+		if m.list.IsPendingG() {
+			m.list.SetPendingG(false)
+			m.pendingDelete = false
+			m.list.GotoTop()
+			return m, nil
+		}
+		m.list.SetPendingG(true)
+		return m, nil
+	}
+
+	// Any other key resets pending states
 	m.pendingDelete = false
+	m.list.SetPendingG(false)
 
 	switch keyStr {
 	case "q", "ctrl+c":
@@ -281,6 +294,18 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "down", "j":
 		m.list.MoveDown()
+		return m, nil
+
+	case "G":
+		m.list.GotoBottom()
+		return m, nil
+
+	case "ctrl+d":
+		m.list.PageDown()
+		return m, nil
+
+	case "ctrl+u":
+		m.list.PageUp()
 		return m, nil
 
 	case "enter":

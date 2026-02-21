@@ -5,23 +5,25 @@ import (
 )
 
 type keyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	Enter    key.Binding
-	Logs     key.Binding
-	Stop     key.Binding
-	Approve  key.Binding
-	Reject   key.Binding
-	Retry    key.Binding
-	Delete   key.Binding
-	NewTask  key.Binding
-	Attach   key.Binding
-	Refresh  key.Binding
-	Back     key.Binding
-	Quit     key.Binding
-	Help     key.Binding
-	PageUp   key.Binding
-	PageDown key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	Enter      key.Binding
+	Logs       key.Binding
+	Stop       key.Binding
+	Approve    key.Binding
+	Reject     key.Binding
+	Retry      key.Binding
+	Delete     key.Binding
+	NewTask    key.Binding
+	Attach     key.Binding
+	Refresh    key.Binding
+	Back       key.Binding
+	Quit       key.Binding
+	Help       key.Binding
+	PageUp     key.Binding
+	PageDown   key.Binding
+	GotoTop    key.Binding
+	GotoBottom key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -88,11 +90,19 @@ func newKeyMap() keyMap {
 		),
 		PageUp: key.NewBinding(
 			key.WithKeys("pgup", "ctrl+u"),
-			key.WithHelp("pgup", "page up"),
+			key.WithHelp("ctrl+u", "page up"),
 		),
 		PageDown: key.NewBinding(
 			key.WithKeys("pgdown", "ctrl+d"),
-			key.WithHelp("pgdown", "page down"),
+			key.WithHelp("ctrl+d", "page down"),
+		),
+		GotoTop: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("gg", "top"),
+		),
+		GotoBottom: key.NewBinding(
+			key.WithKeys("G"),
+			key.WithHelp("G", "bottom"),
 		),
 	}
 }
@@ -103,7 +113,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Enter, k.Logs},
+		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.Enter, k.Logs},
 		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Delete, k.Attach, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}

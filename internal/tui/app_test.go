@@ -626,3 +626,194 @@ func TestListView_NonGlobalModeHidesProjectColumn(t *testing.T) {
 		t.Error("expected non-global mode to NOT show PROJECT header column")
 	}
 }
+
+func newTestModelWithTasks(n int) Model {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	tasks := make([]daemon.TaskInfo, n)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	m.list.SetTasks(tasks)
+	m.list.SetSize(100, 30) // 30 lines tall → visibleRows = 25, half = 12
+	return m
+}
+
+func TestHandleListKey_GGGoesToTop(t *testing.T) {
+	m := newTestModelWithTasks(20)
+	m.list.cursor = 15
+
+	// First "g"
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
+	result, _ := m.handleListKey(msg)
+	m = result.(Model)
+
+	if m.list.cursor != 15 {
+		t.Errorf("expected cursor to stay at 15 after first 'g', got %d", m.list.cursor)
+	}
+	if !m.list.IsPendingG() {
+		t.Error("expected pendingG to be true after first 'g'")
+	}
+
+	// Second "g"
+	result, _ = m.handleListKey(msg)
+	m = result.(Model)
+
+	if m.list.cursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.list.cursor)
+	}
+	if m.list.IsPendingG() {
+		t.Error("expected pendingG to be false after 'gg'")
+	}
+}
+
+func TestHandleListKey_GGResetByOtherKey(t *testing.T) {
+	m := newTestModelWithTasks(20)
+	m.list.cursor = 10
+
+	// Press "g" then "j" — should NOT go to top, should move down
+	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
+	result, _ := m.handleListKey(gMsg)
+	m = result.(Model)
+
+	jMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	result, _ = m.handleListKey(jMsg)
+	m = result.(Model)
+
+	if m.list.cursor != 11 {
+		t.Errorf("expected cursor at 11 after g+j, got %d", m.list.cursor)
+	}
+	if m.list.IsPendingG() {
+		t.Error("expected pendingG to be false after non-g key")
+	}
+}
+
+func TestHandleListKey_ShiftGGoesToBottom(t *testing.T) {
+	m := newTestModelWithTasks(20)
+	m.list.cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.list.cursor != 19 {
+		t.Errorf("expected cursor at 19 (last task) after 'G', got %d", updated.list.cursor)
+	}
+}
+
+func TestHandleListKey_CtrlDPageDown(t *testing.T) {
+	m := newTestModelWithTasks(30)
+	m.list.cursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// height=30, visibleRows=25, half=12
+	if updated.list.cursor != 12 {
+		t.Errorf("expected cursor at 12 after ctrl+d, got %d", updated.list.cursor)
+	}
+}
+
+func TestHandleListKey_CtrlUPageUp(t *testing.T) {
+	m := newTestModelWithTasks(30)
+	m.list.cursor = 20
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// height=30, visibleRows=25, half=12
+	if updated.list.cursor != 8 {
+		t.Errorf("expected cursor at 8 after ctrl+u, got %d", updated.list.cursor)
+	}
+}
+
+func TestHandleListKey_CtrlDClampsToEnd(t *testing.T) {
+	m := newTestModelWithTasks(10)
+	m.list.cursor = 8
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.list.cursor != 9 {
+		t.Errorf("expected cursor clamped to 9 (last task) after ctrl+d, got %d", updated.list.cursor)
+	}
+}
+
+func TestHandleListKey_CtrlUClampsToStart(t *testing.T) {
+	m := newTestModelWithTasks(10)
+	m.list.cursor = 2
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.list.cursor != 0 {
+		t.Errorf("expected cursor clamped to 0 after ctrl+u, got %d", updated.list.cursor)
+	}
+}
+
+func TestListView_GotoTopAndBottom(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 10)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+
+	l.GotoBottom()
+	if l.cursor != 9 {
+		t.Errorf("expected cursor at 9 after GotoBottom, got %d", l.cursor)
+	}
+
+	l.GotoTop()
+	if l.cursor != 0 {
+		t.Errorf("expected cursor at 0 after GotoTop, got %d", l.cursor)
+	}
+}
+
+func TestListView_PageDownPageUp(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 30)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	l.SetSize(100, 30) // visibleRows=25, half=12
+
+	l.PageDown()
+	if l.cursor != 12 {
+		t.Errorf("expected cursor at 12 after PageDown, got %d", l.cursor)
+	}
+
+	l.PageDown()
+	if l.cursor != 24 {
+		t.Errorf("expected cursor at 24 after second PageDown, got %d", l.cursor)
+	}
+
+	l.PageUp()
+	if l.cursor != 12 {
+		t.Errorf("expected cursor at 12 after PageUp, got %d", l.cursor)
+	}
+}
+
+func TestListView_PageWithSmallHeight(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 10)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	l.SetSize(100, 6) // visibleRows=1, half=1 (minimum)
+
+	l.PageDown()
+	if l.cursor != 1 {
+		t.Errorf("expected cursor at 1 with small height, got %d", l.cursor)
+	}
+}

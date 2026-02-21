@@ -16,6 +16,7 @@ type listView struct {
 	showHelp     bool
 	globalMode   bool
 	tmuxSessions map[int64]bool
+	pendingG     bool
 }
 
 func newListView(globalMode bool) listView {
@@ -73,6 +74,46 @@ func (l *listView) MoveDown() {
 	if l.cursor < len(l.tasks)-1 {
 		l.cursor++
 	}
+}
+
+func (l *listView) GotoTop() {
+	l.cursor = 0
+}
+
+func (l *listView) GotoBottom() {
+	if len(l.tasks) > 0 {
+		l.cursor = len(l.tasks) - 1
+	}
+}
+
+// visibleRows returns the number of task rows visible in the list.
+// Layout: title(1) + blank(1) + header(1) + tasks + blank(1) + help(1) = 5 lines overhead.
+func (l *listView) visibleRows() int {
+	return max(1, l.height-5)
+}
+
+func (l *listView) PageDown() {
+	half := max(1, l.visibleRows()/2)
+	l.cursor += half
+	if l.cursor >= len(l.tasks) {
+		l.cursor = max(0, len(l.tasks)-1)
+	}
+}
+
+func (l *listView) PageUp() {
+	half := max(1, l.visibleRows()/2)
+	l.cursor -= half
+	if l.cursor < 0 {
+		l.cursor = 0
+	}
+}
+
+func (l *listView) IsPendingG() bool {
+	return l.pendingG
+}
+
+func (l *listView) SetPendingG(v bool) {
+	l.pendingG = v
 }
 
 func (l *listView) SetSize(width, height int) {
