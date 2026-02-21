@@ -91,7 +91,7 @@ func (db *DB) GetClaimableTasks() ([]*task.Task, error) {
 }
 
 func (db *DB) GetAllTasks() ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks ORDER BY id ASC`, taskColumns))
+	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks ORDER BY id DESC`, taskColumns))
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (db *DB) GetAllTasks() ([]*task.Task, error) {
 
 // GetTasksByProject returns all tasks for a specific project.
 func (db *DB) GetTasksByProject(projectID int64) ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id = ? ORDER BY id ASC`, taskColumns), projectID)
+	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id = ? ORDER BY id DESC`, taskColumns), projectID)
 	if err != nil {
 		return nil, err
 	}
