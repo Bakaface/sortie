@@ -614,6 +614,52 @@ func TestListView_GlobalModeShowsProjectColumn(t *testing.T) {
 	}
 }
 
+func TestListView_SortsTasksDescendingByID(t *testing.T) {
+	l := newListView(false)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "First task", Status: "completed"},
+		{ID: 3, Title: "Third task", Status: "running"},
+		{ID: 2, Title: "Second task", Status: "pending"},
+	})
+
+	if len(l.tasks) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(l.tasks))
+	}
+	if l.tasks[0].ID != 3 {
+		t.Errorf("expected first task ID to be 3 (newest), got %d", l.tasks[0].ID)
+	}
+	if l.tasks[1].ID != 2 {
+		t.Errorf("expected second task ID to be 2, got %d", l.tasks[1].ID)
+	}
+	if l.tasks[2].ID != 1 {
+		t.Errorf("expected third task ID to be 1 (oldest), got %d", l.tasks[2].ID)
+	}
+}
+
+func TestListView_SortsTasksDescendingPreservesCursor(t *testing.T) {
+	l := newListView(false)
+	// Set initial tasks with cursor at position 0
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 5, Title: "Task 5", Status: "running"},
+		{ID: 3, Title: "Task 3", Status: "pending"},
+	})
+	l.cursor = 1 // pointing at task 3
+
+	// Update with same tasks — cursor should stay valid
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 3, Title: "Task 3", Status: "pending"},
+		{ID: 5, Title: "Task 5", Status: "running"},
+	})
+
+	if l.cursor > len(l.tasks)-1 {
+		t.Errorf("cursor %d exceeds task count %d", l.cursor, len(l.tasks))
+	}
+	// Tasks should still be sorted descending
+	if l.tasks[0].ID != 5 {
+		t.Errorf("expected first task ID to be 5, got %d", l.tasks[0].ID)
+	}
+}
+
 func TestListView_NonGlobalModeHidesProjectColumn(t *testing.T) {
 	l := newListView(false)
 	l.SetTasks([]daemon.TaskInfo{
