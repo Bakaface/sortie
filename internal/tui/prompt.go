@@ -34,6 +34,8 @@ func newPromptView() promptView {
 	ta.CharLimit = 0 // unlimited
 	ta.ShowLineNumbers = false
 	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j"), key.WithHelp("ctrl+j", "new line"))
+	ta.KeyMap.WordForward = key.NewBinding(key.WithKeys("alt+right", "ctrl+right", "alt+f"), key.WithHelp("ctrl+right", "word forward"))
+	ta.KeyMap.WordBackward = key.NewBinding(key.WithKeys("alt+left", "ctrl+left", "alt+b"), key.WithHelp("ctrl+left", "word backward"))
 	return promptView{
 		textarea: ta,
 		images:   make([]string, 0),

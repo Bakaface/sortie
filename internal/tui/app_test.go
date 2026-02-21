@@ -1506,6 +1506,40 @@ func TestHandlePromptKey_CtrlJInsertsNewline(t *testing.T) {
 	}
 }
 
+func TestPromptView_WordJumpKeybindings(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(80, 24)
+	p.textarea.SetValue("hello world foo")
+
+	// Move cursor to end of line
+	endMsg := tea.KeyMsg{Type: tea.KeyCtrlE}
+	p.Update(endMsg)
+	endCol := p.textarea.LineInfo().ColumnOffset
+
+	// ctrl+left should jump back (word backward)
+	ctrlLeft := tea.KeyMsg{Type: tea.KeyCtrlLeft}
+	p.Update(ctrlLeft)
+	afterFirstLeft := p.textarea.LineInfo().ColumnOffset
+	if afterFirstLeft >= endCol {
+		t.Errorf("expected cursor to move left from %d, got %d", endCol, afterFirstLeft)
+	}
+
+	// ctrl+left again should jump further back
+	p.Update(ctrlLeft)
+	afterSecondLeft := p.textarea.LineInfo().ColumnOffset
+	if afterSecondLeft >= afterFirstLeft {
+		t.Errorf("expected cursor to move further left from %d, got %d", afterFirstLeft, afterSecondLeft)
+	}
+
+	// ctrl+right should jump forward (word forward)
+	ctrlRight := tea.KeyMsg{Type: tea.KeyCtrlRight}
+	p.Update(ctrlRight)
+	afterRight := p.textarea.LineInfo().ColumnOffset
+	if afterRight <= afterSecondLeft {
+		t.Errorf("expected cursor to move right from %d, got %d", afterSecondLeft, afterRight)
+	}
+}
+
 func TestHandleListKey_CPOpensPrioritySelection(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
