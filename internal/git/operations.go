@@ -265,6 +265,87 @@ func DiffStat(workDir, baseBranch string) (string, error) {
 	return strings.TrimSpace(diffOut.String()), nil
 }
 
+// MergeInto merges baseBranch into the current branch in the worktree.
+// On clean merge, returns nil. On conflict, returns a non-nil error but does NOT
+// abort the merge — the caller should resolve conflicts then call CompleteMerge.
+func MergeInto(worktreePath, baseBranch string) error {
+	cmd := exec.Command("git", "merge", baseBranch, "--no-edit")
+	cmd.Dir = worktreePath
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git merge %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
+	}
+
+	return nil
+}
+
+// GetConflictedFiles returns the list of files with unresolved merge conflicts.
+// Returns an empty slice if there are no conflicts.
+func GetConflictedFiles(workDir string) ([]string, error) {
+	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=U")
+	cmd.Dir = workDir
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git diff --diff-filter=U failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	var files []string
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
+// CompleteMerge stages all files and commits with the default merge message.
+// Should be called after resolving conflicts from a MergeInto call.
+func CompleteMerge(workDir string) error {
+	addCmd := exec.Command("git", "add", "-A")
+	addCmd.Dir = workDir
+
+	var stderr bytes.Buffer
+	addCmd.Stderr = &stderr
+
+	if err := addCmd.Run(); err != nil {
+		return fmt.Errorf("git add failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	commitCmd := exec.Command("git", "commit", "--no-edit")
+	commitCmd.Dir = workDir
+	stderr.Reset()
+	commitCmd.Stderr = &stderr
+
+	if err := commitCmd.Run(); err != nil {
+		return fmt.Errorf("git commit (merge) failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return nil
+}
+
+// AbortMerge aborts an in-progress merge to restore clean state.
+func AbortMerge(workDir string) error {
+	cmd := exec.Command("git", "merge", "--abort")
+	cmd.Dir = workDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git merge --abort failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return nil
+}
+
 func GetLastCommitMessage(workDir string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--pretty=%B")
 	cmd.Dir = workDir

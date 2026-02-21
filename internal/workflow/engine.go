@@ -206,7 +206,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	}
 
 	// All steps completed — execute on_complete action
-	if err := e.executeOnComplete(t); err != nil {
+	if err := e.executeOnComplete(ctx, t, outputFn); err != nil {
 		return fmt.Errorf("on_complete action failed: %w", err)
 	}
 
@@ -214,7 +214,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 }
 
 // executeOnComplete runs the configured on_complete action after all steps finish.
-func (e *Engine) executeOnComplete(t *task.Task) error {
+func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn func([]string)) error {
 	action := e.cfg.Git.OnComplete
 	switch action {
 	case "", "none":
@@ -232,25 +232,74 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
-		// Serialize merge operations: MergeBranch runs checkout+merge+commit on the
-		// shared repoRoot, so concurrent calls would corrupt the working tree and index.
-		e.mergeMu.Lock()
-		mergeErr := gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch)
-		if mergeErr != nil {
-			// Merge failed — likely because another agent merged first and the base
-			// branch advanced. Rebase the task branch onto the updated base and retry.
-			log.Printf("Merge failed for task #%d, attempting rebase onto %s: %v", t.ID, baseBranch, mergeErr)
-			if rebaseErr := gitpkg.RebaseBranch(t.WorktreePath, baseBranch); rebaseErr != nil {
-				e.mergeMu.Unlock()
-				return fmt.Errorf("merge failed and rebase also failed: merge: %w; rebase: %v", mergeErr, rebaseErr)
-			}
-			// Retry merge after successful rebase
+
+		const maxMergeAttempts = 3
+		var mergeErr error
+
+		for attempt := 1; attempt <= maxMergeAttempts; attempt++ {
+			// Lock only for the squash-merge on the shared repoRoot
+			e.mergeMu.Lock()
 			mergeErr = gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch)
+			e.mergeMu.Unlock()
+
+			if mergeErr == nil {
+				break
+			}
+
+			log.Printf("Merge attempt %d/%d failed for task #%d: %v", attempt, maxMergeAttempts, t.ID, mergeErr)
+
+			if attempt == maxMergeAttempts {
+				break
+			}
+
+			// Update branch outside mutex: merge baseBranch into the worktree branch
+			if err := gitpkg.MergeInto(t.WorktreePath, baseBranch); err != nil {
+				// Merge produced conflicts — try to resolve with Claude
+				conflictFiles, cfErr := gitpkg.GetConflictedFiles(t.WorktreePath)
+				if cfErr != nil {
+					gitpkg.AbortMerge(t.WorktreePath)
+					return fmt.Errorf("merge failed and could not list conflicts: merge: %w; conflict-check: %v", mergeErr, cfErr)
+				}
+
+				if len(conflictFiles) == 0 {
+					// Merge failed but no conflicted files — something unexpected happened
+					gitpkg.AbortMerge(t.WorktreePath)
+					return fmt.Errorf("merge into worktree failed with no conflicted files: %w", err)
+				}
+
+				log.Printf("Task #%d has %d conflicted files, spawning Claude to resolve", t.ID, len(conflictFiles))
+
+				if resolveErr := e.resolveConflicts(ctx, t, conflictFiles, outputFn); resolveErr != nil {
+					gitpkg.AbortMerge(t.WorktreePath)
+					return fmt.Errorf("merge conflict resolution failed: %w", resolveErr)
+				}
+
+				// Verify all conflicts are resolved
+				remaining, cfErr := gitpkg.GetConflictedFiles(t.WorktreePath)
+				if cfErr != nil {
+					gitpkg.AbortMerge(t.WorktreePath)
+					return fmt.Errorf("failed to verify conflict resolution: %w", cfErr)
+				}
+				if len(remaining) > 0 {
+					gitpkg.AbortMerge(t.WorktreePath)
+					return fmt.Errorf("claude failed to resolve all conflicts, %d files still conflicted: %v", len(remaining), remaining)
+				}
+
+				// Complete the merge commit
+				if err := gitpkg.CompleteMerge(t.WorktreePath); err != nil {
+					gitpkg.AbortMerge(t.WorktreePath)
+					return fmt.Errorf("failed to complete merge after conflict resolution: %w", err)
+				}
+
+				log.Printf("Task #%d conflicts resolved, retrying squash-merge", t.ID)
+			}
+			// If MergeInto succeeded cleanly (no error), the branch is updated — retry the squash-merge
 		}
-		e.mergeMu.Unlock()
+
 		if mergeErr != nil {
-			return fmt.Errorf("merge failed after rebase: %w", mergeErr)
+			return fmt.Errorf("merge failed after %d attempts: %w", maxMergeAttempts, mergeErr)
 		}
+
 		// Clean up worktree and branch (safe to run concurrently)
 		if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
 			log.Printf("Warning: failed to remove worktree: %v", err)
@@ -268,6 +317,53 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 		log.Printf("Unknown on_complete action: %s", action)
 		return nil
 	}
+}
+
+// resolveConflicts spawns a Claude Code agent to resolve merge conflicts in the worktree.
+func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFiles []string, outputFn func([]string)) error {
+	var sb strings.Builder
+	sb.WriteString("You are resolving merge conflicts in an automated merge pipeline.\n\n")
+	sb.WriteString(fmt.Sprintf("The branch `%s` is being merged into `%s`, and the following files have conflicts:\n\n", e.cfg.Git.BaseBranch, t.Branch))
+	for _, f := range conflictFiles {
+		sb.WriteString(fmt.Sprintf("- `%s`\n", f))
+	}
+	sb.WriteString("\nYour job:\n")
+	sb.WriteString("1. Open each conflicted file and resolve all `<<<<<<<`, `=======`, `>>>>>>>` conflict markers\n")
+	sb.WriteString("2. Choose the correct resolution by understanding both sides of the conflict\n")
+	sb.WriteString("3. Run `git add <file>` on each resolved file\n")
+	sb.WriteString("4. Do NOT run `git commit` — the merge commit will be created automatically\n")
+	sb.WriteString("5. Do NOT modify any files that are not conflicted\n")
+	sb.WriteString("6. Verify the code compiles after resolving conflicts (run `go build ./...` or equivalent)\n")
+	prompt := sb.String()
+
+	if err := InjectClaudeMD(t.WorktreePath, prompt, nil); err != nil {
+		return fmt.Errorf("failed to inject CLAUDE.md for conflict resolution: %w", err)
+	}
+
+	step := config.StepConfig{
+		Name:    "resolve-conflicts",
+		Timeout: "10m",
+	}
+
+	env := map[string]string{
+		"SORTIE_TASK_ID":  fmt.Sprintf("%d", t.ID),
+		"SORTIE_STEP":     step.Name,
+		"SORTIE_WORKTREE": t.WorktreePath,
+	}
+
+	exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, prompt, env, outputFn)
+	if err != nil {
+		return fmt.Errorf("conflict resolution claude process failed: %w", err)
+	}
+	if exitCode != 0 {
+		errMsg := fmt.Sprintf("conflict resolution exited with code %d", exitCode)
+		if outputTail != "" {
+			errMsg += "\n" + outputTail
+		}
+		return fmt.Errorf("%s", errMsg)
+	}
+
+	return nil
 }
 
 // ResumeAfterApproval resumes a task from its current step index.
