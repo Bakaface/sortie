@@ -12,6 +12,7 @@ type TaskVars struct {
 	Description string
 	Slug        string
 	Branch      string
+	Images      []string // worktree-relative paths to attached images
 }
 
 type GitVars struct {
@@ -43,6 +44,8 @@ func ResolveTemplate(tmpl string, ctx *TemplateContext) string {
 			return ctx.Task.Slug
 		case key == "task.branch":
 			return ctx.Task.Branch
+		case key == "task.images":
+			return strings.Join(ctx.Task.Images, "\n")
 		case key == "git.base_branch":
 			return ctx.Git.BaseBranch
 		case key == "git.repo_root":

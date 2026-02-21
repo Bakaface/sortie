@@ -8,7 +8,8 @@ import (
 
 // InjectClaudeMD writes a CLAUDE.md file in the worktree with the resolved prompt
 // and structured directives to ensure Claude actually implements changes.
-func InjectClaudeMD(worktreePath, resolvedPrompt string) error {
+// imageRelPaths are worktree-relative paths to attached images (may be nil).
+func InjectClaudeMD(worktreePath, resolvedPrompt string, imageRelPaths []string) error {
 	var sb strings.Builder
 
 	sb.WriteString("# CRITICAL: Autonomous Execution Mode\n\n")
@@ -23,6 +24,16 @@ func InjectClaudeMD(worktreePath, resolvedPrompt string) error {
 	sb.WriteString("# Task\n\n")
 	sb.WriteString(resolvedPrompt)
 	sb.WriteString("\n\n")
+
+	// Include attached images section if present
+	if len(imageRelPaths) > 0 {
+		sb.WriteString("## Attached Images\n\n")
+		sb.WriteString("The following images were attached to this task. Use your file reading tool to view them:\n\n")
+		for _, imgPath := range imageRelPaths {
+			sb.WriteString("- `" + imgPath + "`\n")
+		}
+		sb.WriteString("\n")
+	}
 
 	sb.WriteString("---\n\n")
 	sb.WriteString("# Workflow\n\n")

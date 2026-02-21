@@ -175,6 +175,128 @@ func TestSummarizerPromptBuildWithoutArtifacts(t *testing.T) {
 	// the fallback path.
 }
 
+func TestCopyImagesToWorktree(t *testing.T) {
+	// Create a source directory with test images
+	srcDir := t.TempDir()
+	img1 := filepath.Join(srcDir, "screenshot.png")
+	img2 := filepath.Join(srcDir, "diagram.jpg")
+	os.WriteFile(img1, []byte("fake png data"), 0644)
+	os.WriteFile(img2, []byte("fake jpg data"), 0644)
+
+	// Create a worktree directory
+	worktree := t.TempDir()
+
+	relPaths, err := CopyImagesToWorktree(worktree, []string{img1, img2})
+	if err != nil {
+		t.Fatalf("CopyImagesToWorktree failed: %v", err)
+	}
+
+	if len(relPaths) != 2 {
+		t.Fatalf("expected 2 relative paths, got %d", len(relPaths))
+	}
+
+	// Verify files were copied
+	for _, rel := range relPaths {
+		fullPath := filepath.Join(worktree, rel)
+		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+			t.Errorf("expected copied image at %s", fullPath)
+		}
+	}
+
+	// Verify content
+	data, _ := os.ReadFile(filepath.Join(worktree, relPaths[0]))
+	if string(data) != "fake png data" {
+		t.Errorf("expected copied content to match, got %q", string(data))
+	}
+}
+
+func TestCopyImagesToWorktreeEmpty(t *testing.T) {
+	worktree := t.TempDir()
+
+	relPaths, err := CopyImagesToWorktree(worktree, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if relPaths != nil {
+		t.Errorf("expected nil for empty images, got %v", relPaths)
+	}
+}
+
+func TestTemplateTaskImages(t *testing.T) {
+	ctx := &TemplateContext{
+		Task: TaskVars{
+			ID:          1,
+			Title:       "Test task",
+			Description: "A test",
+			Images:      []string{".rtk/images/screenshot.png", ".rtk/images/diagram.jpg"},
+		},
+	}
+
+	result := ResolveTemplate("Images:\n{{task.images}}", ctx)
+	expected := "Images:\n.rtk/images/screenshot.png\n.rtk/images/diagram.jpg"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestTemplateTaskImagesEmpty(t *testing.T) {
+	ctx := &TemplateContext{
+		Task: TaskVars{
+			ID:     1,
+			Images: nil,
+		},
+	}
+
+	result := ResolveTemplate("Images: {{task.images}}", ctx)
+	if result != "Images: " {
+		t.Errorf("expected 'Images: ', got %q", result)
+	}
+}
+
+func TestInjectClaudeMDWithImages(t *testing.T) {
+	dir := t.TempDir()
+	images := []string{".rtk/images/screenshot.png", ".rtk/images/diagram.jpg"}
+
+	err := InjectClaudeMD(dir, "Implement the feature", images)
+	if err != nil {
+		t.Fatalf("InjectClaudeMD failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("failed to read CLAUDE.md: %v", err)
+	}
+
+	s := string(content)
+	if !strings.Contains(s, "Attached Images") {
+		t.Error("expected CLAUDE.md to contain 'Attached Images' section")
+	}
+	if !strings.Contains(s, ".rtk/images/screenshot.png") {
+		t.Error("expected CLAUDE.md to reference screenshot.png")
+	}
+	if !strings.Contains(s, ".rtk/images/diagram.jpg") {
+		t.Error("expected CLAUDE.md to reference diagram.jpg")
+	}
+}
+
+func TestInjectClaudeMDWithoutImages(t *testing.T) {
+	dir := t.TempDir()
+
+	err := InjectClaudeMD(dir, "Implement the feature", nil)
+	if err != nil {
+		t.Fatalf("InjectClaudeMD failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("failed to read CLAUDE.md: %v", err)
+	}
+
+	if strings.Contains(string(content), "Attached Images") {
+		t.Error("expected CLAUDE.md to NOT contain 'Attached Images' section when no images")
+	}
+}
+
 func TestWriteTmuxLogMessage(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "step.log")
