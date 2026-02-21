@@ -144,11 +144,11 @@ func (l *listView) View() string {
 	} else {
 		var header string
 		if l.globalMode {
-			header = fmt.Sprintf("  %-5s %-5s %-14s %-22s %s",
-				"ID", "PRI", "PROJECT", "STATUS", "TITLE")
+			header = fmt.Sprintf("  %-5s %-2s %-14s %-22s %s",
+				"ID", "P", "PROJECT", "STATUS", "TITLE")
 		} else {
-			header = fmt.Sprintf("  %-5s %-5s %-22s %s",
-				"ID", "PRI", "STATUS", "TITLE")
+			header = fmt.Sprintf("  %-5s %-2s %-22s %s",
+				"ID", "P", "STATUS", "TITLE")
 		}
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
@@ -228,7 +228,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 	priBadge := priorityBadge(task.Priority)
 
 	if selected {
-		priCol := lipgloss.NewStyle().Width(5).Render(priBadge)
+		priCol := lipgloss.NewStyle().Width(2).Render(priBadge)
 		statusCol := lipgloss.NewStyle().Width(22).Render(status)
 		var line string
 		if l.globalMode {
@@ -248,7 +248,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 	}
 
 	// Apply priority and status colors for non-selected rows
-	priCol := priorityStyle(task.Priority).Width(5).Render(priBadge)
+	priCol := priorityStyle(task.Priority).Width(2).Render(priBadge)
 	statusSt := stateStyle(task.Status)
 	if strings.Contains(status, "(deadlocked)") {
 		statusSt = stateStyle("failed")

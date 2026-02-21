@@ -1551,14 +1551,36 @@ func TestListView_RendersPriorityBadge(t *testing.T) {
 	l.SetSize(120, 30)
 
 	output := l.View()
-	if !strings.Contains(output, "PRI") {
-		t.Error("expected priority header 'PRI' in list view")
+	if !strings.Contains(output, " P ") {
+		t.Error("expected priority header 'P' in list view")
 	}
-	if !strings.Contains(output, "URG") {
-		t.Error("expected 'URG' badge for urgent task")
+	if !strings.Contains(output, "U") {
+		t.Error("expected 'U' badge for urgent task")
 	}
-	if !strings.Contains(output, "LO") {
-		t.Error("expected 'LO' badge for low task")
+	if !strings.Contains(output, "L") {
+		t.Error("expected 'L' badge for low task")
+	}
+}
+
+func TestPriorityBadge(t *testing.T) {
+	tests := []struct {
+		priority string
+		want     string
+	}{
+		{"urgent", "U"},
+		{"high", "H"},
+		{"medium", "M"},
+		{"low", "L"},
+		{"", "M"},
+		{"unknown", "M"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.priority, func(t *testing.T) {
+			got := priorityBadge(tt.priority)
+			if got != tt.want {
+				t.Errorf("priorityBadge(%q) = %q, want %q", tt.priority, got, tt.want)
+			}
+		})
 	}
 }
 
