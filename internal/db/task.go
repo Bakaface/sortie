@@ -10,6 +10,10 @@ import (
 )
 
 func (db *DB) CreateTask(projectID int64, title, description, slug, workflow, branch string, status task.Status, images []string) (*task.Task, error) {
+	return db.CreateTaskWithPriority(projectID, title, description, slug, workflow, branch, status, task.PriorityMedium, images)
+}
+
+func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, workflow, branch string, status task.Status, priority task.Priority, images []string) (*task.Task, error) {
 	var imagesJSON *string
 	if len(images) > 0 {
 		data, err := json.Marshal(images)
@@ -21,8 +25,8 @@ func (db *DB) CreateTask(projectID int64, title, description, slug, workflow, br
 	}
 
 	result, err := db.Exec(
-		`INSERT INTO tasks (project_id, title, description, slug, workflow, branch, status, images) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		projectID, title, description, slug, workflow, branch, status, imagesJSON,
+		`INSERT INTO tasks (project_id, title, description, slug, workflow, branch, status, priority, images) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		projectID, title, description, slug, workflow, branch, status, priority, imagesJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -36,7 +40,7 @@ func (db *DB) CreateTask(projectID int64, title, description, slug, workflow, br
 	return db.GetTask(id)
 }
 
-const taskColumns = `id, project_id, title, description, slug, workflow, status, step_index, current_step,
+const taskColumns = `id, project_id, title, description, slug, workflow, status, priority, step_index, current_step,
 	branch, worktree_path, exit_code, error_message, context, images,
 	created_at, started_at, completed_at, updated_at`
 
@@ -91,7 +95,15 @@ func (db *DB) GetClaimableTasks() ([]*task.Task, error) {
 			JOIN tasks dep ON dep.id = td.blocked_by
 			WHERE dep.status != ?
 		)
-		ORDER BY id ASC
+		ORDER BY
+			CASE priority
+				WHEN 'urgent' THEN 4
+				WHEN 'high' THEN 3
+				WHEN 'medium' THEN 2
+				WHEN 'low' THEN 1
+				ELSE 2
+			END DESC,
+			created_at ASC
 	`, taskColumns), task.StatusPending, task.StatusCompleted)
 	if err != nil {
 		return nil, err
@@ -240,6 +252,14 @@ func (db *DB) UpdateTaskError(id int64, errMsg string) error {
 	return err
 }
 
+func (db *DB) UpdateTaskPriority(id int64, priority task.Priority) error {
+	_, err := db.Exec(
+		"UPDATE tasks SET priority = ?, updated_at = ? WHERE id = ?",
+		priority, time.Now(), id,
+	)
+	return err
+}
+
 func (db *DB) UpdateTaskContext(id int64, taskContext string) error {
 	_, err := db.Exec(
 		"UPDATE tasks SET context = ?, updated_at = ? WHERE id = ?",
@@ -279,6 +299,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	var t task.Task
 	var projectID sql.NullInt64
 	var title, slug, workflow, branch sql.NullString
+	var priority sql.NullString
 	var currentStep, worktreePath, errorMessage sql.NullString
 	var taskContext sql.NullString
 	var imagesJSON sql.NullString
@@ -287,7 +308,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	var updatedAt sql.NullTime
 
 	err := row.Scan(
-		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status,
+		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
 		&t.StepIndex, &currentStep,
 		&branch, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
@@ -307,6 +328,11 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	}
 	if workflow.Valid {
 		t.Workflow = workflow.String
+	}
+	if priority.Valid {
+		t.Priority = task.Priority(priority.String)
+	} else {
+		t.Priority = task.PriorityMedium
 	}
 	if currentStep.Valid {
 		t.CurrentStep = currentStep.String
@@ -352,6 +378,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		var t task.Task
 		var projectID sql.NullInt64
 		var title, slug, workflow, branch sql.NullString
+		var priority sql.NullString
 		var currentStep, worktreePath, errorMessage sql.NullString
 		var taskContext sql.NullString
 		var imagesJSON sql.NullString
@@ -360,7 +387,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		var updatedAt sql.NullTime
 
 		err := rows.Scan(
-			&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status,
+			&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
 			&t.StepIndex, &currentStep,
 			&branch, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
 			&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
@@ -380,6 +407,11 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		}
 		if workflow.Valid {
 			t.Workflow = workflow.String
+		}
+		if priority.Valid {
+			t.Priority = task.Priority(priority.String)
+		} else {
+			t.Priority = task.PriorityMedium
 		}
 		if currentStep.Valid {
 			t.CurrentStep = currentStep.String

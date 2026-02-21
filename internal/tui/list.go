@@ -144,11 +144,11 @@ func (l *listView) View() string {
 	} else {
 		var header string
 		if l.globalMode {
-			header = fmt.Sprintf("  %-5s %-14s %-22s %s",
-				"ID", "PROJECT", "STATUS", "TITLE")
+			header = fmt.Sprintf("  %-5s %-5s %-14s %-22s %s",
+				"ID", "PRI", "PROJECT", "STATUS", "TITLE")
 		} else {
-			header = fmt.Sprintf("  %-5s %-22s %s",
-				"ID", "STATUS", "TITLE")
+			header = fmt.Sprintf("  %-5s %-5s %-22s %s",
+				"ID", "PRI", "STATUS", "TITLE")
 		}
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
@@ -225,8 +225,10 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 
 	// Use lipgloss Width for ANSI-aware column alignment
 	idCol := lipgloss.NewStyle().Width(5).Render(taskID)
+	priBadge := priorityBadge(task.Priority)
 
 	if selected {
+		priCol := lipgloss.NewStyle().Width(5).Render(priBadge)
 		statusCol := lipgloss.NewStyle().Width(22).Render(status)
 		var line string
 		if l.globalMode {
@@ -238,19 +240,20 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 				projName = projName[:12]
 			}
 			projCol := lipgloss.NewStyle().Width(14).Render(projName)
-			line = fmt.Sprintf("  %s %s %s %s", idCol, projCol, statusCol, title)
+			line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
 		} else {
-			line = fmt.Sprintf("  %s %s %s", idCol, statusCol, title)
+			line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
 		}
 		return selectedStyle.Render(line)
 	}
 
-	// Apply status color for non-selected rows
-	statusStyle := stateStyle(task.Status)
+	// Apply priority and status colors for non-selected rows
+	priCol := priorityStyle(task.Priority).Width(5).Render(priBadge)
+	statusSt := stateStyle(task.Status)
 	if strings.Contains(status, "(deadlocked)") {
-		statusStyle = stateStyle("failed")
+		statusSt = stateStyle("failed")
 	}
-	statusCol := statusStyle.Width(22).Render(status)
+	statusCol := statusSt.Width(22).Render(status)
 	var line string
 	if l.globalMode {
 		projName := task.ProjectName
@@ -261,9 +264,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, selected bool) string {
 			projName = projName[:12]
 		}
 		projCol := lipgloss.NewStyle().Width(14).Render(projName)
-		line = fmt.Sprintf("  %s %s %s %s", idCol, projCol, statusCol, title)
+		line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
 	} else {
-		line = fmt.Sprintf("  %s %s %s", idCol, statusCol, title)
+		line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
 	}
 	return normalStyle.Render(line)
 }

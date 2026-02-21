@@ -31,6 +31,49 @@ func (s Status) IsActive() bool {
 	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux || s == StatusSummarizing
 }
 
+type Priority string
+
+const (
+	PriorityLow    Priority = "low"
+	PriorityMedium Priority = "medium"
+	PriorityHigh   Priority = "high"
+	PriorityUrgent Priority = "urgent"
+)
+
+func (p Priority) String() string {
+	return string(p)
+}
+
+// Value returns a numeric sort value for the priority (higher = more important).
+func (p Priority) Value() int {
+	switch p {
+	case PriorityUrgent:
+		return 4
+	case PriorityHigh:
+		return 3
+	case PriorityMedium:
+		return 2
+	case PriorityLow:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// ValidPriorities returns all valid priority levels in ascending order.
+func ValidPriorities() []Priority {
+	return []Priority{PriorityLow, PriorityMedium, PriorityHigh, PriorityUrgent}
+}
+
+// IsValidPriority checks if a string is a valid priority value.
+func IsValidPriority(s string) bool {
+	switch Priority(s) {
+	case PriorityLow, PriorityMedium, PriorityHigh, PriorityUrgent:
+		return true
+	}
+	return false
+}
+
 type Task struct {
 	ID           int64
 	ProjectID    int64
@@ -39,6 +82,7 @@ type Task struct {
 	Slug         string
 	Workflow     string
 	Status       Status
+	Priority     Priority
 	StepIndex    int
 	CurrentStep  string
 	Branch       string

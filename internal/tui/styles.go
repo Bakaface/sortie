@@ -47,6 +47,13 @@ var (
 		"stopped":           lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")),
 	}
 
+	priorityStyles = map[string]lipgloss.Style{
+		"low":    lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")),
+		"medium": lipgloss.NewStyle().Foreground(lipgloss.Color("#6CA0DC")),
+		"high":   lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")),
+		"urgent": lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true),
+	}
+
 	helpStyle = lipgloss.NewStyle().
 			Foreground(dimStyle.GetForeground())
 
@@ -65,4 +72,26 @@ func stateStyle(state string) lipgloss.Style {
 		return style
 	}
 	return normalStyle
+}
+
+func priorityStyle(priority string) lipgloss.Style {
+	if style, ok := priorityStyles[priority]; ok {
+		return style
+	}
+	return normalStyle
+}
+
+func priorityBadge(priority string) string {
+	switch priority {
+	case "urgent":
+		return "URG"
+	case "high":
+		return "HI"
+	case "medium":
+		return "MED"
+	case "low":
+		return "LO"
+	default:
+		return "MED"
+	}
 }

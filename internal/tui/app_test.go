@@ -685,9 +685,17 @@ func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
 		{ID: 10, Title: "Completed task", Status: "completed"},
 	})
 
+	// First "c" sets pendingC
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
-	result, cmd := m.handleListKey(msg)
+	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
+	if !updated.pendingC {
+		t.Error("expected pendingC to be true after first 'c'")
+	}
+
+	// Second "c" triggers continue confirm
+	result, cmd := updated.handleListKey(msg)
+	updated = result.(Model)
 
 	if updated.confirmAction != "continue" {
 		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
@@ -712,9 +720,14 @@ func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
 		{ID: 11, Title: "Failed task", Status: "failed"},
 	})
 
+	// First "c" sets pendingC
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
-	result, cmd := m.handleListKey(msg)
+	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
+
+	// Second "c" triggers continue confirm
+	result, cmd := updated.handleListKey(msg)
+	updated = result.(Model)
 
 	if updated.confirmAction != "continue" {
 		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
@@ -1297,5 +1310,127 @@ func TestListView_PageWithSmallHeight(t *testing.T) {
 	l.PageDown()
 	if l.cursor != 1 {
 		t.Errorf("expected cursor at 1 with small height, got %d", l.cursor)
+	}
+}
+
+func TestHandleListKey_CPOpensPrioritySelection(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 20, Title: "Test task", Status: "pending", Priority: "medium"},
+	})
+
+	// First "c" sets pendingC
+	cMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, _ := m.handleListKey(cMsg)
+	updated := result.(Model)
+	if !updated.pendingC {
+		t.Error("expected pendingC to be true after 'c'")
+	}
+
+	// "p" opens priority selection
+	pMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}
+	result, _ = updated.handleListKey(pMsg)
+	updated = result.(Model)
+
+	if !updated.selectingPriority {
+		t.Error("expected selectingPriority to be true after 'cp'")
+	}
+	if updated.priorityTaskID != 20 {
+		t.Errorf("expected priorityTaskID to be 20, got %d", updated.priorityTaskID)
+	}
+}
+
+func TestHandlePrioritySelectKey_EscCancels(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		client:            &client.Client{},
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingPriority: true,
+		priorityTaskID:    1,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	result, _ := m.handlePrioritySelectKey(msg)
+	updated := result.(Model)
+
+	if updated.selectingPriority {
+		t.Error("expected selectingPriority to be false after esc")
+	}
+}
+
+func TestHandlePrioritySelectKey_Navigation(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		client:            &client.Client{},
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingPriority: true,
+		priorityCursor:    0,
+		priorityTaskID:    1,
+	}
+
+	// Move down
+	downMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	result, _ := m.handlePrioritySelectKey(downMsg)
+	updated := result.(Model)
+	if updated.priorityCursor != 1 {
+		t.Errorf("expected cursor at 1, got %d", updated.priorityCursor)
+	}
+
+	// Move up
+	upMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}
+	result, _ = updated.handlePrioritySelectKey(upMsg)
+	updated = result.(Model)
+	if updated.priorityCursor != 0 {
+		t.Errorf("expected cursor at 0, got %d", updated.priorityCursor)
+	}
+}
+
+func TestListView_RendersPriorityBadge(t *testing.T) {
+	l := newListView(false)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Urgent task", Status: "pending", Priority: "urgent"},
+		{ID: 2, Title: "Low task", Status: "pending", Priority: "low"},
+	})
+	l.SetSize(120, 30)
+
+	output := l.View()
+	if !strings.Contains(output, "PRI") {
+		t.Error("expected priority header 'PRI' in list view")
+	}
+	if !strings.Contains(output, "URG") {
+		t.Error("expected 'URG' badge for urgent task")
+	}
+	if !strings.Contains(output, "LO") {
+		t.Error("expected 'LO' badge for low task")
+	}
+}
+
+func TestTaskInfoView_ShowsPriority(t *testing.T) {
+	v := newTaskInfoView()
+	v.SetSize(100, 50)
+	task := &daemon.TaskInfo{
+		ID:       1,
+		Title:    "Test task",
+		Status:   "pending",
+		Priority: "high",
+	}
+	v.SetTask(task)
+
+	output := v.renderMetadata()
+	if !strings.Contains(output, "Priority:") {
+		t.Error("expected task info to show priority label")
+	}
+	if !strings.Contains(output, "high") {
+		t.Error("expected task info to show priority value 'high'")
 	}
 }

@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     path TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL DEFAULT '',
+    default_priority TEXT NOT NULL DEFAULT 'medium',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -13,6 +14,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     slug TEXT NOT NULL DEFAULT '',
     workflow TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'pending',
+    priority TEXT NOT NULL DEFAULT 'medium',
     step_index INTEGER NOT NULL DEFAULT 0,
     current_step TEXT,
     branch TEXT NOT NULL DEFAULT '',

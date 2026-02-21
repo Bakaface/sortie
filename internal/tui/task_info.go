@@ -97,6 +97,13 @@ func (v *taskInfoView) renderMetadata() string {
 	b.WriteString(stateStyle(t.Status).Render(t.Status))
 	b.WriteString("\n")
 
+	// Priority
+	if t.Priority != "" {
+		b.WriteString(labelStyle.Render("Priority:  "))
+		b.WriteString(priorityStyle(t.Priority).Render(t.Priority))
+		b.WriteString("\n")
+	}
+
 	// Branch
 	if t.Branch != "" {
 		b.WriteString(labelStyle.Render("Branch:    "))

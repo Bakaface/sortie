@@ -54,6 +54,12 @@ type Model struct {
 	// Predefined task selection state
 	selectingTask bool
 	taskCursor    int
+
+	// Priority selection state
+	selectingPriority bool
+	priorityCursor    int
+	priorityTaskID    int64
+	pendingC          bool
 }
 
 type clientConnectedMsg struct {
@@ -225,6 +231,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle priority selection if active
+	if m.selectingPriority {
+		return m.handlePrioritySelectKey(msg)
+	}
+
 	// Handle workflow selection if active
 	if m.selectingWorkflow {
 		return m.handleWorkflowSelectKey(msg)
@@ -290,6 +301,40 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.list.SetPendingG(true)
+		return m, nil
+	}
+
+	// Handle second key after "c" prefix
+	if m.pendingC {
+		m.pendingC = false
+		m.pendingDelete = false
+		m.list.SetPendingG(false)
+		if keyStr == "p" {
+			// "cp" — open priority selection
+			if task := m.list.Selected(); task != nil && m.client != nil {
+				m.selectingPriority = true
+				m.priorityTaskID = task.ID
+				m.priorityCursor = 0
+				return m, nil
+			}
+			return m, nil
+		}
+		// Not "p", so treat the pending "c" as continue, and consume this key
+		if task := m.list.Selected(); task != nil && m.client != nil {
+			if task.Status == "completed" || task.Status == "failed" {
+				m.confirmAction = "continue"
+				m.confirmTaskID = task.ID
+				return m, nil
+			}
+		}
+		// Fall through to process this key normally
+	}
+
+	// Handle "c" key — start "cp" sequence or immediate continue
+	if keyStr == "c" {
+		m.pendingC = true
+		m.pendingDelete = false
+		m.list.SetPendingG(false)
 		return m, nil
 	}
 
@@ -388,16 +433,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "s":
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			return m, m.stopTask(task.ID)
-		}
-		return m, nil
-
-	case "c":
-		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "completed" || task.Status == "failed" {
-				m.confirmAction = "continue"
-				m.confirmTaskID = task.ID
-				return m, nil
-			}
 		}
 		return m, nil
 
@@ -524,6 +559,40 @@ func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.createTaskWithPrompt(description, nil)
 		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handlePrioritySelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	priorities := []string{"low", "medium", "high", "urgent"}
+
+	switch msg.String() {
+	case "up", "k":
+		if m.priorityCursor > 0 {
+			m.priorityCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.priorityCursor < len(priorities)-1 {
+			m.priorityCursor++
+		}
+		return m, nil
+	case "enter":
+		selected := priorities[m.priorityCursor]
+		m.selectingPriority = false
+		return m, m.updateTaskPriority(m.priorityTaskID, selected)
+	case "esc", "q":
+		m.selectingPriority = false
+		return m, nil
+	}
+
+	// Number keys for quick selection (1-4)
+	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '4' {
+		idx := int(msg.String()[0] - '1')
+		selected := priorities[idx]
+		m.selectingPriority = false
+		return m, m.updateTaskPriority(m.priorityTaskID, selected)
 	}
 
 	return m, nil
@@ -844,6 +913,18 @@ func (m Model) continueTask(taskID int64) tea.Cmd {
 	}
 }
 
+func (m Model) updateTaskPriority(taskID int64, priority string) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+		if err := m.client.UpdateTaskPriority(taskID, priority); err != nil {
+			return errorMsg(err)
+		}
+		return nil
+	}
+}
+
 func (m Model) retryTask(taskID int64) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
@@ -930,6 +1011,23 @@ func (m Model) View() string {
 
 	if m.err != nil {
 		return fmt.Sprintf("Error: %v\n\nPress any key to continue.", m.err)
+	}
+
+	// Show priority selection as its own screen
+	if m.selectingPriority {
+		priorities := []string{"low", "medium", "high", "urgent"}
+		var b strings.Builder
+		b.WriteString(titleStyle.Render("Select Priority") + "\n\n")
+		for i, name := range priorities {
+			label := fmt.Sprintf("  %d. %s", i+1, name)
+			if i == m.priorityCursor {
+				b.WriteString(selectedStyle.Render("> "+label) + "\n")
+			} else {
+				b.WriteString("    " + priorityStyle(name).Render(label) + "\n")
+			}
+		}
+		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | 1-4: quick select | esc: cancel"))
+		return b.String()
 	}
 
 	// Show workflow selection as its own screen

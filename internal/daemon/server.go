@@ -338,6 +338,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleDeleteTask(conn, req)
 
+	case MsgUpdatePriority:
+		var req UpdatePriorityRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleUpdatePriority(conn, req)
+
 	case MsgShutdown:
 		s.Shutdown()
 
@@ -784,7 +792,15 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	slug := task.Slugify(title)
 
-	t, err := s.database.CreateTask(proj.ID, title, description, slug, req.Workflow, "", task.StatusInit, req.Images)
+	// Resolve priority: request > project default > medium
+	priority := task.PriorityMedium
+	if req.Priority != "" && task.IsValidPriority(req.Priority) {
+		priority = task.Priority(req.Priority)
+	} else if proj.DefaultPriority != "" {
+		priority = proj.DefaultPriority
+	}
+
+	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, "", task.StatusInit, priority, req.Images)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
 		return
@@ -883,6 +899,21 @@ func (s *Server) generateTitle(ctx context.Context, description string) (string,
 	}
 
 	return title, nil
+}
+
+func (s *Server) handleUpdatePriority(conn net.Conn, req UpdatePriorityRequest) {
+	if !task.IsValidPriority(req.Priority) {
+		s.sendError(conn, fmt.Sprintf("invalid priority: %s", req.Priority))
+		return
+	}
+
+	if err := s.database.UpdateTaskPriority(req.TaskID, task.Priority(req.Priority)); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update priority: %v", err))
+		return
+	}
+
+	s.broadcastTaskUpdate(req.TaskID)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: "priority updated"})
 }
 
 func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
@@ -1239,6 +1270,7 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		Slug:         t.Slug,
 		Workflow:     t.Workflow,
 		Status:       string(t.Status),
+		Priority:     string(t.Priority),
 		StepIndex:    t.StepIndex,
 		CurrentStep:  t.CurrentStep,
 		Branch:       t.Branch,

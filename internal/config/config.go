@@ -12,11 +12,12 @@ import (
 
 // ProjectConfig is loaded from .rtk.yaml at repo root
 type ProjectConfig struct {
-	MaxWorkers int              `yaml:"max_workers"`
-	Git        GitConfig        `yaml:"git"`
-	Workflows  []WorkflowConfig `yaml:"workflows"`
-	Workflow   WorkflowConfig   `yaml:"workflow"` // deprecated, backward compat
-	Tasks      []TaskConfig     `yaml:"tasks"`
+	MaxWorkers      int              `yaml:"max_workers"`
+	DefaultPriority string           `yaml:"default_priority"`
+	Git             GitConfig        `yaml:"git"`
+	Workflows       []WorkflowConfig `yaml:"workflows"`
+	Workflow        WorkflowConfig   `yaml:"workflow"` // deprecated, backward compat
+	Tasks           []TaskConfig     `yaml:"tasks"`
 }
 
 // TaskConfig defines a predefined task with a built-in description and workflow steps.
@@ -102,10 +103,11 @@ type CommandsConfig struct {
 // It combines global config, project config (.rtk.yaml), and computed paths.
 type Config struct {
 	// From .rtk.yaml (project config)
-	MaxWorkers int
-	Git        GitConfig
-	Workflows  []WorkflowConfig
-	Tasks      []TaskConfig
+	MaxWorkers      int
+	DefaultPriority string
+	Git             GitConfig
+	Workflows       []WorkflowConfig
+	Tasks           []TaskConfig
 
 	// From global config
 	Notifications            NotificationsConfig
@@ -300,6 +302,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.Git.OnComplete != "" {
 		cfg.Git.OnComplete = proj.Git.OnComplete
+	}
+	if proj.DefaultPriority != "" {
+		cfg.DefaultPriority = proj.DefaultPriority
 	}
 
 	// Handle workflows: prefer new plural form, fall back to old singular

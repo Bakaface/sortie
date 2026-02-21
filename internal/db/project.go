@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"path/filepath"
 	"time"
+
+	"github.com/aface/ralph-tamer-kit/internal/task"
 )
 
 type Project struct {
-	ID        int64
-	Path      string
-	Name      string
-	CreatedAt time.Time
+	ID              int64
+	Path            string
+	Name            string
+	DefaultPriority task.Priority
+	CreatedAt       time.Time
 }
 
 // GetOrCreateProject returns the project for the given path, creating it if needed.
@@ -52,21 +55,28 @@ func (db *DB) GetOrCreateProject(projectPath string) (*Project, error) {
 	}
 
 	return &Project{
-		ID:        id,
-		Path:      absPath,
-		Name:      name,
-		CreatedAt: time.Now(),
+		ID:              id,
+		Path:            absPath,
+		Name:            name,
+		DefaultPriority: task.PriorityMedium,
+		CreatedAt:       time.Now(),
 	}, nil
 }
 
 // GetProjectByPath finds a project by its filesystem path.
 func (db *DB) GetProjectByPath(path string) (*Project, error) {
 	var p Project
+	var defaultPriority sql.NullString
 	err := db.QueryRow(
-		`SELECT id, path, name, created_at FROM projects WHERE path = ?`, path,
-	).Scan(&p.ID, &p.Path, &p.Name, &p.CreatedAt)
+		`SELECT id, path, name, default_priority, created_at FROM projects WHERE path = ?`, path,
+	).Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.CreatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if defaultPriority.Valid {
+		p.DefaultPriority = task.Priority(defaultPriority.String)
+	} else {
+		p.DefaultPriority = task.PriorityMedium
 	}
 	return &p, nil
 }
@@ -74,18 +84,24 @@ func (db *DB) GetProjectByPath(path string) (*Project, error) {
 // GetProject returns a project by ID.
 func (db *DB) GetProject(id int64) (*Project, error) {
 	var p Project
+	var defaultPriority sql.NullString
 	err := db.QueryRow(
-		`SELECT id, path, name, created_at FROM projects WHERE id = ?`, id,
-	).Scan(&p.ID, &p.Path, &p.Name, &p.CreatedAt)
+		`SELECT id, path, name, default_priority, created_at FROM projects WHERE id = ?`, id,
+	).Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.CreatedAt)
 	if err != nil {
 		return nil, err
+	}
+	if defaultPriority.Valid {
+		p.DefaultPriority = task.Priority(defaultPriority.String)
+	} else {
+		p.DefaultPriority = task.PriorityMedium
 	}
 	return &p, nil
 }
 
 // ListProjects returns all registered projects.
 func (db *DB) ListProjects() ([]*Project, error) {
-	rows, err := db.Query(`SELECT id, path, name, created_at FROM projects ORDER BY id ASC`)
+	rows, err := db.Query(`SELECT id, path, name, default_priority, created_at FROM projects ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -94,8 +110,14 @@ func (db *DB) ListProjects() ([]*Project, error) {
 	var projects []*Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &p.CreatedAt); err != nil {
+		var defaultPriority sql.NullString
+		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.CreatedAt); err != nil {
 			return nil, err
+		}
+		if defaultPriority.Valid {
+			p.DefaultPriority = task.Priority(defaultPriority.String)
+		} else {
+			p.DefaultPriority = task.PriorityMedium
 		}
 		projects = append(projects, &p)
 	}

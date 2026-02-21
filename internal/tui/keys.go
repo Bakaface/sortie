@@ -5,27 +5,28 @@ import (
 )
 
 type keyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	Enter      key.Binding
-	Logs       key.Binding
-	Stop       key.Binding
-	Approve    key.Binding
-	Reject     key.Binding
-	Retry      key.Binding
-	RunTask    key.Binding
-	Delete     key.Binding
-	NewTask    key.Binding
-	Continue   key.Binding
-	Attach     key.Binding
-	Refresh    key.Binding
-	Back       key.Binding
-	Quit       key.Binding
-	Help       key.Binding
-	PageUp     key.Binding
-	PageDown   key.Binding
-	GotoTop    key.Binding
-	GotoBottom key.Binding
+	Up             key.Binding
+	Down           key.Binding
+	Enter          key.Binding
+	Logs           key.Binding
+	Stop           key.Binding
+	Approve        key.Binding
+	Reject         key.Binding
+	Retry          key.Binding
+	RunTask        key.Binding
+	Delete         key.Binding
+	NewTask        key.Binding
+	Continue       key.Binding
+	ChangePriority key.Binding
+	Attach         key.Binding
+	Refresh        key.Binding
+	Back           key.Binding
+	Quit           key.Binding
+	Help           key.Binding
+	PageUp         key.Binding
+	PageDown       key.Binding
+	GotoTop        key.Binding
+	GotoBottom     key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -78,6 +79,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("c"),
 			key.WithHelp("c", "continue"),
 		),
+		ChangePriority: key.NewBinding(
+			key.WithKeys("p"),
+			key.WithHelp("cp", "priority"),
+		),
 		Attach: key.NewBinding(
 			key.WithKeys("t"),
 			key.WithHelp("t", "tmux attach"),
@@ -118,13 +123,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.RunTask, k.Approve, k.Reject, k.Retry, k.Continue, k.Delete, k.Stop, k.Attach, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.RunTask, k.Approve, k.Reject, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Stop, k.Attach, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.Enter, k.Logs},
-		{k.NewTask, k.RunTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Continue, k.Delete, k.Attach, k.Refresh},
+		{k.NewTask, k.RunTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

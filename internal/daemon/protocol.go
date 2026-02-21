@@ -24,8 +24,9 @@ const (
 	MsgGetLogs      MessageType = "get_logs"
 	MsgCreateTask   MessageType = "create_task"
 	MsgContinueTask MessageType = "continue_task"
-	MsgDeleteTask   MessageType = "delete_task"
-	MsgAgentList    MessageType = "agent_list"
+	MsgDeleteTask     MessageType = "delete_task"
+	MsgUpdatePriority MessageType = "update_priority"
+	MsgAgentList      MessageType = "agent_list"
 	MsgTaskList     MessageType = "task_list"
 	MsgAgentUpdate  MessageType = "agent_update"
 	MsgTaskUpdate   MessageType = "task_update"
@@ -114,6 +115,7 @@ type ListTasksRequest struct {
 type CreateTaskRequest struct {
 	Description string   `json:"description"`
 	Workflow    string   `json:"workflow,omitempty"`
+	Priority    string   `json:"priority,omitempty"`
 	ProjectPath string   `json:"project_path,omitempty"` // resolved to project_id by daemon
 	Images      []string `json:"images,omitempty"`
 }
@@ -124,6 +126,11 @@ type ContinueTaskRequest struct {
 
 type DeleteTaskRequest struct {
 	TaskID int64 `json:"task_id"`
+}
+
+type UpdatePriorityRequest struct {
+	TaskID   int64  `json:"task_id"`
+	Priority string `json:"priority"`
 }
 
 type CreateTaskResponse struct {
@@ -162,6 +169,7 @@ type TaskInfo struct {
 	Slug         string     `json:"slug"`
 	Workflow     string     `json:"workflow,omitempty"`
 	Status       string     `json:"status"`
+	Priority     string     `json:"priority"`
 	StepIndex    int        `json:"step_index"`
 	CurrentStep  string     `json:"current_step"`
 	Branch       string     `json:"branch"`

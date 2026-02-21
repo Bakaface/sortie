@@ -400,6 +400,24 @@ func (c *Client) ContinueTask(id int64) error {
 	return nil
 }
 
+func (c *Client) UpdateTaskPriority(id int64, priority string) error {
+	msg, err := c.sendAndWait(daemon.MsgUpdatePriority, daemon.UpdatePriorityRequest{
+		TaskID:   id,
+		Priority: priority,
+	})
+	if err != nil {
+		return err
+	}
+
+	if msg.Type == daemon.MsgError {
+		var errResp daemon.ErrorResponse
+		msg.DecodePayload(&errResp)
+		return fmt.Errorf("%s", errResp.Message)
+	}
+
+	return nil
+}
+
 func (c *Client) DeleteTask(id int64) error {
 	msg, err := c.sendAndWait(daemon.MsgDeleteTask, daemon.DeleteTaskRequest{TaskID: id})
 	if err != nil {
