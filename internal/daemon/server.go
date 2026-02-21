@@ -670,7 +670,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	slug := task.Slugify(title)
 
-	t, err := s.database.CreateTask(proj.ID, title, description, slug, req.Workflow, "", task.StatusInit)
+	t, err := s.database.CreateTask(proj.ID, title, description, slug, req.Workflow, "", task.StatusInit, req.Images)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
 		return

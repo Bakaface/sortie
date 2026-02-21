@@ -21,6 +21,7 @@ const (
 	viewList view = iota
 	viewDetail
 	viewTaskInfo
+	viewPrompt
 )
 
 type Model struct {
@@ -30,6 +31,7 @@ type Model struct {
 	list        listView
 	detail      detailView
 	taskInfo    taskInfoView
+	prompt      promptView
 	view        view
 	width       int
 	height      int
@@ -74,6 +76,7 @@ func NewModel(cfg *config.Config, projectID int64, projectPath string, globalMod
 		list:        newListView(globalMode),
 		detail:      newDetailView(),
 		taskInfo:    newTaskInfoView(),
+		prompt:      newPromptView(),
 		view:        viewList,
 		projectID:   projectID,
 		projectPath: projectPath,
@@ -131,6 +134,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.SetSize(msg.Width, msg.Height)
 		m.detail.SetSize(msg.Width, msg.Height)
 		m.taskInfo.SetSize(msg.Width, msg.Height)
+		m.prompt.SetSize(msg.Width, msg.Height)
 		return m, nil
 
 	case clientConnectedMsg:
@@ -210,6 +214,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDetailKey(msg)
 	case viewTaskInfo:
 		return m.handleTaskInfoKey(msg)
+	case viewPrompt:
+		return m.handlePromptKey(msg)
 	}
 	return m, nil
 }
@@ -355,9 +361,12 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.workflowCursor = 0
 			return m, nil
 		}
-		// Single workflow (or default) — skip selection
+		// Single workflow (or default) — skip selection and open prompt view
 		m.selectedWorkflow = ""
-		return m, m.openEditorForNewTask()
+		m.view = viewPrompt
+		m.prompt.Reset()
+		m.prompt.Focus()
+		return m, nil
 
 	case "?":
 		m.list.showHelp = !m.list.showHelp
@@ -384,7 +393,10 @@ func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.selectedWorkflow = workflows[m.workflowCursor]
 		m.selectingWorkflow = false
-		return m, m.openEditorForNewTask()
+		m.view = viewPrompt
+		m.prompt.Reset()
+		m.prompt.Focus()
+		return m, nil
 	case "esc", "q":
 		m.selectingWorkflow = false
 		return m, nil
@@ -396,7 +408,10 @@ func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx < len(workflows) {
 			m.selectedWorkflow = workflows[idx]
 			m.selectingWorkflow = false
-			return m, m.openEditorForNewTask()
+			m.view = viewPrompt
+			m.prompt.Reset()
+			m.prompt.Focus()
+			return m, nil
 		}
 	}
 
@@ -534,6 +549,37 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case "ctrl+d":
+		// Submit the task
+		description := m.prompt.Value()
+		if description == "" {
+			return m, nil
+		}
+		images := m.prompt.Images()
+		m.view = viewList
+		return m, m.createTaskWithPrompt(description, images)
+
+	case "esc":
+		// Cancel and return to list
+		m.view = viewList
+		return m, nil
+
+	case "ctrl+x":
+		// Remove last image
+		m.prompt.RemoveLastImage()
+		return m, nil
+
+	default:
+		// Pass all other keys to the prompt view
+		cmd := m.prompt.Update(msg)
+		return m, cmd
+	}
+}
+
 func (m Model) refreshTasks() tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
@@ -638,6 +684,21 @@ func (m Model) handleEditorResult(path string) tea.Cmd {
 		}
 
 		info, err := m.client.CreateTask(description, m.selectedWorkflow, m.projectPath, nil)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to create task: %w", err))
+		}
+
+		return taskCreatedMsg(*info)
+	}
+}
+
+func (m Model) createTaskWithPrompt(description string, images []string) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+
+		info, err := m.client.CreateTask(description, m.selectedWorkflow, m.projectPath, images)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
@@ -771,6 +832,8 @@ func (m Model) View() string {
 		content = m.detail.View()
 	case viewTaskInfo:
 		content = m.taskInfo.View()
+	case viewPrompt:
+		content = m.prompt.View()
 	default:
 		content = m.list.View()
 	}

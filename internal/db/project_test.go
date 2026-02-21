@@ -118,15 +118,15 @@ func TestGetTasksByProject(t *testing.T) {
 	}
 
 	// Create tasks for each project
-	_, err = database.CreateTask(projA.ID, "Task A1", "Description A1", "task-a1", "", "", "pending")
+	_, err = database.CreateTask(projA.ID, "Task A1", "Description A1", "task-a1", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTask(projA.ID, "Task A2", "Description A2", "task-a2", "", "", "pending")
+	_, err = database.CreateTask(projA.ID, "Task A2", "Description A2", "task-a2", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTask(projB.ID, "Task B1", "Description B1", "task-b1", "", "", "pending")
+	_, err = database.CreateTask(projB.ID, "Task B1", "Description B1", "task-b1", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestCreateTask_WithProjectID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	task, err := database.CreateTask(proj.ID, "Test", "Test desc", "test", "", "", "pending")
+	task, err := database.CreateTask(proj.ID, "Test", "Test desc", "test", "", "", "pending", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
