@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/aface/ralph-tamer-kit/internal/daemon"
@@ -28,6 +29,9 @@ func newListView(globalMode bool) listView {
 }
 
 func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].ID > tasks[j].ID
+	})
 	l.tasks = tasks
 	if l.cursor >= len(tasks) {
 		l.cursor = max(0, len(tasks)-1)
