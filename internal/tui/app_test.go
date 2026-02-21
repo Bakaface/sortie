@@ -627,6 +627,101 @@ func TestListView_NonGlobalModeHidesProjectColumn(t *testing.T) {
 	}
 }
 
+func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 10, Title: "Completed task", Status: "completed"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "continue" {
+		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 10 {
+		t.Errorf("expected confirmTaskID to be 10, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
+	}
+}
+
+func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 11, Title: "Failed task", Status: "failed"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "continue" {
+		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 11 {
+		t.Errorf("expected confirmTaskID to be 11, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
+	}
+}
+
+func TestHandleListKey_CNoOpForRunningTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 12, Title: "Running task", Status: "running"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction for running task, got %q", updated.confirmAction)
+	}
+}
+
+func TestHandleListKey_CNoOpWithNoClient(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 13, Title: "Completed task", Status: "completed"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction without client, got %q", updated.confirmAction)
+	}
+}
+
 func newTestModelWithTasks(n int) Model {
 	m := Model{
 		keys:   newKeyMap(),

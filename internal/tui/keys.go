@@ -15,6 +15,7 @@ type keyMap struct {
 	Retry      key.Binding
 	Delete     key.Binding
 	NewTask    key.Binding
+	Continue   key.Binding
 	Attach     key.Binding
 	Refresh    key.Binding
 	Back       key.Binding
@@ -68,6 +69,10 @@ func newKeyMap() keyMap {
 			key.WithKeys("n"),
 			key.WithHelp("n", "new task"),
 		),
+		Continue: key.NewBinding(
+			key.WithKeys("c"),
+			key.WithHelp("c", "continue"),
+		),
 		Attach: key.NewBinding(
 			key.WithKeys("t"),
 			key.WithHelp("t", "tmux attach"),
@@ -108,13 +113,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.Approve, k.Reject, k.Retry, k.Delete, k.Stop, k.Attach, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.Approve, k.Reject, k.Retry, k.Continue, k.Delete, k.Stop, k.Attach, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.Enter, k.Logs},
-		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Delete, k.Attach, k.Refresh},
+		{k.NewTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Continue, k.Delete, k.Attach, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

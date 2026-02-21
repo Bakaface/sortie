@@ -322,6 +322,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleCreateTask(conn, req)
 
+	case MsgContinueTask:
+		var req ContinueTaskRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleContinueTask(conn, req)
+
 	case MsgDeleteTask:
 		var req DeleteTaskRequest
 		if err := msg.DecodePayload(&req); err != nil {
@@ -559,6 +567,112 @@ func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 	}
 
 	s.sendMessage(conn, MsgOK, OKResponse{Message: "task reset for retry"})
+}
+
+func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	if !t.Status.IsTerminal() {
+		s.sendError(conn, fmt.Sprintf("task is not in a terminal state (status: %s)", t.Status))
+		return
+	}
+
+	if !tmux.IsAvailable() {
+		s.sendError(conn, "tmux is not installed or not in PATH")
+		return
+	}
+
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get project context: %v", err))
+		return
+	}
+
+	// Ensure worktree exists (may have been cleaned up)
+	if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
+		if t.Branch == "" {
+			t.Branch = pc.cfg.ResolveBranchName(t.ID, t.Slug)
+		}
+		worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, pc.cfg.Git.BaseBranch, t.Branch)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to create worktree: %v", err))
+			return
+		}
+		t.WorktreePath = worktree.Path
+		if err := s.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
+			log.Printf("Warning: failed to update worktree path: %v", err)
+		}
+	}
+
+	// Build a continue prompt using the task's context
+	var promptBuilder strings.Builder
+	promptBuilder.WriteString(fmt.Sprintf("# Continue Task #%d: %s\n\n", t.ID, t.Title))
+	promptBuilder.WriteString("You are continuing work on a previously completed task.\n\n")
+	promptBuilder.WriteString("## Task Description\n\n")
+	promptBuilder.WriteString(t.Description)
+	promptBuilder.WriteString("\n\n")
+	if t.Context != "" {
+		promptBuilder.WriteString("## Previous Context\n\n")
+		promptBuilder.WriteString(t.Context)
+		promptBuilder.WriteString("\n\n")
+	}
+	promptBuilder.WriteString("The user wants to continue working on this task. Help them with whatever they need.")
+	prompt := promptBuilder.String()
+
+	// Create tmux session
+	taskID := fmt.Sprintf("%d", t.ID)
+	session := tmux.NewStepSession(taskID, "continue", t.WorktreePath)
+
+	// Kill stale session if exists
+	if session.Exists() {
+		session.Kill()
+	}
+
+	// Write prompt file and wrapper script
+	rtkDir := filepath.Join(t.WorktreePath, ".rtk")
+	if err := os.MkdirAll(rtkDir, 0755); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to create rtk dir: %v", err))
+		return
+	}
+	promptFile := filepath.Join(rtkDir, "continue-prompt.txt")
+	scriptFile := filepath.Join(rtkDir, "run-continue.sh")
+
+	if err := os.WriteFile(promptFile, []byte(prompt), 0644); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to write prompt file: %v", err))
+		return
+	}
+
+	script := fmt.Sprintf("#!/bin/bash\nPROMPT=$(cat %q)\nclaude \"$PROMPT\"\nexec bash\n", promptFile)
+	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to write wrapper script: %v", err))
+		return
+	}
+
+	if err := session.Create("bash", scriptFile); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to create tmux session: %v", err))
+		return
+	}
+
+	// Update task status to tmux
+	if err := s.database.UpdateTaskStatus(t.ID, task.StatusTmux); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
+		return
+	}
+
+	s.broadcastTaskUpdate(t.ID)
+
+	log.Printf("Continue session started for task #%d (tmux: %s)", t.ID, session.Name)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("continue session started for task #%d", t.ID)})
+}
+
+// dirExists returns true if the path exists and is a directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {

@@ -247,6 +247,23 @@ func TestSend_FireAndForget(t *testing.T) {
 	}
 }
 
+func TestContinueTaskRequest_JSONEncoding(t *testing.T) {
+	req := daemon.ContinueTaskRequest{TaskID: 42}
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal: %v", err)
+	}
+
+	var decoded daemon.ContinueTaskRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	if decoded.TaskID != 42 {
+		t.Errorf("expected task_id=42, got %d", decoded.TaskID)
+	}
+}
+
 // Verify JSON encoding consistency (regression test for the original bug scenario).
 func TestApproveTaskRequest_JSONEncoding(t *testing.T) {
 	req := daemon.ApproveTaskRequest{TaskID: 26}

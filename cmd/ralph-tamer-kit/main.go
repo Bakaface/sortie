@@ -578,6 +578,32 @@ var retryCmd = &cobra.Command{
 	},
 }
 
+var continueCmd = &cobra.Command{
+	Use:               "continue <task_id>",
+	Short:             "Continue a completed/failed task in a tmux session",
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeTaskIDs(task.StatusCompleted, task.StatusFailed),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		taskID, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid task ID: %s", args[0])
+		}
+
+		c := client.New(cfg)
+		if err := c.Connect(); err != nil {
+			return fmt.Errorf("failed to connect to daemon: %w", err)
+		}
+		defer c.Close()
+
+		if err := c.ContinueTask(taskID); err != nil {
+			return fmt.Errorf("failed to continue task: %w", err)
+		}
+
+		fmt.Printf("Continue session started for task #%d\n", taskID)
+		return nil
+	},
+}
+
 var logsCmd = &cobra.Command{
 	Use:               "logs <task_id> [step]",
 	Short:             "Show logs for a task",
@@ -823,6 +849,7 @@ func init() {
 	rootCmd.AddCommand(approveCmd)
 	rootCmd.AddCommand(rejectCmd)
 	rootCmd.AddCommand(retryCmd)
+	rootCmd.AddCommand(continueCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(cleanupCmd)
 	rootCmd.AddCommand(attachCmd)
