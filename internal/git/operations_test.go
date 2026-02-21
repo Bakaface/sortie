@@ -335,3 +335,245 @@ func TestMergeBranch_ConcurrentWithMutex(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeBranch_ConflictCleansUp(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create shared.txt on main
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add shared.txt")
+
+	// Create two branches that modify the same file differently
+	runGit(t, repo, "checkout", "-b", "branch-a")
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("branch A changes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "modify shared.txt in branch-a")
+
+	runGit(t, repo, "checkout", "main")
+	runGit(t, repo, "checkout", "-b", "branch-b")
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("branch B changes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "modify shared.txt in branch-b")
+
+	runGit(t, repo, "checkout", "main")
+
+	// Merge branch-a first — should succeed
+	if err := MergeBranch(repo, "branch-a", "main"); err != nil {
+		t.Fatalf("first merge should succeed: %v", err)
+	}
+
+	// Merge branch-b — should fail (conflict on shared.txt)
+	err := MergeBranch(repo, "branch-b", "main")
+	if err == nil {
+		t.Fatal("expected merge to fail due to conflict")
+	}
+
+	// Verify the working directory is clean after failed merge (cleanup worked)
+	statusOut := runGitOutput(t, repo, "status", "--porcelain")
+	if strings.TrimSpace(statusOut) != "" {
+		t.Errorf("expected clean working directory after failed merge, got:\n%s", statusOut)
+	}
+
+	// Verify we can still do another merge after the failure
+	runGit(t, repo, "checkout", "-b", "branch-c")
+	if err := os.WriteFile(filepath.Join(repo, "other.txt"), []byte("no conflict"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add other.txt")
+	runGit(t, repo, "checkout", "main")
+
+	if err := MergeBranch(repo, "branch-c", "main"); err != nil {
+		t.Fatalf("merge after conflict cleanup should succeed: %v", err)
+	}
+}
+
+func TestRebaseBranch(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create a file on main
+	if err := os.WriteFile(filepath.Join(repo, "base.txt"), []byte("base"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add base.txt")
+
+	// Create a feature branch
+	runGit(t, repo, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("feature"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add feature.txt")
+
+	// Advance main with a non-conflicting change
+	runGit(t, repo, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(repo, "main-only.txt"), []byte("main advance"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "advance main")
+
+	// Rebase feature onto main
+	runGit(t, repo, "checkout", "feature")
+	if err := RebaseBranch(repo, "main"); err != nil {
+		t.Fatalf("RebaseBranch should succeed for non-conflicting changes: %v", err)
+	}
+
+	// Verify feature branch has both its own commit and main's advance
+	if _, err := os.ReadFile(filepath.Join(repo, "feature.txt")); err != nil {
+		t.Error("feature.txt should exist after rebase")
+	}
+	if _, err := os.ReadFile(filepath.Join(repo, "main-only.txt")); err != nil {
+		t.Error("main-only.txt should exist after rebase (rebased onto main)")
+	}
+}
+
+func TestRebaseBranch_ConflictAborts(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create shared.txt on main
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add shared.txt")
+
+	// Create feature branch modifying shared.txt
+	runGit(t, repo, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("feature version"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "modify shared.txt in feature")
+
+	// Advance main with a conflicting change to shared.txt
+	runGit(t, repo, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("main version"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "modify shared.txt on main")
+
+	// Rebase should fail and abort cleanly
+	runGit(t, repo, "checkout", "feature")
+	err := RebaseBranch(repo, "main")
+	if err == nil {
+		t.Fatal("expected rebase to fail due to conflict")
+	}
+
+	// Verify the branch is clean (rebase --abort worked)
+	statusOut := runGitOutput(t, repo, "status", "--porcelain")
+	if strings.TrimSpace(statusOut) != "" {
+		t.Errorf("expected clean state after failed rebase, got:\n%s", statusOut)
+	}
+
+	// Verify we're still on the feature branch (not in detached HEAD state)
+	branch, err := GetCurrentBranch(repo)
+	if err != nil {
+		t.Fatalf("GetCurrentBranch failed: %v", err)
+	}
+	if branch != "feature" {
+		t.Errorf("expected to be on feature branch after aborted rebase, got %s", branch)
+	}
+}
+
+func TestMergeBranch_RetryAfterRebase(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create initial shared file
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("line1\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add shared.txt")
+
+	// Create branch-a: adds to a different file
+	runGit(t, repo, "checkout", "-b", "branch-a")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("from branch a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add a.txt")
+
+	// Create branch-b from main: adds to a different file
+	runGit(t, repo, "checkout", "main")
+	runGit(t, repo, "checkout", "-b", "branch-b")
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("from branch b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add b.txt")
+
+	runGit(t, repo, "checkout", "main")
+
+	// Merge branch-a first — advances main
+	var mu sync.Mutex
+	mu.Lock()
+	if err := MergeBranch(repo, "branch-a", "main"); err != nil {
+		mu.Unlock()
+		t.Fatalf("first merge failed: %v", err)
+	}
+
+	// Try merge branch-b — may fail because main advanced
+	mergeErr := MergeBranch(repo, "branch-b", "main")
+	if mergeErr != nil {
+		// Simulate the engine's retry: rebase branch-b, then retry
+		// branch-b's worktree is the repo itself for this test, but in production
+		// it would be a separate worktree. We need to checkout branch-b to rebase it.
+		mu.Unlock()
+
+		// Use a temporary worktree for the rebase (like production does)
+		runGit(t, repo, "checkout", "branch-b")
+		if err := RebaseBranch(repo, "main"); err != nil {
+			t.Fatalf("rebase should succeed for non-conflicting branches: %v", err)
+		}
+		runGit(t, repo, "checkout", "main")
+
+		mu.Lock()
+		mergeErr = MergeBranch(repo, "branch-b", "main")
+		mu.Unlock()
+		if mergeErr != nil {
+			t.Fatalf("merge after rebase should succeed: %v", mergeErr)
+		}
+	} else {
+		mu.Unlock()
+	}
+
+	// Verify both files exist
+	if _, err := os.ReadFile(filepath.Join(repo, "a.txt")); err != nil {
+		t.Error("a.txt should exist on main")
+	}
+	if _, err := os.ReadFile(filepath.Join(repo, "b.txt")); err != nil {
+		t.Error("b.txt should exist on main")
+	}
+}
+
+// runGit is a test helper that runs a git command and fails on error.
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+// runGitOutput is a test helper that runs a git command and returns stdout.
+func runGitOutput(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
+}

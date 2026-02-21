@@ -92,6 +92,12 @@ func MergeBranch(repoRoot, branch, baseBranch string) error {
 	mergeCmd.Stderr = &stderr
 
 	if err := mergeCmd.Run(); err != nil {
+		// Clean up the failed merge so the working directory is not left dirty
+		// for the next merge operation. git reset --hard restores the index and
+		// working tree to the last commit on baseBranch.
+		resetCmd := exec.Command("git", "reset", "--hard", "HEAD")
+		resetCmd.Dir = repoRoot
+		resetCmd.Run() // best-effort cleanup
 		return fmt.Errorf("git merge --squash failed: %w (stderr: %s)", err, stderr.String())
 	}
 
@@ -103,7 +109,30 @@ func MergeBranch(repoRoot, branch, baseBranch string) error {
 	commitCmd.Stderr = &stderr
 
 	if err := commitCmd.Run(); err != nil {
+		resetCmd := exec.Command("git", "reset", "--hard", "HEAD")
+		resetCmd.Dir = repoRoot
+		resetCmd.Run() // best-effort cleanup
 		return fmt.Errorf("git commit after squash failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return nil
+}
+
+// RebaseBranch rebases a branch onto the target branch using the worktree.
+// This updates the branch so it's based on the latest target, reducing merge conflicts.
+func RebaseBranch(worktreePath, baseBranch string) error {
+	cmd := exec.Command("git", "rebase", baseBranch)
+	cmd.Dir = worktreePath
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Abort the failed rebase to restore clean state
+		abortCmd := exec.Command("git", "rebase", "--abort")
+		abortCmd.Dir = worktreePath
+		abortCmd.Run() // best-effort
+		return fmt.Errorf("git rebase %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
 	}
 
 	return nil

@@ -196,7 +196,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 	// All steps completed — execute on_complete action
 	if err := e.executeOnComplete(t); err != nil {
-		log.Printf("Warning: on_complete action failed for task #%d: %v", t.ID, err)
+		return fmt.Errorf("on_complete action failed: %w", err)
 	}
 
 	return nil
@@ -225,9 +225,20 @@ func (e *Engine) executeOnComplete(t *task.Task) error {
 		// shared repoRoot, so concurrent calls would corrupt the working tree and index.
 		e.mergeMu.Lock()
 		mergeErr := gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch)
+		if mergeErr != nil {
+			// Merge failed — likely because another agent merged first and the base
+			// branch advanced. Rebase the task branch onto the updated base and retry.
+			log.Printf("Merge failed for task #%d, attempting rebase onto %s: %v", t.ID, baseBranch, mergeErr)
+			if rebaseErr := gitpkg.RebaseBranch(t.WorktreePath, baseBranch); rebaseErr != nil {
+				e.mergeMu.Unlock()
+				return fmt.Errorf("merge failed and rebase also failed: merge: %w; rebase: %v", mergeErr, rebaseErr)
+			}
+			// Retry merge after successful rebase
+			mergeErr = gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch)
+		}
 		e.mergeMu.Unlock()
 		if mergeErr != nil {
-			return fmt.Errorf("merge failed: %w", mergeErr)
+			return fmt.Errorf("merge failed after rebase: %w", mergeErr)
 		}
 		// Clean up worktree and branch (safe to run concurrently)
 		if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
