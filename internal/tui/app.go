@@ -69,6 +69,7 @@ type clientConnectedMsg struct {
 type taskUpdateMsg daemon.TaskInfo
 type taskCreatedMsg daemon.TaskInfo
 type editorFinishedMsg struct{ path string }
+type editorPromptFinishedMsg struct{ path string }
 type tasksLoadedMsg []daemon.TaskInfo
 type outputLoadedMsg struct {
 	lines []string
@@ -170,6 +171,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorFinishedMsg:
 		return m, m.handleEditorResult(msg.path)
+
+	case editorPromptFinishedMsg:
+		data, err := os.ReadFile(msg.path)
+		os.Remove(msg.path)
+		if err != nil {
+			m.err = fmt.Errorf("failed to read temp file: %w", err)
+			return m, nil
+		}
+		text := strings.TrimSpace(string(data))
+		if text != "" {
+			m.prompt.textarea.SetValue(text)
+		}
+		m.prompt.Focus()
+		return m, nil
 
 	case tmuxDetachedMsg:
 		return m, m.refreshTasks()
@@ -748,6 +763,10 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = viewList
 		return m, nil
 
+	case "ctrl+g":
+		// Open $EDITOR for prompt editing
+		return m, m.openEditorForPrompt()
+
 	case "ctrl+x":
 		// Remove last image
 		m.prompt.RemoveLastImage()
@@ -822,10 +841,19 @@ func (m Model) rejectTask(taskID int64) tea.Cmd {
 	}
 }
 
-func (m Model) openEditorForNewTask() tea.Cmd {
-	f, err := os.CreateTemp("", "sortie-new-task-*.md")
+func (m Model) openEditorForPrompt() tea.Cmd {
+	f, err := os.CreateTemp("", "sortie-prompt-*.md")
 	if err != nil {
 		return func() tea.Msg { return errorMsg(fmt.Errorf("failed to create temp file: %w", err)) }
+	}
+
+	// Pre-populate with current textarea content
+	if content := m.prompt.Value(); content != "" {
+		if _, err := f.WriteString(content); err != nil {
+			f.Close()
+			os.Remove(f.Name())
+			return func() tea.Msg { return errorMsg(fmt.Errorf("failed to write temp file: %w", err)) }
+		}
 	}
 	f.Close()
 
@@ -841,7 +869,7 @@ func (m Model) openEditorForNewTask() tea.Cmd {
 			os.Remove(path)
 			return errorMsg(fmt.Errorf("editor exited with error: %w", err))
 		}
-		return editorFinishedMsg{path: path}
+		return editorPromptFinishedMsg{path: path}
 	})
 }
 

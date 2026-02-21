@@ -204,6 +204,9 @@ func (p *promptView) View() string {
 		b.WriteString(helpStyle.Render(" remove last image"))
 	}
 	b.WriteString(helpStyle.Render(" | "))
+	b.WriteString(dimStyle.Render("ctrl+g"))
+	b.WriteString(helpStyle.Render(" editor"))
+	b.WriteString(helpStyle.Render(" | "))
 	b.WriteString(dimStyle.Render("paste image path"))
 	b.WriteString(helpStyle.Render(" to attach"))
 

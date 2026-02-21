@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -1310,6 +1311,152 @@ func TestListView_PageWithSmallHeight(t *testing.T) {
 	l.PageDown()
 	if l.cursor != 1 {
 		t.Errorf("expected cursor at 1 with small height, got %d", l.cursor)
+	}
+}
+
+func TestHandlePromptKey_CtrlGOpensEditor(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		prompt:      newPromptView(),
+		view:        viewPrompt,
+		projectPath: "/tmp/test",
+	}
+	m.prompt.SetSize(80, 24)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlG}
+	_, cmd := m.handlePromptKey(msg)
+
+	if cmd == nil {
+		t.Error("expected editor command from ctrl+g, got nil")
+	}
+}
+
+func TestHandlePromptKey_CtrlDSubmitsTask(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		prompt:      newPromptView(),
+		view:        viewPrompt,
+		projectPath: "/tmp/test",
+	}
+	m.prompt.SetSize(80, 24)
+	m.prompt.textarea.SetValue("test description")
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, cmd := m.handlePromptKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewList {
+		t.Errorf("expected view to be viewList after ctrl+d, got %d", updated.view)
+	}
+	if cmd == nil {
+		t.Error("expected create task command from ctrl+d, got nil")
+	}
+}
+
+func TestHandlePromptKey_CtrlDEmptyDoesNothing(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		prompt: newPromptView(),
+		view:   viewPrompt,
+	}
+	m.prompt.SetSize(80, 24)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, cmd := m.handlePromptKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewPrompt {
+		t.Errorf("expected view to remain viewPrompt with empty input, got %d", updated.view)
+	}
+	if cmd != nil {
+		t.Error("expected no command with empty input, got non-nil")
+	}
+}
+
+func TestHandlePromptKey_EscCancels(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		prompt: newPromptView(),
+		view:   viewPrompt,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, cmd := m.handlePromptKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewList {
+		t.Errorf("expected view to be viewList after esc, got %d", updated.view)
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestEditorPromptFinishedMsg_SetsTextareaValue(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		prompt: newPromptView(),
+		view:   viewPrompt,
+	}
+	m.prompt.SetSize(80, 24)
+
+	// Create a temp file with content
+	f, err := os.CreateTemp("", "test-editor-*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("edited content from editor")
+	f.Close()
+
+	msg := editorPromptFinishedMsg{path: f.Name()}
+	result, _ := m.Update(msg)
+	updated := result.(Model)
+
+	if updated.prompt.Value() != "edited content from editor" {
+		t.Errorf("expected textarea value to be 'edited content from editor', got %q", updated.prompt.Value())
+	}
+}
+
+func TestEditorPromptFinishedMsg_EmptyFilePreservesTextarea(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		prompt: newPromptView(),
+		view:   viewPrompt,
+	}
+	m.prompt.SetSize(80, 24)
+	m.prompt.textarea.SetValue("original content")
+
+	// Create an empty temp file
+	f, err := os.CreateTemp("", "test-editor-*.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	msg := editorPromptFinishedMsg{path: f.Name()}
+	result, _ := m.Update(msg)
+	updated := result.(Model)
+
+	// Empty editor content should preserve original textarea value
+	if updated.prompt.Value() != "original content" {
+		t.Errorf("expected textarea to keep 'original content', got %q", updated.prompt.Value())
+	}
+}
+
+func TestPromptView_HelpShowsEditorShortcut(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(100, 24)
+
+	output := p.View()
+
+	if !strings.Contains(output, "ctrl+g") {
+		t.Error("expected prompt help to contain 'ctrl+g'")
+	}
+	if !strings.Contains(output, "editor") {
+		t.Error("expected prompt help to contain 'editor'")
 	}
 }
 
