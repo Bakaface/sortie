@@ -319,6 +319,12 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 	}
 }
 
+// FinalizeTask runs the on_complete action (commit/merge/cleanup) for a task.
+// Used when finalizing a tmux-continued task.
+func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
+	return e.executeOnComplete(ctx, t, nil)
+}
+
 // resolveConflicts spawns a Claude Code agent to resolve merge conflicts in the worktree.
 func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFiles []string, outputFn func([]string)) error {
 	var sb strings.Builder

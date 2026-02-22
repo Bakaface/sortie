@@ -276,6 +276,8 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.approveTask(taskID)
 			case "continue":
 				return m, m.continueTask(taskID)
+			case "finalize":
+				return m, m.finalizeTask(taskID)
 			case "delete":
 				return m, m.deleteTask(taskID)
 			default:
@@ -345,10 +347,15 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		// Not "p", so treat the pending "c" as continue, and consume this key
+		// Not "p", so treat the pending "c" as continue/finalize, and consume this key
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "completed" || task.Status == "failed" {
 				m.confirmAction = "continue"
+				m.confirmTaskID = task.ID
+				return m, nil
+			}
+			if task.Status == "tmux" {
+				m.confirmAction = "finalize"
 				m.confirmTaskID = task.ID
 				return m, nil
 			}
@@ -953,6 +960,18 @@ func (m Model) continueTask(taskID int64) tea.Cmd {
 			return nil
 		}
 		if err := m.client.ContinueTask(taskID); err != nil {
+			return errorMsg(err)
+		}
+		return nil
+	}
+}
+
+func (m Model) finalizeTask(taskID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+		if err := m.client.FinalizeTask(taskID); err != nil {
 			return errorMsg(err)
 		}
 		return nil

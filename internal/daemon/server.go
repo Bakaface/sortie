@@ -330,6 +330,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleContinueTask(conn, req)
 
+	case MsgFinalizeTask:
+		var req FinalizeTaskRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleFinalizeTask(conn, req)
+
 	case MsgDeleteTask:
 		var req DeleteTaskRequest
 		if err := msg.DecodePayload(&req); err != nil {
@@ -691,6 +699,48 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 
 	log.Printf("Continue session started for task #%d (tmux: %s)", t.ID, session.Name)
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("continue session started for task #%d", t.ID)})
+}
+
+func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	if t.Status != task.StatusTmux {
+		s.sendError(conn, fmt.Sprintf("task is not in tmux state (status: %s)", t.Status))
+		return
+	}
+
+	// Kill tmux sessions
+	agentID := fmt.Sprintf("%d", t.ID)
+	if err := tmux.KillSessionsForTask(agentID); err != nil {
+		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+	}
+
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get project context: %v", err))
+		return
+	}
+
+	// Run on_complete action (commit/merge/cleanup)
+	if err := pc.engine.FinalizeTask(s.ctx, t); err != nil {
+		log.Printf("Warning: finalize on_complete failed for task #%d: %v", t.ID, err)
+		// Don't fail the whole operation — still mark as completed
+	}
+
+	// Mark task as completed
+	if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
+		return
+	}
+
+	s.broadcastTaskUpdate(t.ID)
+
+	log.Printf("Task #%d finalized from tmux continue session", t.ID)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d finalized", t.ID)})
 }
 
 // dirExists returns true if the path exists and is a directory.

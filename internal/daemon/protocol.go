@@ -23,7 +23,8 @@ const (
 	MsgRetryTask    MessageType = "retry_task"
 	MsgGetLogs      MessageType = "get_logs"
 	MsgCreateTask   MessageType = "create_task"
-	MsgContinueTask MessageType = "continue_task"
+	MsgContinueTask   MessageType = "continue_task"
+	MsgFinalizeTask   MessageType = "finalize_task"
 	MsgDeleteTask     MessageType = "delete_task"
 	MsgUpdatePriority MessageType = "update_priority"
 	MsgAgentList      MessageType = "agent_list"
@@ -121,6 +122,10 @@ type CreateTaskRequest struct {
 }
 
 type ContinueTaskRequest struct {
+	TaskID int64 `json:"task_id"`
+}
+
+type FinalizeTaskRequest struct {
 	TaskID int64 `json:"task_id"`
 }
 

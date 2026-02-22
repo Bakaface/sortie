@@ -782,6 +782,93 @@ func TestHandleListKey_CNoOpWithNoClient(t *testing.T) {
 	}
 }
 
+func TestHandleListKey_CTriggersFinalizeForTmuxTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 14, Title: "Tmux task", Status: "tmux"},
+	})
+
+	// First "c" sets pendingC
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+	if !updated.pendingC {
+		t.Error("expected pendingC to be true after first 'c'")
+	}
+
+	// Second "c" triggers finalize confirm
+	result, cmd := updated.handleListKey(msg)
+	updated = result.(Model)
+
+	if updated.confirmAction != "finalize" {
+		t.Errorf("expected confirmAction to be 'finalize', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 14 {
+		t.Errorf("expected confirmTaskID to be 14, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
+	}
+}
+
+func TestHandleListKey_CNoOpForPendingTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 15, Title: "Pending task", Status: "pending"},
+	})
+
+	// First "c" sets pendingC
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Second "c" should not trigger any action for pending task
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction for pending task, got %q", updated.confirmAction)
+	}
+}
+
+func TestHandleListKey_CNoOpForAwaitingApprovalTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 16, Title: "Awaiting task", Status: "awaiting-approval"},
+	})
+
+	// First "c" sets pendingC
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Second "c" should not trigger any action
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction for awaiting-approval task, got %q", updated.confirmAction)
+	}
+}
+
 func newTestModelWithTasks(n int) Model {
 	m := Model{
 		keys:   newKeyMap(),
