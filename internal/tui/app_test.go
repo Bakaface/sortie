@@ -999,33 +999,19 @@ func TestListView_ShowsRealTaskID(t *testing.T) {
 
 	output := l.View()
 
-	if !strings.Contains(output, "#42") {
-		t.Error("expected list to show real task ID #42, not a sequential number")
+	// IDs should be displayed without '#' prefix
+	if !strings.Contains(output, "42") {
+		t.Error("expected list to show real task ID 42")
 	}
-	if !strings.Contains(output, "#7") {
-		t.Error("expected list to show real task ID #7, not a sequential number")
+	if !strings.Contains(output, "137") {
+		t.Error("expected list to show real task ID 137")
 	}
-	if !strings.Contains(output, "#137") {
-		t.Error("expected list to show real task ID #137, not a sequential number")
+	// Verify no '#' prefix on IDs
+	if strings.Contains(output, "#42") {
+		t.Error("expected task ID 42 without '#' prefix")
 	}
-	// Ensure sequential indices are NOT shown (tasks should not appear as #1, #2, #3)
-	// Check that #1, #2, #3 don't appear (they shouldn't since IDs are 42, 7, 137)
-	// Note: #1 could appear inside other text, so check more specifically
-	lines := strings.Split(output, "\n")
-	for _, line := range lines {
-		// Skip header line
-		if strings.Contains(line, "TITLE") {
-			continue
-		}
-		if strings.Contains(line, "#1 ") && !strings.Contains(line, "#137") {
-			t.Error("list should show real task IDs, not sequential indices like #1")
-		}
-		if strings.Contains(line, "#2 ") {
-			t.Error("list should show real task IDs, not sequential indices like #2")
-		}
-		if strings.Contains(line, "#3 ") {
-			t.Error("list should show real task IDs, not sequential indices like #3")
-		}
+	if strings.Contains(output, "#137") {
+		t.Error("expected task ID 137 without '#' prefix")
 	}
 }
 
@@ -1853,7 +1839,7 @@ func TestShortHelp_IsConcise(t *testing.T) {
 	}
 }
 
-func TestListView_ShowsDescendingIndexColumn(t *testing.T) {
+func TestListView_ShowsAscendingIndexColumn(t *testing.T) {
 	l := newListView(false)
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 42, Title: "First task", Status: "running"},
@@ -1869,20 +1855,20 @@ func TestListView_ShowsDescendingIndexColumn(t *testing.T) {
 		t.Error("expected list header to contain '#' column")
 	}
 
-	// The descending indices for 3 tasks should be: 9, 8, 7
-	// (first 10 tasks get indices 9-0, top to bottom)
-	if !strings.Contains(output, "9") {
-		t.Error("expected first task row to show descending index '9'")
+	// The ascending indices for 3 tasks should be: 0, 1, 2
+	// (first 10 tasks get indices 0-9, top to bottom)
+	if !strings.Contains(output, "0") {
+		t.Error("expected first task row to show ascending index '0'")
 	}
-	if !strings.Contains(output, "8") {
-		t.Error("expected second task row to show descending index '8'")
+	if !strings.Contains(output, "1") {
+		t.Error("expected second task row to show ascending index '1'")
 	}
-	if !strings.Contains(output, "7") {
-		t.Error("expected third task row to show descending index '7'")
+	if !strings.Contains(output, "2") {
+		t.Error("expected third task row to show ascending index '2'")
 	}
 }
 
-func TestListView_DescendingIndexOnlyForFirst10(t *testing.T) {
+func TestListView_AscendingIndexOnlyForFirst10(t *testing.T) {
 	l := newListView(false)
 	tasks := make([]daemon.TaskInfo, 12)
 	for i := range tasks {
@@ -1895,10 +1881,10 @@ func TestListView_DescendingIndexOnlyForFirst10(t *testing.T) {
 	l.SetTasks(tasks)
 	l.SetSize(100, 30)
 
-	// Render task at index 9 (last indexed task) - should have index "0"
+	// Render task at index 9 (last indexed task) - should have index "9"
 	line9 := l.renderTask(tasks[0], 9, false) // after sort, tasks[0] has highest ID
-	if !strings.Contains(line9, "0") {
-		t.Error("expected task at index 9 to show descending index '0'")
+	if !strings.Contains(line9, "9") {
+		t.Error("expected task at index 9 to show ascending index '9'")
 	}
 
 	// Render task at index 10 (beyond first 10) - should have blank index
@@ -1912,37 +1898,37 @@ func TestHandleListKey_NumberKeyNavigatesToTask(t *testing.T) {
 	m := newTestModelWithTasks(12)
 	// cursor starts at 0
 
-	// Press "9" — descending index 9 maps to row 0
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}}
+	// Press "0" — ascending index 0 maps to row 0
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 	if updated.list.cursor != 0 {
-		t.Errorf("expected cursor at 0 after pressing '9', got %d", updated.list.cursor)
+		t.Errorf("expected cursor at 0 after pressing '0', got %d", updated.list.cursor)
 	}
 
-	// Press "0" — descending index 0 maps to row 9
-	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}}
+	// Press "9" — ascending index 9 maps to row 9
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}}
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
 	if updated.list.cursor != 9 {
-		t.Errorf("expected cursor at 9 after pressing '0', got %d", updated.list.cursor)
+		t.Errorf("expected cursor at 9 after pressing '9', got %d", updated.list.cursor)
 	}
 
-	// Press "5" — descending index 5 maps to row 4
+	// Press "5" — ascending index 5 maps to row 5
 	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}}
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
-	if updated.list.cursor != 4 {
-		t.Errorf("expected cursor at 4 after pressing '5', got %d", updated.list.cursor)
+	if updated.list.cursor != 5 {
+		t.Errorf("expected cursor at 5 after pressing '5', got %d", updated.list.cursor)
 	}
 }
 
 func TestHandleListKey_NumberKeyClampedToTaskCount(t *testing.T) {
 	m := newTestModelWithTasks(3) // only 3 tasks, rows 0-2
 
-	// Press "0" — maps to row 9, but only 3 tasks exist; cursor should stay
+	// Press "5" — maps to row 5, but only 3 tasks exist; cursor should stay
 	m.list.cursor = 1
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}}
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 	// GotoIndex won't move cursor if index >= len(tasks)
@@ -1950,12 +1936,12 @@ func TestHandleListKey_NumberKeyClampedToTaskCount(t *testing.T) {
 		t.Errorf("expected cursor to stay at 1 when target row exceeds task count, got %d", updated.list.cursor)
 	}
 
-	// Press "7" — maps to row 2, which exists
-	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'7'}}
+	// Press "2" — maps to row 2, which exists
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}}
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
 	if updated.list.cursor != 2 {
-		t.Errorf("expected cursor at 2 after pressing '7', got %d", updated.list.cursor)
+		t.Errorf("expected cursor at 2 after pressing '2', got %d", updated.list.cursor)
 	}
 }
 

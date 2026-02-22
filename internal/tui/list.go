@@ -198,14 +198,14 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	}
 
 	// Format columns
-	// Descending index column: only show for the first 10 tasks (indices 0-9)
+	// Ascending index column: only show for the first 10 tasks (indices 0-9)
 	idxStr := " "
 	if index < 10 {
-		idxStr = fmt.Sprintf("%d", 9-index)
+		idxStr = fmt.Sprintf("%d", index)
 	}
 	idxCol := lipgloss.NewStyle().Width(2).Render(idxStr)
 
-	taskID := fmt.Sprintf("#%-2d", task.ID)
+	taskID := fmt.Sprintf("%-2d", task.ID)
 
 	// Merge step info into status: show step name for active states
 	statusLabel := task.Status
