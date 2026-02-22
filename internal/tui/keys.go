@@ -284,16 +284,18 @@ func (k detailNormalKeyMap) ShortHelp() []key.Binding {
 }
 
 type taskInfoKeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	HalfUp   key.Binding
-	HalfDown key.Binding
-	GotoTop  key.Binding
-	GotoBtm  key.Binding
-	Logs     key.Binding
-	Back     key.Binding
-	Stop     key.Binding
-	Attach   key.Binding
+	Up          key.Binding
+	Down        key.Binding
+	HalfUp      key.Binding
+	HalfDown    key.Binding
+	GotoTop     key.Binding
+	GotoBtm     key.Binding
+	Logs        key.Binding
+	Back        key.Binding
+	Stop        key.Binding
+	Attach      key.Binding
+	YankDesc    key.Binding
+	YankContext key.Binding
 }
 
 func newTaskInfoKeyMap() taskInfoKeyMap {
@@ -338,11 +340,19 @@ func newTaskInfoKeyMap() taskInfoKeyMap {
 			key.WithKeys("t"),
 			key.WithHelp("t", "tmux attach"),
 		),
+		YankDesc: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("yd", "copy desc"),
+		),
+		YankContext: key.NewBinding(
+			key.WithKeys("y"),
+			key.WithHelp("yc", "copy context"),
+		),
 	}
 }
 
 func (k taskInfoKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.Attach, k.Back}
+	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.YankDesc, k.YankContext, k.Attach, k.Back}
 }
 
 // Pre-allocated key maps to avoid allocations on every renderHelp() call.

@@ -2104,6 +2104,194 @@ func TestTaskCreatedMsg_CursorMovesToTop(t *testing.T) {
 	}
 }
 
+func TestHandleTaskInfoKey_YSetsPendingY(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc", Context: "ctx"}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if !updated.pendingY {
+		t.Error("expected pendingY to be true after 'y'")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestHandleTaskInfoKey_YDCopiesDescription(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		pendingY: true,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "task description text", Context: "ctx"}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.pendingY {
+		t.Error("expected pendingY to be false after 'yd'")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+	// Note: clipboard.WriteAll may fail in CI/headless environments,
+	// but the key dispatch logic itself should work correctly.
+}
+
+func TestHandleTaskInfoKey_YCCopiesContext(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		pendingY: true,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc", Context: "task context text"}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.pendingY {
+		t.Error("expected pendingY to be false after 'yc'")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestHandleTaskInfoKey_YResetByOtherKey(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc"}
+	m.taskInfo.SetTask(&task)
+
+	// Press "y" then "j" — should reset pendingY and scroll down
+	yMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	result, _ := m.handleTaskInfoKey(yMsg)
+	m = result.(Model)
+
+	if !m.pendingY {
+		t.Error("expected pendingY to be true after 'y'")
+	}
+
+	jMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	result, _ = m.handleTaskInfoKey(jMsg)
+	m = result.(Model)
+
+	if m.pendingY {
+		t.Error("expected pendingY to be false after non-yank key")
+	}
+}
+
+func TestHandleTaskInfoKey_YDNoTaskNoError(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		pendingY: true,
+	}
+	// No task set on taskInfo
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.pendingY {
+		t.Error("expected pendingY to be false")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestHandleTaskInfoKey_YDEmptyDescriptionNoOp(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		pendingY: true,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "", Context: "ctx"}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.pendingY {
+		t.Error("expected pendingY to be false")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestHandleTaskInfoKey_YCEmptyContextNoOp(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		pendingY: true,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc", Context: ""}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.pendingY {
+		t.Error("expected pendingY to be false")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestTaskInfoView_HelpShowsYankBindings(t *testing.T) {
+	v := newTaskInfoView()
+	v.SetTask(&daemon.TaskInfo{ID: 1, Title: "Test", Status: "running"})
+	v.SetSize(120, 24)
+
+	output := v.View()
+
+	if !strings.Contains(output, "yd") {
+		t.Error("expected task info help to contain 'yd' binding")
+	}
+	if !strings.Contains(output, "yc") {
+		t.Error("expected task info help to contain 'yc' binding")
+	}
+}
+
 func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
 	l := newListView(true)
 	l.SetTasks([]daemon.TaskInfo{

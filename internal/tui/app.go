@@ -12,6 +12,7 @@ import (
 	"github.com/aface/sortie/internal/config"
 	"github.com/aface/sortie/internal/daemon"
 	"github.com/aface/sortie/internal/tmux"
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -61,6 +62,9 @@ type Model struct {
 	priorityCursor    int
 	priorityTaskID    int64
 	pendingC          bool
+
+	// Yank sequence state (task info view)
+	pendingY bool
 }
 
 type clientConnectedMsg struct {
@@ -734,6 +738,35 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadOutput(m.taskInfo.task.ID)
 		}
 		return m, nil
+	}
+
+	// Handle "y" prefix for yank sequences (yd, yc)
+	if keyStr == "y" {
+		m.pendingY = true
+		m.taskInfo.pendingG = false
+		return m, nil
+	}
+
+	if m.pendingY {
+		m.pendingY = false
+		m.taskInfo.pendingG = false
+		switch keyStr {
+		case "d":
+			if m.taskInfo.task != nil && m.taskInfo.task.Description != "" {
+				if err := clipboard.WriteAll(m.taskInfo.task.Description); err != nil {
+					m.err = fmt.Errorf("clipboard: %w", err)
+				}
+			}
+			return m, nil
+		case "c":
+			if m.taskInfo.task != nil && m.taskInfo.task.Context != "" {
+				if err := clipboard.WriteAll(m.taskInfo.task.Context); err != nil {
+					m.err = fmt.Errorf("clipboard: %w", err)
+				}
+			}
+			return m, nil
+		}
+		// Any other key after "y" — fall through to normal handling
 	}
 
 	// Handle "gg" sequence
