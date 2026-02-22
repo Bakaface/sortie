@@ -1938,21 +1938,26 @@ func TestListView_ShowsAscendingIndexColumn(t *testing.T) {
 
 	output := l.View()
 
-	// Header should contain "#" column
-	if !strings.Contains(output, "#") {
-		t.Error("expected list header to contain '#' column")
+	// Header should NOT contain "#" column (vim-style has no header)
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "ID") && strings.Contains(line, "STATUS") {
+			if strings.Contains(line, "#") {
+				t.Error("expected header line to NOT contain '#' (vim-style has no header for line numbers)")
+			}
+			break
+		}
 	}
 
-	// The ascending indices for 3 tasks should be: 0, 1, 2
-	// (first 10 tasks get indices 0-9, top to bottom)
-	if !strings.Contains(output, "0") {
-		t.Error("expected first task row to show ascending index '0'")
-	}
+	// The line numbers for 3 tasks should be: 1, 2, 3 (1-based, vim-style)
 	if !strings.Contains(output, "1") {
-		t.Error("expected second task row to show ascending index '1'")
+		t.Error("expected first task row to show line number '1'")
 	}
 	if !strings.Contains(output, "2") {
-		t.Error("expected third task row to show ascending index '2'")
+		t.Error("expected second task row to show line number '2'")
+	}
+	if !strings.Contains(output, "3") {
+		t.Error("expected third task row to show line number '3'")
 	}
 }
 
@@ -1969,67 +1974,86 @@ func TestListView_AscendingIndexOnlyForFirst10(t *testing.T) {
 	l.SetTasks(tasks)
 	l.SetSize(100, 30)
 
-	// Render task at index 9 (last indexed task) - should have index "9"
-	line9 := l.renderTask(tasks[0], 9, false) // after sort, tasks[0] has highest ID
-	if !strings.Contains(line9, "9") {
-		t.Error("expected task at index 9 to show ascending index '9'")
+	// Vim-style shows line numbers for ALL tasks (not just first 10)
+	// Render task at index 10 - should show line number "11" (1-based)
+	line10 := l.renderTask(tasks[0], 10, false)
+	if !strings.Contains(line10, "11") {
+		t.Error("expected task at index 10 to show line number '11' (1-based)")
 	}
 
-	// Render task at index 10 (beyond first 10) - should have blank index
-	line10 := l.renderTask(tasks[0], 10, false)
-	// Task at index 10 should NOT have a numeric index column value
-	// Check that the index column area has a space, not a digit
-	_ = line10 // The index column renders " " for index >= 10
+	// Render task at index 11 - should show line number "12" (1-based)
+	line11 := l.renderTask(tasks[0], 11, false)
+	if !strings.Contains(line11, "12") {
+		t.Error("expected task at index 11 to show line number '12' (1-based)")
+	}
 }
 
 func TestHandleListKey_NumberKeyNavigatesToTask(t *testing.T) {
 	m := newTestModelWithTasks(12)
 	// cursor starts at 0
 
-	// Press "0" — ascending index 0 maps to row 0
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}}
+	// Command mode: press ":", then "1", then "0", then enter → should go to line 10 (index 9)
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
-	if updated.list.cursor != 0 {
-		t.Errorf("expected cursor at 0 after pressing '0', got %d", updated.list.cursor)
+	if !updated.commandMode {
+		t.Error("expected command mode to be active after pressing ':'")
 	}
 
-	// Press "9" — ascending index 9 maps to row 9
-	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}}
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'0'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
 	if updated.list.cursor != 9 {
-		t.Errorf("expected cursor at 9 after pressing '9', got %d", updated.list.cursor)
+		t.Errorf("expected cursor at 9 (line 10) after :10<enter>, got %d", updated.list.cursor)
 	}
-
-	// Press "5" — ascending index 5 maps to row 5
-	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}}
-	result, _ = updated.handleListKey(msg)
-	updated = result.(Model)
-	if updated.list.cursor != 5 {
-		t.Errorf("expected cursor at 5 after pressing '5', got %d", updated.list.cursor)
+	if updated.commandMode {
+		t.Error("expected command mode to exit after executing command")
 	}
 }
 
 func TestHandleListKey_NumberKeyClampedToTaskCount(t *testing.T) {
-	m := newTestModelWithTasks(3) // only 3 tasks, rows 0-2
+	m := newTestModelWithTasks(3) // only 3 tasks, rows 0-2 (lines 1-3)
 
-	// Press "5" — maps to row 5, but only 3 tasks exist; cursor should stay
+	// Command mode: enter ":6" with only 3 tasks → cursor should stay in place
 	m.list.cursor = 1
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}}
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
-	// GotoIndex won't move cursor if index >= len(tasks)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'6'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	// Line 6 doesn't exist; cursor should stay at 1
 	if updated.list.cursor != 1 {
-		t.Errorf("expected cursor to stay at 1 when target row exceeds task count, got %d", updated.list.cursor)
+		t.Errorf("expected cursor to stay at 1 when target line exceeds task count, got %d", updated.list.cursor)
 	}
 
-	// Press "2" — maps to row 2, which exists
-	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}}
+	// Command mode: enter ":3" — maps to line 3, row index 2
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
 	if updated.list.cursor != 2 {
-		t.Errorf("expected cursor at 2 after pressing '2', got %d", updated.list.cursor)
+		t.Errorf("expected cursor at 2 (line 3) after :3<enter>, got %d", updated.list.cursor)
 	}
 }
 
@@ -2058,6 +2082,187 @@ func TestListView_GotoIndex(t *testing.T) {
 	}
 }
 
+func TestCommandMode_EnterAndExit(t *testing.T) {
+	m := newTestModelWithTasks(5)
+
+	// Press ":" to enter command mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+	if !updated.commandMode {
+		t.Error("expected commandMode to be true after pressing ':'")
+	}
+
+	// Press "esc" to exit command mode
+	msg = tea.KeyMsg{Type: tea.KeyEsc}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.commandMode {
+		t.Error("expected commandMode to be false after pressing esc")
+	}
+	if updated.commandInput != "" {
+		t.Error("expected commandInput to be cleared after exiting command mode")
+	}
+}
+
+func TestCommandMode_BackspaceExitsWhenEmpty(t *testing.T) {
+	m := newTestModelWithTasks(5)
+
+	// Enter command mode and type a character
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.commandInput != "5" {
+		t.Errorf("expected commandInput to be '5', got '%s'", updated.commandInput)
+	}
+
+	// Backspace to empty
+	msg = tea.KeyMsg{Type: tea.KeyBackspace}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	// Should exit command mode when backspacing to empty
+	if updated.commandMode {
+		t.Error("expected commandMode to exit when backspacing to empty input")
+	}
+	if updated.commandInput != "" {
+		t.Error("expected commandInput to be empty")
+	}
+}
+
+func TestCommandMode_GotoLine(t *testing.T) {
+	m := newTestModelWithTasks(5)
+
+	// Enter ":3<enter>" with 5 tasks → cursor should be at index 2 (line 3)
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.list.cursor != 2 {
+		t.Errorf("expected cursor at 2 (line 3) after :3<enter>, got %d", updated.list.cursor)
+	}
+	if updated.commandMode {
+		t.Error("expected command mode to exit after executing command")
+	}
+}
+
+func TestCommandMode_InvalidCommand(t *testing.T) {
+	m := newTestModelWithTasks(5)
+
+	// Enter ":xyz<enter>" → should set error
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.err == nil {
+		t.Error("expected error to be set for invalid command")
+	}
+	errMsg := updated.err.Error()
+	if !strings.Contains(errMsg, "unknown command") && !strings.Contains(errMsg, "Unknown command") {
+		t.Errorf("expected error to mention 'unknown command', got: %s", errMsg)
+	}
+}
+
+func TestCommandMode_DisplaysInView(t *testing.T) {
+	m := newTestModelWithTasks(5)
+	m.list.SetSize(100, 24)
+	m.width = 100
+	m.height = 24
+
+	// Enter command mode and type "12"
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	output := updated.View()
+	if !strings.Contains(output, ":12") {
+		t.Error("expected view to contain ':12' when commandMode is true with commandInput '12'")
+	}
+}
+
+func TestListView_LineNumWidth(t *testing.T) {
+	// 1-9 tasks → width 1
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 9)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	if l.lineNumWidth() != 1 {
+		t.Errorf("expected lineNumWidth to be 1 for 9 tasks, got %d", l.lineNumWidth())
+	}
+
+	// 10-99 tasks → width 2
+	tasks = make([]daemon.TaskInfo, 50)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	if l.lineNumWidth() != 2 {
+		t.Errorf("expected lineNumWidth to be 2 for 50 tasks, got %d", l.lineNumWidth())
+	}
+
+	// 100+ tasks → width 3
+	tasks = make([]daemon.TaskInfo, 150)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	if l.lineNumWidth() != 3 {
+		t.Errorf("expected lineNumWidth to be 3 for 150 tasks, got %d", l.lineNumWidth())
+	}
+}
+
+func TestCommandMode_NumberKeysNoLongerNavigate(t *testing.T) {
+	m := newTestModelWithTasks(10)
+	m.list.cursor = 0
+
+	// Press number key '5' in list view → should NOT move cursor (no direct navigation)
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+	if updated.list.cursor != 0 {
+		t.Errorf("expected cursor to stay at 0 after pressing '5' (numbers no longer directly navigate), got %d", updated.list.cursor)
+	}
+	// Should NOT enter command mode (need to press ':' first)
+	if updated.commandMode {
+		t.Error("expected command mode to NOT be active (need to press ':' first)")
+	}
+}
+
 func TestListView_HeaderHasIndexColumn(t *testing.T) {
 	l := newListView(false)
 	l.SetTasks([]daemon.TaskInfo{
@@ -2066,15 +2271,25 @@ func TestListView_HeaderHasIndexColumn(t *testing.T) {
 	l.SetSize(100, 24)
 	output := l.View()
 
-	// Verify both # and ID headers exist
+	// Vim-style: header should NOT contain "#", but task rows should show line numbers
 	lines := strings.Split(output, "\n")
+	headerFound := false
 	for _, line := range lines {
 		if strings.Contains(line, "ID") && strings.Contains(line, "STATUS") {
-			if !strings.Contains(line, "#") {
-				t.Error("expected header line to contain '#' index column before 'ID'")
+			if strings.Contains(line, "#") {
+				t.Error("expected header line to NOT contain '#' (vim-style)")
 			}
+			headerFound = true
 			break
 		}
+	}
+	if !headerFound {
+		t.Error("could not find header line")
+	}
+
+	// Task row should contain line number "1"
+	if !strings.Contains(output, "1") {
+		t.Error("expected task row to show line number '1'")
 	}
 }
 
@@ -2932,13 +3147,24 @@ func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
 	l.SetSize(120, 24)
 	output := l.View()
 
+	// Vim-style: header should NOT contain "#"
 	lines := strings.Split(output, "\n")
+	headerFound := false
 	for _, line := range lines {
 		if strings.Contains(line, "ID") && strings.Contains(line, "PROJECT") {
-			if !strings.Contains(line, "#") {
-				t.Error("expected global mode header to contain '#' index column")
+			if strings.Contains(line, "#") {
+				t.Error("expected global mode header to NOT contain '#' (vim-style)")
 			}
+			headerFound = true
 			break
 		}
+	}
+	if !headerFound {
+		t.Error("could not find header line")
+	}
+
+	// Task row should contain line number "1"
+	if !strings.Contains(output, "1") {
+		t.Error("expected task row to show line number '1'")
 	}
 }

@@ -54,6 +54,9 @@ var (
 		"urgent": lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true),
 	}
 
+	lineNumStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#626262"))
+
 	helpStyle = lipgloss.NewStyle().
 			Foreground(dimStyle.GetForeground())
 

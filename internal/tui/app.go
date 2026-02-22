@@ -83,6 +83,10 @@ type Model struct {
 
 	// Yank sequence state (task info view)
 	pendingY bool
+
+	// Command mode state (vim-style : commands)
+	commandMode  bool
+	commandInput string
 }
 
 type clientConnectedMsg struct {
@@ -286,6 +290,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle command mode input
+	if m.commandMode {
+		return m.handleCommandKey(msg)
+	}
+
 	// Handle priority selection if active
 	if m.selectingPriority {
 		return m.handlePrioritySelectKey(msg)
@@ -588,16 +597,47 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.list.showHelp = !m.list.showHelp
 		return m, nil
-	}
 
-	// Number keys 0-9 for quick navigation to tasks by ascending index
-	if len(keyStr) == 1 && keyStr[0] >= '0' && keyStr[0] <= '9' {
-		row := int(keyStr[0] - '0')
-		m.list.GotoIndex(row)
+	case ":":
+		m.commandMode = true
+		m.commandInput = ""
 		return m, nil
 	}
 
 	return m, nil
+}
+
+func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case "esc":
+		m.commandMode = false
+		m.commandInput = ""
+		return m, nil
+
+	case "enter":
+		input := m.commandInput
+		m.commandMode = false
+		m.commandInput = ""
+		return executeCommand(m, input)
+
+	case "backspace":
+		if len(m.commandInput) > 0 {
+			m.commandInput = m.commandInput[:len(m.commandInput)-1]
+		}
+		if m.commandInput == "" {
+			m.commandMode = false
+		}
+		return m, nil
+
+	default:
+		// Only accept printable characters
+		if len(keyStr) == 1 && keyStr[0] >= ' ' && keyStr[0] <= '~' {
+			m.commandInput += keyStr
+		}
+		return m, nil
+	}
 }
 
 func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -1495,6 +1535,11 @@ func (m Model) View() string {
 	// Show confirmation bar if active
 	if m.confirmAction != "" {
 		content += fmt.Sprintf("\n  %s task #%d? (y/n)", capitalize(m.confirmAction), m.confirmTaskID)
+	}
+
+	// Show command bar if in command mode
+	if m.commandMode {
+		content += fmt.Sprintf("\n:%s█", m.commandInput)
 	}
 
 	return content

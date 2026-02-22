@@ -97,6 +97,21 @@ func (l *listView) GotoIndex(index int) {
 	}
 }
 
+// lineNumWidth returns the character width needed for the line number gutter.
+// This scales with the number of tasks, like vim's number column.
+func (l *listView) lineNumWidth() int {
+	n := len(l.tasks)
+	if n < 10 {
+		return 1
+	}
+	width := 0
+	for n > 0 {
+		width++
+		n /= 10
+	}
+	return width
+}
+
 // visibleRows returns the number of task rows visible in the list.
 // Layout: title(1) + blank(1) + header(1) + tasks + blank(1) + help(1) = 5 lines overhead.
 func (l *listView) visibleRows() int {
@@ -149,13 +164,16 @@ func (l *listView) View() string {
 		b.WriteString(dimStyle.Render("  No tasks found. Use 'sortie plan <PRD.md>' to create tasks."))
 		b.WriteString("\n")
 	} else {
+		// Line number gutter (vim-style, no header label)
+		gutterWidth := l.lineNumWidth()
+		gutter := strings.Repeat(" ", gutterWidth+1)
 		var header string
 		if l.globalMode {
-			header = fmt.Sprintf("  %-2s %-5s %-2s %-14s %-22s %s",
-				"#", "ID", "P", "PROJECT", "STATUS", "TITLE")
+			header = fmt.Sprintf("%s %-5s %-2s %-14s %-22s %s",
+				gutter, "ID", "P", "PROJECT", "STATUS", "TITLE")
 		} else {
-			header = fmt.Sprintf("  %-2s %-5s %-2s %-22s %s",
-				"#", "ID", "P", "STATUS", "TITLE")
+			header = fmt.Sprintf("%s %-5s %-2s %-22s %s",
+				gutter, "ID", "P", "STATUS", "TITLE")
 		}
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
@@ -197,13 +215,10 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		statusIcon = "○"
 	}
 
-	// Format columns
-	// Ascending index column: only show for the first 10 tasks (indices 0-9)
-	idxStr := " "
-	if index < 10 {
-		idxStr = fmt.Sprintf("%d", index)
-	}
-	idxCol := lipgloss.NewStyle().Width(2).Render(idxStr)
+	// Vim-style line number gutter (right-aligned, dimmed)
+	gutterWidth := l.lineNumWidth()
+	idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
+	idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
 
 	taskID := fmt.Sprintf("%-2d", task.ID)
 

@@ -131,8 +131,8 @@ func newKeyMap() keyMap {
 			key.WithHelp("G", "bottom"),
 		),
 		GotoTask: key.NewBinding(
-			key.WithKeys("0", "1", "2", "3", "4", "5", "6", "7", "8", "9"),
-			key.WithHelp("0-9", "go to task"),
+			key.WithKeys(":"),
+			key.WithHelp(":n", "go to line"),
 		),
 	}
 }
