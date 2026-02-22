@@ -166,7 +166,7 @@ func (l *listView) View() string {
 	} else {
 		// Line number gutter (vim-style, no header label)
 		gutterWidth := l.lineNumWidth()
-		gutter := strings.Repeat(" ", gutterWidth+1)
+		gutter := strings.Repeat(" ", gutterWidth+2)
 		var header string
 		if l.globalMode {
 			header = fmt.Sprintf("%s %-5s %-2s %-14s %-22s %s",
@@ -218,7 +218,6 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	// Vim-style line number gutter (right-aligned, dimmed)
 	gutterWidth := l.lineNumWidth()
 	idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
-	idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
 
 	taskID := fmt.Sprintf("%-2d", task.ID)
 
@@ -257,6 +256,8 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	priBadge := priorityBadge(task.Priority)
 
 	if selected {
+		// Use plain style for line number so selectedStyle's background covers it
+		idxCol := lipgloss.NewStyle().Width(gutterWidth).Render(idxStr)
 		priCol := lipgloss.NewStyle().Width(2).Render(priBadge)
 		statusCol := lipgloss.NewStyle().Width(22).Render(status)
 		var line string
@@ -276,7 +277,8 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		return selectedStyle.Render(line)
 	}
 
-	// Apply priority and status colors for non-selected rows
+	// Apply line number and priority/status colors for non-selected rows
+	idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
 	priCol := priorityStyle(task.Priority).Width(2).Render(priBadge)
 	statusSt := stateStyle(task.Status)
 	if strings.Contains(status, "(deadlocked)") {
