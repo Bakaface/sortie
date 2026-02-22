@@ -235,3 +235,116 @@ func TestGetPredefinedTask(t *testing.T) {
 		t.Error("expected nil for nonexistent task")
 	}
 }
+
+func TestYoloDefaultFalse(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Claude.Yolo {
+		t.Error("expected yolo to default to false")
+	}
+}
+
+func TestClaudeConfigArgsWithoutYolo(t *testing.T) {
+	cfg := &ClaudeConfig{
+		Command:     "claude",
+		DefaultArgs: []string{"--verbose"},
+		Yolo:        false,
+	}
+	args := cfg.Args()
+	for _, a := range args {
+		if a == "--dangerously-skip-permissions" {
+			t.Error("expected --dangerously-skip-permissions to NOT be in args when yolo is false")
+		}
+	}
+	if len(args) != 1 || args[0] != "--verbose" {
+		t.Errorf("expected [--verbose], got %v", args)
+	}
+}
+
+func TestClaudeConfigArgsWithYolo(t *testing.T) {
+	cfg := &ClaudeConfig{
+		Command: "claude",
+		Yolo:    true,
+	}
+	args := cfg.Args()
+	found := false
+	for _, a := range args {
+		if a == "--dangerously-skip-permissions" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected --dangerously-skip-permissions in args when yolo is true")
+	}
+}
+
+func TestYoloProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+yolo: true
+workflow:
+  steps:
+    - name: implement
+      prompt: "Implement the task"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.Claude.Yolo {
+		t.Error("expected yolo to be true from project config")
+	}
+}
+
+func TestYoloGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	yamlContent := `
+yolo: true
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadGlobalConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.Claude.Yolo {
+		t.Error("expected yolo to be true from global config")
+	}
+}
+
+func TestYoloProjectOverridesGlobal(t *testing.T) {
+	// Global sets yolo: true, project sets yolo: false
+	globalDir := t.TempDir()
+	globalPath := filepath.Join(globalDir, "config.yaml")
+	os.WriteFile(globalPath, []byte("yolo: true\n"), 0644)
+
+	projectDir := t.TempDir()
+	projectPath := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectPath, []byte("yolo: false\n"), 0644)
+
+	cfg := defaultConfig()
+	if err := loadGlobalConfig(globalPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Claude.Yolo {
+		t.Error("expected yolo to be true after loading global config")
+	}
+
+	if err := loadProjectConfig(projectPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Claude.Yolo {
+		t.Error("expected yolo to be false after project config overrides global")
+	}
+}

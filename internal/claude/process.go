@@ -62,7 +62,7 @@ func (p *Process) SetEnv(env map[string]string) {
 // StartWithPrompt runs Claude Code with -p flag (one-shot mode).
 // The process exits automatically when the task is complete.
 func (p *Process) StartWithPrompt(prompt string) error {
-	args := append([]string{}, p.cfg.DefaultArgs...)
+	args := append([]string{}, p.cfg.Args()...)
 	args = append(args, "--verbose", "--output-format", "stream-json", "-p", prompt)
 
 	p.cmd = exec.Command(p.cfg.Command, args...)

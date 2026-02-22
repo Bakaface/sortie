@@ -527,11 +527,15 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 	}
 
 	// Write wrapper script: run Claude interactively, then drop to bash for inspection
+	claudeCmd := "claude"
+	if e.cfg.Claude.Yolo {
+		claudeCmd = "claude --dangerously-skip-permissions"
+	}
 	script := fmt.Sprintf(`#!/bin/bash
 %sPROMPT=$(cat %q)
-claude --dangerously-skip-permissions "$PROMPT"
+%s "$PROMPT"
 exec bash
-`, envExports.String(), promptFile)
+`, envExports.String(), promptFile, claudeCmd)
 
 	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
 		return 1, "", fmt.Errorf("failed to write wrapper script: %w", err)
@@ -688,7 +692,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 // the task's worktree files.
 func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir string) (string, error) {
 	args := []string{"-p", prompt, "--output-format", "text"}
-	args = append(args, e.cfg.Claude.DefaultArgs...)
+	args = append(args, e.cfg.Claude.Args()...)
 
 	cmd := exec.CommandContext(ctx, e.cfg.Claude.Command, args...)
 	if workDir != "" {

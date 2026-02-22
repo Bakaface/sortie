@@ -13,8 +13,8 @@ func TestProcessOutputFunc(t *testing.T) {
 	// It's an integration test that verifies the full pipeline:
 	// Claude process → stdout pipe → scanner → parser → OutputFunc
 	cfg := &config.ClaudeConfig{
-		Command:     "claude",
-		DefaultArgs: []string{"--dangerously-skip-permissions"},
+		Command: "claude",
+		Yolo:    true,
 	}
 
 	workDir := t.TempDir()

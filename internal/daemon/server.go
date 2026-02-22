@@ -666,7 +666,11 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	script := "#!/bin/bash\nclaude\nexec bash\n"
+	claudeCmd := "claude"
+	if pc.cfg.Claude.Yolo {
+		claudeCmd = "claude --dangerously-skip-permissions"
+	}
+	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", claudeCmd)
 	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to write wrapper script: %v", err))
 		return

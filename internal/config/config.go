@@ -14,6 +14,7 @@ import (
 type ProjectConfig struct {
 	MaxWorkers      int              `yaml:"max_workers"`
 	DefaultPriority string           `yaml:"default_priority"`
+	Yolo            *bool            `yaml:"yolo,omitempty"`
 	Git             GitConfig        `yaml:"git"`
 	Workflows       []WorkflowConfig `yaml:"workflows"`
 	Workflow        WorkflowConfig   `yaml:"workflow"` // deprecated, backward compat
@@ -76,6 +77,7 @@ func (c *Config) GetStepTimeout(step StepConfig) time.Duration {
 // GlobalConfig from ~/.config/sortie/config.yaml
 type GlobalConfig struct {
 	MaxWorkers               int                 `yaml:"max_workers"`
+	Yolo                     *bool               `yaml:"yolo,omitempty"`
 	Notifications            NotificationsConfig `yaml:"notifications"`
 	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
 }
@@ -90,6 +92,16 @@ type NotificationsConfig struct {
 type ClaudeConfig struct {
 	Command     string   `yaml:"command"`
 	DefaultArgs []string `yaml:"default_args"`
+	Yolo        bool     // whether to pass --dangerously-skip-permissions
+}
+
+// Args returns the effective argument list, including --dangerously-skip-permissions if Yolo is enabled.
+func (c *ClaudeConfig) Args() []string {
+	args := append([]string{}, c.DefaultArgs...)
+	if c.Yolo {
+		args = append(args, "--dangerously-skip-permissions")
+	}
+	return args
 }
 
 // CommandsConfig is used during init for project detection
@@ -172,8 +184,8 @@ func defaultConfig() *Config {
 			OnWaitingInput: true,
 		},
 		Claude: ClaudeConfig{
-			Command:     "claude",
-			DefaultArgs: []string{"--dangerously-skip-permissions"},
+			Command: "claude",
+			Yolo:    false,
 		},
 		PollInterval: 5 * time.Second,
 		Agents: agentsCompat{
@@ -272,6 +284,9 @@ func loadGlobalConfig(path string, cfg *Config) error {
 	if global.MaxWorkers > 0 {
 		cfg.MaxWorkers = global.MaxWorkers
 	}
+	if global.Yolo != nil {
+		cfg.Claude.Yolo = *global.Yolo
+	}
 	cfg.Notifications = global.Notifications
 	if global.TmuxNestedAttachBehavior != "" {
 		cfg.TmuxNestedAttachBehavior = global.TmuxNestedAttachBehavior
@@ -305,6 +320,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.DefaultPriority != "" {
 		cfg.DefaultPriority = proj.DefaultPriority
+	}
+	if proj.Yolo != nil {
+		cfg.Claude.Yolo = *proj.Yolo
 	}
 
 	// Handle workflows: prefer new plural form, fall back to old singular
@@ -505,8 +523,10 @@ func (c *Config) Save() error {
 		return err
 	}
 
+	yolo := c.Claude.Yolo
 	global := GlobalConfig{
 		MaxWorkers:               c.MaxWorkers,
+		Yolo:                     &yolo,
 		Notifications:            c.Notifications,
 		TmuxNestedAttachBehavior: c.TmuxNestedAttachBehavior,
 	}
