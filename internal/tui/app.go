@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/aface/sortie/internal/config"
 	"github.com/aface/sortie/internal/daemon"
 	"github.com/aface/sortie/internal/tmux"
+	"github.com/aface/sortie/internal/workflow"
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -24,6 +26,7 @@ const (
 	viewDetail
 	viewTaskInfo
 	viewPrompt
+	viewArtifact
 )
 
 type Model struct {
@@ -63,6 +66,21 @@ type Model struct {
 	priorityTaskID    int64
 	pendingC          bool
 
+	// Artifact pending key state
+	pendingO bool // tracks first "o" press for oa sequence
+	pendingE bool // tracks first "e" press for ea sequence
+
+	// Artifact selection state
+	selectingArtifact bool
+	artifactCursor    int
+	artifactNames     []string
+	artifactTaskID    int64
+	artifactWorktree  string
+	artifactAction    string // "view" or "edit"
+
+	// Artifact viewer state
+	artifactView artifactViewState
+
 	// Yank sequence state (task info view)
 	pendingY bool
 }
@@ -84,6 +102,11 @@ type errorMsg error
 type tickMsg time.Time
 type tmuxDetachedMsg struct{ taskID int64 }
 type tmuxSessionsMsg map[int64]bool
+type editorArtifactFinishedMsg struct{}
+type artifactLoadedMsg struct {
+	name    string
+	content string
+}
 
 func NewModel(cfg *config.Config, projectID int64, projectPath string, globalMode bool) Model {
 	return Model{
@@ -151,6 +174,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detail.SetSize(msg.Width, msg.Height)
 		m.taskInfo.SetSize(msg.Width, msg.Height)
 		m.prompt.SetSize(msg.Width, msg.Height)
+		m.artifactView.SetSize(msg.Width, msg.Height)
 		return m, nil
 
 	case clientConnectedMsg:
@@ -189,6 +213,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prompt.textarea.SetValue(text)
 		}
 		m.prompt.Focus()
+		return m, nil
+
+	case editorArtifactFinishedMsg:
+		return m, nil
+
+	case artifactLoadedMsg:
+		m.artifactView.SetContent(msg.name, msg.content)
+		m.view = viewArtifact
 		return m, nil
 
 	case tmuxDetachedMsg:
@@ -247,6 +279,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTaskInfoKey(msg)
 	case viewPrompt:
 		return m.handlePromptKey(msg)
+	case viewArtifact:
+		return m.handleArtifactViewKey(msg)
 	}
 	return m, nil
 }
@@ -265,6 +299,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle predefined task selection if active
 	if m.selectingTask {
 		return m.handleTaskSelectKey(msg)
+	}
+
+	// Handle artifact selection if active
+	if m.selectingArtifact {
+		return m.handleArtifactSelectKey(msg)
 	}
 
 	// Handle confirmation prompt if active
@@ -367,17 +406,67 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Fall through to process this key normally
 	}
 
+	// Handle second key after "o" prefix
+	if m.pendingO {
+		m.pendingO = false
+		m.pendingDelete = false
+		m.list.SetPendingG(false)
+		if keyStr == "a" {
+			if task := m.list.Selected(); task != nil {
+				return m.openArtifactSelection(task, "view")
+			}
+		}
+		return m, nil
+	}
+
+	// Handle second key after "e" prefix
+	if m.pendingE {
+		m.pendingE = false
+		m.pendingDelete = false
+		m.list.SetPendingG(false)
+		if keyStr == "a" {
+			if task := m.list.Selected(); task != nil {
+				return m.openArtifactSelection(task, "edit")
+			}
+		}
+		return m, nil
+	}
+
 	// Handle "c" key — start "cp" sequence or immediate continue
 	if keyStr == "c" {
 		m.pendingC = true
 		m.pendingDelete = false
 		m.list.SetPendingG(false)
+		m.pendingO = false
+		m.pendingE = false
+		return m, nil
+	}
+
+	// Handle "o" key — start "oa" sequence
+	if keyStr == "o" {
+		m.pendingO = true
+		m.pendingDelete = false
+		m.list.SetPendingG(false)
+		m.pendingC = false
+		m.pendingE = false
+		return m, nil
+	}
+
+	// Handle "e" key — start "ea" sequence
+	if keyStr == "e" {
+		m.pendingE = true
+		m.pendingDelete = false
+		m.list.SetPendingG(false)
+		m.pendingC = false
+		m.pendingO = false
 		return m, nil
 	}
 
 	// Any other key resets pending states
 	m.pendingDelete = false
 	m.list.SetPendingG(false)
+	m.pendingO = false
+	m.pendingE = false
 
 	switch keyStr {
 	case "q", "ctrl+c":
@@ -716,6 +805,11 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keyStr := msg.String()
 
+	// Handle artifact selection if active (must come before q/esc handling)
+	if m.selectingArtifact {
+		return m.handleArtifactSelectKey(msg)
+	}
+
 	switch keyStr {
 	case "q", "esc":
 		m.view = viewList
@@ -740,9 +834,49 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Handle second key after "o" prefix
+	if m.pendingO {
+		m.pendingO = false
+		if keyStr == "a" {
+			if m.taskInfo.task != nil {
+				return m.openArtifactSelection(m.taskInfo.task, "view")
+			}
+		}
+		// Fall through to handle this key normally
+	}
+
+	// Handle second key after "e" prefix
+	if m.pendingE {
+		m.pendingE = false
+		if keyStr == "a" {
+			if m.taskInfo.task != nil {
+				return m.openArtifactSelection(m.taskInfo.task, "edit")
+			}
+		}
+		// Fall through to handle this key normally
+	}
+
+	// Handle "o" key — start "oa" sequence
+	if keyStr == "o" {
+		m.pendingO = true
+		m.pendingE = false
+		m.pendingY = false
+		return m, nil
+	}
+
+	// Handle "e" key — start "ea" sequence
+	if keyStr == "e" {
+		m.pendingE = true
+		m.pendingO = false
+		m.pendingY = false
+		return m, nil
+	}
+
 	// Handle "y" prefix for yank sequences (yd, yc)
 	if keyStr == "y" {
 		m.pendingY = true
+		m.pendingO = false
+		m.pendingE = false
 		m.taskInfo.pendingG = false
 		return m, nil
 	}
@@ -1102,6 +1236,159 @@ func (m Model) checkTmuxSessions() tea.Cmd {
 	}
 }
 
+// openArtifactSelection starts the artifact selection flow for a task.
+func (m Model) openArtifactSelection(task *daemon.TaskInfo, action string) (tea.Model, tea.Cmd) {
+	if task.WorktreePath == "" {
+		m.err = fmt.Errorf("no worktree available for task #%d", task.ID)
+		return m, nil
+	}
+
+	wf := m.cfg.GetWorkflow(task.Workflow)
+	if wf == nil {
+		m.err = fmt.Errorf("no workflow found for task #%d", task.ID)
+		return m, nil
+	}
+
+	// Find steps with artifact: true that have actual files on disk
+	artifactsDir := workflow.ArtifactsDir(task.WorktreePath)
+	var names []string
+	for _, step := range wf.Steps {
+		if step.Artifact {
+			path := filepath.Join(artifactsDir, step.Name+".md")
+			if _, err := os.Stat(path); err == nil {
+				names = append(names, step.Name)
+			}
+		}
+	}
+
+	if len(names) == 0 {
+		m.err = fmt.Errorf("no artifacts available for task #%d", task.ID)
+		return m, nil
+	}
+
+	// If only one artifact, skip selection
+	if len(names) == 1 {
+		return m.performArtifactAction(task.WorktreePath, names[0], action)
+	}
+
+	m.selectingArtifact = true
+	m.artifactCursor = 0
+	m.artifactNames = names
+	m.artifactTaskID = task.ID
+	m.artifactWorktree = task.WorktreePath
+	m.artifactAction = action
+	return m, nil
+}
+
+// handleArtifactSelectKey handles key input in the artifact selection menu.
+func (m Model) handleArtifactSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.artifactCursor > 0 {
+			m.artifactCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.artifactCursor < len(m.artifactNames)-1 {
+			m.artifactCursor++
+		}
+		return m, nil
+	case "enter":
+		name := m.artifactNames[m.artifactCursor]
+		m.selectingArtifact = false
+		return m.performArtifactAction(m.artifactWorktree, name, m.artifactAction)
+	case "esc", "q":
+		m.selectingArtifact = false
+		return m, nil
+	}
+
+	// Number keys for quick selection (1-9)
+	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
+		idx := int(msg.String()[0] - '1')
+		if idx < len(m.artifactNames) {
+			name := m.artifactNames[idx]
+			m.selectingArtifact = false
+			return m.performArtifactAction(m.artifactWorktree, name, m.artifactAction)
+		}
+	}
+
+	return m, nil
+}
+
+// performArtifactAction either views or edits the selected artifact.
+func (m Model) performArtifactAction(worktreePath, stepName, action string) (tea.Model, tea.Cmd) {
+	artifactPath := filepath.Join(workflow.ArtifactsDir(worktreePath), stepName+".md")
+
+	if action == "edit" {
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vi"
+		}
+		c := exec.Command(editor, artifactPath)
+		return m, tea.ExecProcess(c, func(err error) tea.Msg {
+			if err != nil {
+				return errorMsg(fmt.Errorf("editor exited with error: %w", err))
+			}
+			return editorArtifactFinishedMsg{}
+		})
+	}
+
+	// View action: read content and display
+	return m, func() tea.Msg {
+		content, err := workflow.ReadArtifact(worktreePath, stepName)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to read artifact: %w", err))
+		}
+		if content == "" {
+			return errorMsg(fmt.Errorf("artifact %q is empty", stepName))
+		}
+		return artifactLoadedMsg{name: stepName, content: content}
+	}
+}
+
+// handleArtifactViewKey handles key input in the artifact viewer.
+func (m Model) handleArtifactViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case "q", "esc":
+		m.view = viewList
+		return m, nil
+	}
+
+	// Handle "gg" sequence
+	if keyStr == "g" {
+		if m.artifactView.pendingG {
+			m.artifactView.pendingG = false
+			m.artifactView.GotoTop()
+			return m, nil
+		}
+		m.artifactView.pendingG = true
+		return m, nil
+	}
+	m.artifactView.pendingG = false
+
+	switch keyStr {
+	case "G":
+		m.artifactView.GotoBottom()
+		return m, nil
+	case "j", "down":
+		m.artifactView.ScrollDown()
+		return m, nil
+	case "k", "up":
+		m.artifactView.ScrollUp()
+		return m, nil
+	case "ctrl+d", "pgdown":
+		m.artifactView.PageDown()
+		return m, nil
+	case "ctrl+u", "pgup":
+		m.artifactView.PageUp()
+		return m, nil
+	}
+
+	return m, nil
+}
+
 func (m Model) View() string {
 	if m.quitting {
 		return "Goodbye!\n"
@@ -1171,6 +1458,26 @@ func (m Model) View() string {
 		return b.String()
 	}
 
+	// Show artifact selection as its own screen
+	if m.selectingArtifact {
+		var b strings.Builder
+		title := "Select Artifact"
+		if m.artifactAction == "edit" {
+			title = "Edit Artifact"
+		}
+		b.WriteString(titleStyle.Render(title) + "\n\n")
+		for i, name := range m.artifactNames {
+			label := fmt.Sprintf("  %d. %s", i+1, name)
+			if i == m.artifactCursor {
+				b.WriteString(selectedStyle.Render("> "+label) + "\n")
+			} else {
+				b.WriteString("    " + label + "\n")
+			}
+		}
+		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | 1-9: quick select | esc: cancel"))
+		return b.String()
+	}
+
 	var content string
 	switch m.view {
 	case viewDetail:
@@ -1179,6 +1486,8 @@ func (m Model) View() string {
 		content = m.taskInfo.View()
 	case viewPrompt:
 		content = m.prompt.View()
+	case viewArtifact:
+		content = m.artifactView.View()
 	default:
 		content = m.list.View()
 	}
