@@ -200,6 +200,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case taskCreatedMsg:
 		m.list.UpdateTask(daemon.TaskInfo(msg))
+		m.list.GotoTop()
 		return m, m.refreshTasks()
 
 	case outputLoadedMsg:

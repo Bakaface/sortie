@@ -1990,6 +1990,33 @@ func TestListView_HeaderHasIndexColumn(t *testing.T) {
 	}
 }
 
+func TestTaskCreatedMsg_CursorMovesToTop(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+
+	// Set up existing tasks and move cursor away from top
+	tasks := []daemon.TaskInfo{
+		{ID: 3, Title: "Task 3", Status: "pending"},
+		{ID: 2, Title: "Task 2", Status: "pending"},
+		{ID: 1, Title: "Task 1", Status: "pending"},
+	}
+	m.list.SetTasks(tasks)
+	m.list.cursor = 2 // cursor at bottom
+
+	// Simulate a new task being created
+	msg := taskCreatedMsg(daemon.TaskInfo{ID: 4, Title: "New Task", Status: "pending"})
+	result, _ := m.Update(msg)
+	updated := result.(Model)
+
+	if updated.list.cursor != 0 {
+		t.Errorf("expected cursor at 0 after task creation, got %d", updated.list.cursor)
+	}
+}
+
 func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
 	l := newListView(true)
 	l.SetTasks([]daemon.TaskInfo{
