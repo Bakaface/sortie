@@ -232,11 +232,11 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 		return nil
 
 	case "commit":
-		return gitpkg.Commit(t.WorktreePath, "sortie: "+t.Title)
+		return gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title))
 
 	case "merge":
 		// Commit any uncommitted changes first (operates on the worktree, safe to do concurrently)
-		if err := gitpkg.Commit(t.WorktreePath, "sortie: "+t.Title); err != nil {
+		if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
 			return fmt.Errorf("commit failed: %w", err)
 		}
 		baseBranch := e.cfg.Git.BaseBranch
@@ -244,13 +244,16 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 			baseBranch = "main"
 		}
 
+		// Pick the best conventional commit message from the branch's history
+		commitMsg := gitpkg.GetSquashCommitMessage(e.repoRoot, baseBranch, t.Branch, t.Title)
+
 		const maxMergeAttempts = 3
 		var mergeErr error
 
 		for attempt := 1; attempt <= maxMergeAttempts; attempt++ {
 			// Lock only for the squash-merge on the shared repoRoot
 			e.mergeMu.Lock()
-			mergeErr = gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch)
+			mergeErr = gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch, commitMsg)
 			e.mergeMu.Unlock()
 
 			if mergeErr == nil {

@@ -234,10 +234,10 @@ func TestMergeBranch_SequentialMerges(t *testing.T) {
 	}
 
 	// Merge both branches sequentially (as the mutex would enforce)
-	if err := MergeBranch(repo, "feature-a", "main"); err != nil {
+	if err := MergeBranch(repo, "feature-a", "main", "sortie: feature A"); err != nil {
 		t.Fatalf("MergeBranch feature-a failed: %v", err)
 	}
-	if err := MergeBranch(repo, "feature-b", "main"); err != nil {
+	if err := MergeBranch(repo, "feature-b", "main", "sortie: feature B"); err != nil {
 		t.Fatalf("MergeBranch feature-b failed: %v", err)
 	}
 
@@ -314,7 +314,7 @@ func TestMergeBranch_ConcurrentWithMutex(t *testing.T) {
 			defer wg.Done()
 			branchName := fmt.Sprintf("feature-%d", idx)
 			mu.Lock()
-			errs[idx] = MergeBranch(repo, branchName, "main")
+			errs[idx] = MergeBranch(repo, branchName, "main", fmt.Sprintf("sortie: feature %d", idx))
 			mu.Unlock()
 		}(i)
 	}
@@ -365,12 +365,12 @@ func TestMergeBranch_ConflictCleansUp(t *testing.T) {
 	runGit(t, repo, "checkout", "main")
 
 	// Merge branch-a first — should succeed
-	if err := MergeBranch(repo, "branch-a", "main"); err != nil {
+	if err := MergeBranch(repo, "branch-a", "main", "sortie: branch A"); err != nil {
 		t.Fatalf("first merge should succeed: %v", err)
 	}
 
 	// Merge branch-b — should fail (conflict on shared.txt)
-	err := MergeBranch(repo, "branch-b", "main")
+	err := MergeBranch(repo, "branch-b", "main", "sortie: branch B")
 	if err == nil {
 		t.Fatal("expected merge to fail due to conflict")
 	}
@@ -390,7 +390,7 @@ func TestMergeBranch_ConflictCleansUp(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "add other.txt")
 	runGit(t, repo, "checkout", "main")
 
-	if err := MergeBranch(repo, "branch-c", "main"); err != nil {
+	if err := MergeBranch(repo, "branch-c", "main", "sortie: branch C"); err != nil {
 		t.Fatalf("merge after conflict cleanup should succeed: %v", err)
 	}
 }
@@ -517,13 +517,13 @@ func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 	// Merge branch-a first — advances main
 	var mu sync.Mutex
 	mu.Lock()
-	if err := MergeBranch(repo, "branch-a", "main"); err != nil {
+	if err := MergeBranch(repo, "branch-a", "main", "sortie: branch A"); err != nil {
 		mu.Unlock()
 		t.Fatalf("first merge failed: %v", err)
 	}
 
 	// Try merge branch-b — may fail because main advanced
-	mergeErr := MergeBranch(repo, "branch-b", "main")
+	mergeErr := MergeBranch(repo, "branch-b", "main", "sortie: branch B")
 	if mergeErr != nil {
 		// Simulate the engine's retry: rebase branch-b, then retry
 		// branch-b's worktree is the repo itself for this test, but in production
@@ -538,7 +538,7 @@ func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 		runGit(t, repo, "checkout", "main")
 
 		mu.Lock()
-		mergeErr = MergeBranch(repo, "branch-b", "main")
+		mergeErr = MergeBranch(repo, "branch-b", "main", "sortie: branch B")
 		mu.Unlock()
 		if mergeErr != nil {
 			t.Fatalf("merge after rebase should succeed: %v", mergeErr)
@@ -553,6 +553,114 @@ func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 	}
 	if _, err := os.ReadFile(filepath.Join(repo, "b.txt")); err != nil {
 		t.Error("b.txt should exist on main")
+	}
+}
+
+func TestGetSquashCommitMessage_PrefersConventionalCommit(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create a branch with multiple commits, one conventional
+	runGit(t, repo, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "wip: initial attempt")
+
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "feat: add new feature")
+
+	if err := os.WriteFile(filepath.Join(repo, "c.txt"), []byte("c"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "cleanup")
+
+	msg := GetSquashCommitMessage(repo, "main", "feature", "fallback")
+	if msg != "feat: add new feature" {
+		t.Errorf("expected conventional commit 'feat: add new feature', got %q", msg)
+	}
+}
+
+func TestGetSquashCommitMessage_FallsBackToNewest(t *testing.T) {
+	repo := initTestRepo(t)
+
+	runGit(t, repo, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "first change")
+
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("b"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "second change")
+
+	// No conventional commits — should convert newest to conventional format
+	msg := GetSquashCommitMessage(repo, "main", "feature", "fallback")
+	if msg != "feat: second change" {
+		t.Errorf("expected 'feat: second change', got %q", msg)
+	}
+}
+
+func TestGetSquashCommitMessage_FallsBackToDefault(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// No branch commits beyond main — fallback gets converted to conventional commit
+	msg := GetSquashCommitMessage(repo, "main", "main", "Add user authentication")
+	if msg != "feat: add user authentication" {
+		t.Errorf("expected 'feat: add user authentication', got %q", msg)
+	}
+}
+
+func TestGetSquashCommitMessage_ScopedAndBang(t *testing.T) {
+	repo := initTestRepo(t)
+
+	runGit(t, repo, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("a"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "fix(auth)!: remove deprecated endpoint")
+
+	msg := GetSquashCommitMessage(repo, "main", "feature", "fallback")
+	if msg != "fix(auth)!: remove deprecated endpoint" {
+		t.Errorf("expected scoped+bang commit, got %q", msg)
+	}
+}
+
+func TestConventionalCommitFromTitle(t *testing.T) {
+	tests := []struct {
+		title string
+		want  string
+	}{
+		// Already conventional — pass through
+		{"feat: add login", "feat: add login"},
+		{"fix(auth): handle nil token", "fix(auth): handle nil token"},
+		{"refactor!: rewrite parser", "refactor!: rewrite parser"},
+
+		// Inferred from leading verb
+		{"Fix the login bug", "fix: the login bug"},
+		{"Refactor database layer", "refactor: database layer"},
+		{"Test edge cases in parser", "test: edge cases in parser"},
+		{"Optimize query performance", "perf: query performance"},
+
+		// Default to feat
+		{"Add user authentication", "feat: add user authentication"},
+		{"Implement dark mode", "feat: implement dark mode"},
+		{"Update the sidebar layout", "feat: update the sidebar layout"},
+	}
+
+	for _, tt := range tests {
+		got := ConventionalCommitFromTitle(tt.title)
+		if got != tt.want {
+			t.Errorf("ConventionalCommitFromTitle(%q) = %q, want %q", tt.title, got, tt.want)
+		}
 	}
 }
 

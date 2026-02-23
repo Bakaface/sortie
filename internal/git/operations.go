@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 func Commit(workDir, message string) error {
@@ -73,7 +76,7 @@ func HasChanges(workDir string) (bool, error) {
 	return strings.TrimSpace(stdout.String()) != "", nil
 }
 
-func MergeBranch(repoRoot, branch, baseBranch string) error {
+func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	// Checkout base branch
 	checkoutCmd := exec.Command("git", "checkout", baseBranch)
 	checkoutCmd.Dir = repoRoot
@@ -102,7 +105,9 @@ func MergeBranch(repoRoot, branch, baseBranch string) error {
 	}
 
 	// Squash merge stages changes but doesn't commit — create the commit
-	commitMsg := fmt.Sprintf("Merge branch '%s'", branch)
+	if commitMsg == "" {
+		commitMsg = fmt.Sprintf("Squash %s into %s", branch, baseBranch)
+	}
 	commitCmd := exec.Command("git", "commit", "-m", commitMsg)
 	commitCmd.Dir = repoRoot
 	stderr.Reset()
@@ -359,4 +364,95 @@ func GetLastCommitMessage(workDir string) (string, error) {
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+// conventionalCommitRe matches conventional commit subject lines like "feat: ...", "fix(scope): ...", "feat!: ..."
+var conventionalCommitRe = regexp.MustCompile(`^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([^)]+\))?!?:\s`)
+
+// titlePrefixes maps common leading verbs in task titles to conventional commit types.
+var titlePrefixes = []struct {
+	prefix string
+	ccType string
+}{
+	{"fix ", "fix"},
+	{"bugfix ", "fix"},
+	{"repair ", "fix"},
+	{"refactor ", "refactor"},
+	{"rework ", "refactor"},
+	{"restructure ", "refactor"},
+	{"test ", "test"},
+	{"document ", "docs"},
+	{"style ", "style"},
+	{"optimize ", "perf"},
+	{"revert ", "revert"},
+}
+
+// ConventionalCommitFromTitle converts a freeform task title into a conventional
+// commit message. If the title already is a conventional commit, it's returned as-is.
+// Otherwise the leading verb is used to infer the type (defaulting to "feat").
+func ConventionalCommitFromTitle(title string) string {
+	if conventionalCommitRe.MatchString(title) {
+		return title
+	}
+
+	lower := strings.ToLower(title)
+	for _, p := range titlePrefixes {
+		if strings.HasPrefix(lower, p.prefix) {
+			// Strip the verb prefix and lowercase first char of the remainder
+			desc := title[len(p.prefix):]
+			if desc == "" {
+				desc = title
+			}
+			return p.ccType + ": " + lowercaseFirst(desc)
+		}
+	}
+
+	return "feat: " + lowercaseFirst(title)
+}
+
+func lowercaseFirst(s string) string {
+	r, size := utf8.DecodeRuneInString(s)
+	if size == 0 {
+		return s
+	}
+	return string(unicode.ToLower(r)) + s[size:]
+}
+
+// GetSquashCommitMessage returns the best commit message to use when squash-merging
+// a branch into the base branch. It looks through the branch's commits (newest first)
+// and returns the first conventional commit message found. If none match, it returns
+// the first commit subject. If the branch has no commits, it returns fallback.
+func GetSquashCommitMessage(repoRoot, baseBranch, branch, fallback string) string {
+	// Get commit subjects from the branch (newest first)
+	cmd := exec.Command("git", "log", "--format=%s", baseBranch+".."+branch)
+	cmd.Dir = repoRoot
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil || strings.TrimSpace(stdout.String()) == "" {
+		return ConventionalCommitFromTitle(fallback)
+	}
+
+	var subjects []string
+	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			subjects = append(subjects, line)
+		}
+	}
+
+	if len(subjects) == 0 {
+		return ConventionalCommitFromTitle(fallback)
+	}
+
+	// Prefer the first conventional commit message found (newest first)
+	for _, s := range subjects {
+		if conventionalCommitRe.MatchString(s) {
+			return s
+		}
+	}
+
+	// No conventional commit found — convert the most recent subject
+	return ConventionalCommitFromTitle(subjects[0])
 }
