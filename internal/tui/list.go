@@ -98,18 +98,15 @@ func (l *listView) GotoIndex(index int) {
 }
 
 // lineNumWidth returns the character width needed for the line number gutter.
-// This scales with the number of tasks, like vim's number column.
+// Minimum width of 2 keeps columns aligned with the old layout; scales up for 100+ tasks.
 func (l *listView) lineNumWidth() int {
 	n := len(l.tasks)
-	if n < 10 {
-		return 1
-	}
 	width := 0
 	for n > 0 {
 		width++
 		n /= 10
 	}
-	return width
+	return max(2, width)
 }
 
 // visibleRows returns the number of task rows visible in the list.
@@ -273,6 +270,10 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 			line = fmt.Sprintf("  %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
 		} else {
 			line = fmt.Sprintf("  %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
+		}
+		// Pad to full terminal width so the blue background fills the entire row
+		if lineWidth := lipgloss.Width(line); lineWidth < l.width {
+			line += strings.Repeat(" ", l.width-lineWidth)
 		}
 		return selectedStyle.Render(line)
 	}

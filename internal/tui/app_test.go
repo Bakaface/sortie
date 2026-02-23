@@ -2214,15 +2214,15 @@ func TestCommandMode_DisplaysInView(t *testing.T) {
 }
 
 func TestListView_LineNumWidth(t *testing.T) {
-	// 1-9 tasks → width 1
+	// 1-9 tasks → minimum width 2
 	l := newListView(false)
 	tasks := make([]daemon.TaskInfo, 9)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	if l.lineNumWidth() != 1 {
-		t.Errorf("expected lineNumWidth to be 1 for 9 tasks, got %d", l.lineNumWidth())
+	if l.lineNumWidth() != 2 {
+		t.Errorf("expected lineNumWidth to be 2 for 9 tasks, got %d", l.lineNumWidth())
 	}
 
 	// 10-99 tasks → width 2
