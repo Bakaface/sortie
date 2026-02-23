@@ -179,9 +179,9 @@ func (l *listView) View() string {
 
 	var titleText string
 	if l.globalMode {
-		titleText = " Sortie (Global) "
+		titleText = " " + AppTitle + " (Global) "
 	} else {
-		titleText = " Sortie "
+		titleText = " " + AppTitle + " "
 	}
 	title := titleStyle.Render(titleText)
 	b.WriteString(title)

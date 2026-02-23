@@ -4,6 +4,10 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// AppTitle is the display title for Sortie, with crossed swords (⚔) reflecting
+// the military origin of the word "sortie" — a charge from a defensive position.
+const AppTitle = "⚔ Sortie"
+
 var (
 	subtle    = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"}
 	highlight = lipgloss.AdaptiveColor{Light: "#4078C0", Dark: "#6CA0DC"}

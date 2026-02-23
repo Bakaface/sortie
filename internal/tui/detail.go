@@ -175,7 +175,7 @@ func (d *detailView) View() string {
 	var b strings.Builder
 
 	// App title
-	b.WriteString(titleStyle.Render(" Sortie "))
+	b.WriteString(titleStyle.Render(" " + AppTitle + " "))
 	b.WriteString("\n\n")
 
 	// Task title with word wrapping
