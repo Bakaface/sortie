@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-func TestAppTitleContainsCrossedSwords(t *testing.T) {
-	if !strings.Contains(AppTitle, "⚔") {
-		t.Errorf("AppTitle should contain crossed swords (⚔), got %q", AppTitle)
+func TestAppTitleContainsAirplane(t *testing.T) {
+	if !strings.Contains(AppTitle, "✈") {
+		t.Errorf("AppTitle should contain airplane (✈), got %q", AppTitle)
 	}
 }
 
