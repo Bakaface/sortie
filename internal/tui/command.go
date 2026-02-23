@@ -25,6 +25,11 @@ var commands = []command{
 		exec:  execGotoLine,
 		help:  "go to line number",
 	},
+	{
+		match: matchSetNumber,
+		exec:  execSetNumber,
+		help:  "toggle line numbers",
+	},
 }
 
 // matchLineNumber matches a bare positive number input (e.g. "3", "12").
@@ -44,6 +49,29 @@ func execGotoLine(m Model, args string) (tea.Model, tea.Cmd) {
 	n, _ := strconv.Atoi(args)
 	// Convert from 1-based (displayed) to 0-based (internal)
 	m.list.GotoIndex(n - 1)
+	return m, nil
+}
+
+// matchSetNumber matches "set number", "set nonumber", and "set number!" commands.
+func matchSetNumber(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	switch input {
+	case "set number", "set nonumber", "set number!":
+		return input, true
+	}
+	return "", false
+}
+
+// execSetNumber enables, disables, or toggles line numbers in the list view.
+func execSetNumber(m Model, args string) (tea.Model, tea.Cmd) {
+	switch args {
+	case "set number":
+		m.list.showLineNumbers = true
+	case "set nonumber":
+		m.list.showLineNumbers = false
+	case "set number!":
+		m.list.showLineNumbers = !m.list.showLineNumbers
+	}
 	return m, nil
 }
 

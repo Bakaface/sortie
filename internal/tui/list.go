@@ -10,22 +10,24 @@ import (
 )
 
 type listView struct {
-	tasks        []daemon.TaskInfo
-	cursor       int
-	width        int
-	height       int
-	showHelp     bool
-	globalMode   bool
-	tmuxSessions map[int64]bool
-	pendingG     bool
+	tasks           []daemon.TaskInfo
+	cursor          int
+	width           int
+	height          int
+	showHelp        bool
+	showLineNumbers bool
+	globalMode      bool
+	tmuxSessions    map[int64]bool
+	pendingG        bool
 }
 
 func newListView(globalMode bool) listView {
 	return listView{
-		tasks:      make([]daemon.TaskInfo, 0),
-		cursor:     0,
-		showHelp:   false,
-		globalMode: globalMode,
+		tasks:           make([]daemon.TaskInfo, 0),
+		cursor:          0,
+		showHelp:        false,
+		showLineNumbers: true,
+		globalMode:      globalMode,
 	}
 }
 
@@ -162,8 +164,11 @@ func (l *listView) View() string {
 		b.WriteString("\n")
 	} else {
 		// Line number gutter (vim-style, no header label)
-		gutterWidth := l.lineNumWidth()
-		gutter := strings.Repeat(" ", gutterWidth+2)
+		gutter := ""
+		if l.showLineNumbers {
+			gutterWidth := l.lineNumWidth()
+			gutter = strings.Repeat(" ", gutterWidth+2)
+		}
 		var header string
 		if l.globalMode {
 			header = fmt.Sprintf("%s %-5s %-2s %-14s %-22s %s",
@@ -212,10 +217,6 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		statusIcon = "○"
 	}
 
-	// Vim-style line number gutter (right-aligned, dimmed)
-	gutterWidth := l.lineNumWidth()
-	idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
-
 	taskID := fmt.Sprintf("%-2d", task.ID)
 
 	// Merge step info into status: show step name for active states
@@ -253,11 +254,61 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	priBadge := priorityBadge(task.Priority)
 
 	if selected {
-		// Use plain style for line number so selectedStyle's background covers it
-		idxCol := lipgloss.NewStyle().Width(gutterWidth).Render(idxStr)
 		priCol := lipgloss.NewStyle().Width(2).Render(priBadge)
 		statusCol := lipgloss.NewStyle().Width(22).Render(status)
 		var line string
+		if l.showLineNumbers {
+			gutterWidth := l.lineNumWidth()
+			idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
+			// Use plain style for line number so selectedStyle's background covers it
+			idxCol := lipgloss.NewStyle().Width(gutterWidth).Render(idxStr)
+			if l.globalMode {
+				projName := task.ProjectName
+				if projName == "" {
+					projName = "-"
+				}
+				if len(projName) > 12 {
+					projName = projName[:12]
+				}
+				projCol := lipgloss.NewStyle().Width(14).Render(projName)
+				line = fmt.Sprintf("  %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
+			} else {
+				line = fmt.Sprintf("  %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
+			}
+		} else {
+			if l.globalMode {
+				projName := task.ProjectName
+				if projName == "" {
+					projName = "-"
+				}
+				if len(projName) > 12 {
+					projName = projName[:12]
+				}
+				projCol := lipgloss.NewStyle().Width(14).Render(projName)
+				line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
+			} else {
+				line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
+			}
+		}
+		// Pad to full terminal width so the blue background fills the entire row
+		if lineWidth := lipgloss.Width(line); lineWidth < l.width {
+			line += strings.Repeat(" ", l.width-lineWidth)
+		}
+		return selectedStyle.Render(line)
+	}
+
+	// Apply priority/status colors for non-selected rows
+	priCol := priorityStyle(task.Priority).Width(2).Render(priBadge)
+	statusSt := stateStyle(task.Status)
+	if strings.Contains(status, "(deadlocked)") {
+		statusSt = stateStyle("failed")
+	}
+	statusCol := statusSt.Width(22).Render(status)
+	var line string
+	if l.showLineNumbers {
+		gutterWidth := l.lineNumWidth()
+		idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
+		idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
 		if l.globalMode {
 			projName := task.ProjectName
 			if projName == "" {
@@ -271,34 +322,20 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		} else {
 			line = fmt.Sprintf("  %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
 		}
-		// Pad to full terminal width so the blue background fills the entire row
-		if lineWidth := lipgloss.Width(line); lineWidth < l.width {
-			line += strings.Repeat(" ", l.width-lineWidth)
-		}
-		return selectedStyle.Render(line)
-	}
-
-	// Apply line number and priority/status colors for non-selected rows
-	idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
-	priCol := priorityStyle(task.Priority).Width(2).Render(priBadge)
-	statusSt := stateStyle(task.Status)
-	if strings.Contains(status, "(deadlocked)") {
-		statusSt = stateStyle("failed")
-	}
-	statusCol := statusSt.Width(22).Render(status)
-	var line string
-	if l.globalMode {
-		projName := task.ProjectName
-		if projName == "" {
-			projName = "-"
-		}
-		if len(projName) > 12 {
-			projName = projName[:12]
-		}
-		projCol := lipgloss.NewStyle().Width(14).Render(projName)
-		line = fmt.Sprintf("  %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
 	} else {
-		line = fmt.Sprintf("  %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
+		if l.globalMode {
+			projName := task.ProjectName
+			if projName == "" {
+				projName = "-"
+			}
+			if len(projName) > 12 {
+				projName = projName[:12]
+			}
+			projCol := lipgloss.NewStyle().Width(14).Render(projName)
+			line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
+		} else {
+			line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
+		}
 	}
 	return normalStyle.Render(line)
 }

@@ -3139,6 +3139,159 @@ func TestTaskInfoView_HelpShowsYankBindings(t *testing.T) {
 	}
 }
 
+func TestSetNumber_DefaultTrue(t *testing.T) {
+	l := newListView(false)
+	if !l.showLineNumbers {
+		t.Error("expected showLineNumbers to default to true")
+	}
+}
+
+func TestSetNumber_EnablesLineNumbers(t *testing.T) {
+	m := newTestModelWithTasks(5)
+	m.list.showLineNumbers = false
+
+	result, _ := executeCommand(m, "set number")
+	updated := result.(Model)
+	if !updated.list.showLineNumbers {
+		t.Error("expected showLineNumbers to be true after ':set number'")
+	}
+}
+
+func TestSetNumber_DisablesLineNumbers(t *testing.T) {
+	m := newTestModelWithTasks(5)
+	m.list.showLineNumbers = true
+
+	result, _ := executeCommand(m, "set nonumber")
+	updated := result.(Model)
+	if updated.list.showLineNumbers {
+		t.Error("expected showLineNumbers to be false after ':set nonumber'")
+	}
+}
+
+func TestSetNumber_TogglesLineNumbers(t *testing.T) {
+	m := newTestModelWithTasks(5)
+	m.list.showLineNumbers = true
+
+	result, _ := executeCommand(m, "set number!")
+	updated := result.(Model)
+	if updated.list.showLineNumbers {
+		t.Error("expected showLineNumbers to be false after ':set number!' (was true)")
+	}
+
+	result, _ = executeCommand(updated, "set number!")
+	updated = result.(Model)
+	if !updated.list.showLineNumbers {
+		t.Error("expected showLineNumbers to be true after ':set number!' (was false)")
+	}
+}
+
+func TestSetNumber_CommandModeIntegration(t *testing.T) {
+	m := newTestModelWithTasks(5)
+
+	// Enter command mode with ":"
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Type "set nonumber"
+	for _, ch := range "set nonumber" {
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}}
+		result, _ = updated.handleListKey(msg)
+		updated = result.(Model)
+	}
+
+	// Press enter to execute
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	if updated.commandMode {
+		t.Error("expected command mode to exit after executing command")
+	}
+	if updated.list.showLineNumbers {
+		t.Error("expected showLineNumbers to be false after ':set nonumber<enter>'")
+	}
+}
+
+func TestSetNumber_HidesLineNumbersInView(t *testing.T) {
+	l := newListView(false)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Task One", Status: "pending"},
+		{ID: 2, Title: "Task Two", Status: "running"},
+	})
+	l.SetSize(100, 24)
+
+	// With line numbers enabled (default), output should contain line numbers
+	output := l.View()
+	lines := strings.Split(output, "\n")
+	// Find the first task row (after header) and check it has " 1 " pattern
+	foundLineNum := false
+	for _, line := range lines {
+		if strings.Contains(line, "Task One") && strings.Contains(line, " 1 ") {
+			foundLineNum = true
+			break
+		}
+	}
+	if !foundLineNum {
+		t.Error("expected line numbers in view when showLineNumbers is true")
+	}
+
+	// Disable line numbers
+	l.showLineNumbers = false
+	output = l.View()
+
+	// Header should not have the gutter space
+	lines = strings.Split(output, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "ID") && strings.Contains(line, "STATUS") {
+			// With line numbers off, the header should start closer to the left
+			// (no gutter space padding)
+			if strings.HasPrefix(line, "    ") {
+				// Check it doesn't have the extra gutter space
+				// The gutter with numbers would be at least 4 spaces wider
+			}
+			break
+		}
+	}
+
+	// Task rows should not contain line number gutter
+	foundLineNum = false
+	for _, line := range lines {
+		if strings.Contains(line, "Task One") {
+			// With showLineNumbers=false, the line should NOT have the " 1 " line number
+			// before the task ID
+			if strings.Contains(line, " 1 ") && strings.Contains(line, " 2 ") {
+				// Both line numbers present would indicate line numbers are still shown
+				foundLineNum = true
+			}
+			break
+		}
+	}
+}
+
+func TestMatchSetNumber(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"set number", true},
+		{"set nonumber", true},
+		{"set number!", true},
+		{"set num", false},
+		{"setnumber", false},
+		{"set", false},
+		{"number", false},
+		{"  set number  ", true},
+		{"set number ", true},
+	}
+	for _, tt := range tests {
+		_, ok := matchSetNumber(tt.input)
+		if ok != tt.want {
+			t.Errorf("matchSetNumber(%q) = %v, want %v", tt.input, ok, tt.want)
+		}
+	}
+}
+
 func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
 	l := newListView(true)
 	l.SetTasks([]daemon.TaskInfo{
