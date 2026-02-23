@@ -6,12 +6,15 @@ import (
 	"strings"
 
 	"github.com/aface/sortie/internal/daemon"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/table"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 type listView struct {
+	table           table.Model
 	tasks           []daemon.TaskInfo
-	cursor          int
 	width           int
 	height          int
 	showHelp        bool
@@ -25,14 +28,89 @@ type listView struct {
 	extraLines      int   // extra lines reserved below the list (search bar, command bar, etc.)
 }
 
+// safeKeyMap returns a table.KeyMap that only handles basic navigation.
+// Keys like G, gg, dd, n, N are handled manually to avoid conflicts.
+func safeKeyMap() table.KeyMap {
+	return table.KeyMap{
+		LineUp:       key.NewBinding(key.WithKeys("up", "k")),
+		LineDown:     key.NewBinding(key.WithKeys("down", "j")),
+		PageUp:       key.NewBinding(key.WithKeys("pgup")),
+		PageDown:     key.NewBinding(key.WithKeys("pgdown")),
+		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u")),
+		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d")),
+		GotoTop:      key.NewBinding(key.WithKeys("home")),
+		GotoBottom:   key.NewBinding(key.WithKeys("end")),
+	}
+}
+
 func newListView(globalMode bool) listView {
+	t := table.New(
+		table.WithColumns(computeColumns(80, globalMode, true, 0)),
+		table.WithFocused(true),
+		table.WithHeight(20),
+		table.WithKeyMap(safeKeyMap()),
+	)
+	// Minimal styles — custom rendering handles visuals
+	s := table.DefaultStyles()
+	s.Selected = lipgloss.NewStyle()
+	s.Cell = lipgloss.NewStyle()
+	s.Header = lipgloss.NewStyle()
+	t.SetStyles(s)
 	return listView{
+		table:           t,
 		tasks:           make([]daemon.TaskInfo, 0),
-		cursor:          0,
-		showHelp:        false,
 		showLineNumbers: true,
 		globalMode:      globalMode,
 	}
+}
+
+// computeColumns calculates column widths with the title column filling remaining space.
+func computeColumns(width int, globalMode, lineNumbers bool, taskCount int) []table.Column {
+	const (
+		idWidth      = 5
+		priWidth     = 2
+		statusWidth  = 22
+		projWidth    = 14
+		spacing      = 5 // gaps between columns
+		minTitleWidth = 15
+	)
+
+	fixed := idWidth + priWidth + statusWidth + spacing
+	if globalMode {
+		fixed += projWidth
+	}
+	if lineNumbers {
+		fixed += lineNumWidthForCount(taskCount) + 2 // gutter + padding
+	}
+
+	titleWidth := width - fixed
+	if titleWidth < minTitleWidth {
+		titleWidth = minTitleWidth
+	}
+
+	// Columns are used for width tracking only; we render rows ourselves
+	cols := []table.Column{
+		{Title: "ID", Width: idWidth},
+		{Title: "P", Width: priWidth},
+	}
+	if globalMode {
+		cols = append(cols, table.Column{Title: "PROJECT", Width: projWidth})
+	}
+	cols = append(cols,
+		table.Column{Title: "STATUS", Width: statusWidth},
+		table.Column{Title: "TITLE", Width: titleWidth},
+	)
+	return cols
+}
+
+// lineNumWidthForCount returns the gutter width for a given task count.
+func lineNumWidthForCount(n int) int {
+	width := 0
+	for n > 0 {
+		width++
+		n /= 10
+	}
+	return max(2, width)
 }
 
 func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
@@ -40,9 +118,13 @@ func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
 		return tasks[i].ID > tasks[j].ID
 	})
 	l.tasks = tasks
-	if l.cursor >= len(tasks) {
-		l.cursor = max(0, len(tasks)-1)
+	l.table.SetRows(l.toRows())
+	if l.table.Cursor() >= len(tasks) && len(tasks) > 0 {
+		l.table.SetCursor(len(tasks) - 1)
+	} else if len(tasks) == 0 {
+		l.table.SetCursor(0)
 	}
+	l.recomputeColumns()
 	l.ensureVisible()
 }
 
@@ -50,18 +132,21 @@ func (l *listView) UpdateTask(task daemon.TaskInfo) {
 	for i, t := range l.tasks {
 		if t.ID == task.ID {
 			l.tasks[i] = task
+			l.table.SetRows(l.toRows())
 			return
 		}
 	}
 	l.tasks = append(l.tasks, task)
+	l.table.SetRows(l.toRows())
 }
 
 func (l *listView) RemoveTask(id int64) {
 	for i, t := range l.tasks {
 		if t.ID == id {
 			l.tasks = append(l.tasks[:i], l.tasks[i+1:]...)
-			if l.cursor >= len(l.tasks) {
-				l.cursor = max(0, len(l.tasks)-1)
+			l.table.SetRows(l.toRows())
+			if l.table.Cursor() >= len(l.tasks) && len(l.tasks) > 0 {
+				l.table.SetCursor(len(l.tasks) - 1)
 			}
 			return
 		}
@@ -69,54 +154,50 @@ func (l *listView) RemoveTask(id int64) {
 }
 
 func (l *listView) Selected() *daemon.TaskInfo {
-	if l.cursor >= 0 && l.cursor < len(l.tasks) {
-		return &l.tasks[l.cursor]
+	cursor := l.table.Cursor()
+	if cursor >= 0 && cursor < len(l.tasks) {
+		return &l.tasks[cursor]
 	}
 	return nil
 }
 
 func (l *listView) MoveUp() {
-	if l.cursor > 0 {
-		l.cursor--
-	}
+	l.table.MoveUp(1)
 	l.ensureVisible()
 }
 
 func (l *listView) MoveDown() {
-	if l.cursor < len(l.tasks)-1 {
-		l.cursor++
-	}
+	l.table.MoveDown(1)
 	l.ensureVisible()
 }
 
 func (l *listView) GotoTop() {
-	l.cursor = 0
+	l.table.GotoTop()
 	l.ensureVisible()
 }
 
 func (l *listView) GotoBottom() {
-	if len(l.tasks) > 0 {
-		l.cursor = len(l.tasks) - 1
-	}
+	l.table.GotoBottom()
 	l.ensureVisible()
 }
 
 // GotoIndex moves the cursor to the task at the given row index.
 func (l *listView) GotoIndex(index int) {
 	if index >= 0 && index < len(l.tasks) {
-		l.cursor = index
+		l.table.SetCursor(index)
 	}
 	l.ensureVisible()
 }
 
 // ensureVisible adjusts scrollOffset so the cursor is within the visible window.
 func (l *listView) ensureVisible() {
+	cursor := l.table.Cursor()
 	visible := l.visibleRows()
-	if l.cursor < l.scrollOffset {
-		l.scrollOffset = l.cursor
+	if cursor < l.scrollOffset {
+		l.scrollOffset = cursor
 	}
-	if l.cursor >= l.scrollOffset+visible {
-		l.scrollOffset = l.cursor - visible + 1
+	if cursor >= l.scrollOffset+visible {
+		l.scrollOffset = cursor - visible + 1
 	}
 	if l.scrollOffset < 0 {
 		l.scrollOffset = 0
@@ -124,15 +205,8 @@ func (l *listView) ensureVisible() {
 }
 
 // lineNumWidth returns the character width needed for the line number gutter.
-// Minimum width of 2 keeps columns aligned with the old layout; scales up for 100+ tasks.
 func (l *listView) lineNumWidth() int {
-	n := len(l.tasks)
-	width := 0
-	for n > 0 {
-		width++
-		n /= 10
-	}
-	return max(2, width)
+	return lineNumWidthForCount(len(l.tasks))
 }
 
 // visibleRows returns the number of task rows visible in the list.
@@ -144,19 +218,21 @@ func (l *listView) visibleRows() int {
 
 func (l *listView) PageDown() {
 	half := max(1, l.visibleRows()/2)
-	l.cursor += half
-	if l.cursor >= len(l.tasks) {
-		l.cursor = max(0, len(l.tasks)-1)
+	target := l.table.Cursor() + half
+	if target >= len(l.tasks) {
+		target = max(0, len(l.tasks)-1)
 	}
+	l.table.SetCursor(target)
 	l.ensureVisible()
 }
 
 func (l *listView) PageUp() {
 	half := max(1, l.visibleRows()/2)
-	l.cursor -= half
-	if l.cursor < 0 {
-		l.cursor = 0
+	target := l.table.Cursor() - half
+	if target < 0 {
+		target = 0
 	}
+	l.table.SetCursor(target)
 	l.ensureVisible()
 }
 
@@ -171,7 +247,33 @@ func (l *listView) SetPendingG(v bool) {
 func (l *listView) SetSize(width, height int) {
 	l.width = width
 	l.height = height
+	l.table.SetWidth(width)
+	l.table.SetHeight(l.visibleRows())
+	l.recomputeColumns()
 	l.ensureVisible()
+}
+
+func (l *listView) recomputeColumns() {
+	cols := computeColumns(l.width, l.globalMode, l.showLineNumbers, len(l.tasks))
+	l.table.SetColumns(cols)
+}
+
+// Update delegates key messages to the table for navigation.
+func (l *listView) Update(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	l.table, cmd = l.table.Update(msg)
+	return cmd
+}
+
+// titleWidth returns the width available for the title column.
+func (l *listView) titleWidth() int {
+	cols := l.table.Columns()
+	for _, c := range cols {
+		if c.Title == "TITLE" {
+			return c.Width
+		}
+	}
+	return 60
 }
 
 func (l *listView) View() string {
@@ -191,30 +293,16 @@ func (l *listView) View() string {
 		b.WriteString(dimStyle.Render("  No tasks found. Use 'sortie plan <PRD.md>' to create tasks."))
 		b.WriteString("\n")
 	} else {
-		// Line number gutter (vim-style, no header label)
-		gutter := ""
-		if l.showLineNumbers {
-			gutterWidth := l.lineNumWidth()
-			// +2 accounts for: leading space (1) + trailing space (1)
-			gutter = strings.Repeat(" ", gutterWidth+2)
-		}
-		var header string
-		if l.globalMode {
-			header = fmt.Sprintf("%s %-5s %-2s %-14s %-22s %s",
-				gutter, "ID", "P", "PROJECT", "STATUS", "TITLE")
-		} else {
-			header = fmt.Sprintf("%s %-5s %-2s %-22s %s",
-				gutter, "ID", "P", "STATUS", "TITLE")
-		}
-		b.WriteString(headerStyle.Render(header))
+		b.WriteString(l.renderHeader())
 		b.WriteString("\n")
 
 		// Windowed rendering: only show tasks in the visible range
+		cursor := l.table.Cursor()
 		visible := l.visibleRows()
 		l.ensureVisible()
 		end := min(l.scrollOffset+visible, len(l.tasks))
 		for i := l.scrollOffset; i < end; i++ {
-			line := l.renderTask(l.tasks[i], i, i == l.cursor)
+			line := l.renderTask(l.tasks[i], i, i == cursor)
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
@@ -226,34 +314,30 @@ func (l *listView) View() string {
 	return b.String()
 }
 
+func (l *listView) renderHeader() string {
+	gutter := ""
+	if l.showLineNumbers {
+		gutterWidth := l.lineNumWidth()
+		gutter = strings.Repeat(" ", gutterWidth+2)
+	}
+	tw := l.titleWidth()
+	var header string
+	if l.globalMode {
+		header = fmt.Sprintf("%s %-5s %-2s %-14s %-22s %-*s",
+			gutter, "ID", "P", "PROJECT", "STATUS", tw, "TITLE")
+	} else {
+		header = fmt.Sprintf("%s %-5s %-2s %-22s %-*s",
+			gutter, "ID", "P", "STATUS", tw, "TITLE")
+	}
+	return headerStyle.Render(header)
+}
+
 func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) string {
 	// Check if this task is a search match
 	isMatch := l.isSearchMatch(index)
 
 	// Status icons
-	statusIcon := ""
-	switch task.Status {
-	case "completed":
-		statusIcon = "✓"
-	case "running":
-		statusIcon = "●"
-	case "awaiting-approval":
-		statusIcon = "◷"
-	case "tmux":
-		statusIcon = "▣"
-	case "pending":
-		statusIcon = "○"
-	case "failed":
-		statusIcon = "✗"
-	case "summarizing":
-		statusIcon = "◉"
-	case "stopped":
-		statusIcon = "■"
-	case "artifact-missing":
-		statusIcon = "◇"
-	default:
-		statusIcon = "○"
-	}
+	statusIcon := statusIconFor(task.Status)
 
 	taskID := fmt.Sprintf("%-2d", task.ID)
 
@@ -283,46 +367,36 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	if title == "" {
 		title = task.Description
 	}
-	if len(title) > 60 {
-		title = title[:57] + "..."
-	}
+	tw := l.titleWidth()
+	title = truncateOrPad(title, tw)
 
-	// Use lipgloss Width for ANSI-aware column alignment
-	idCol := lipgloss.NewStyle().Width(5).Render(taskID)
 	priBadge := priorityBadge(task.Priority)
 
-	if selected {
-		priCol := lipgloss.NewStyle().Width(2).Render(priBadge)
-		statusCol := lipgloss.NewStyle().Width(22).Render(status)
+	// Selected and matched rows use plain inner styles so the outer style's
+	// background covers the entire row without inner ANSI resets breaking it.
+	if selected || isMatch {
+		outerStyle := searchMatchStyle
+		if selected {
+			outerStyle = selectedStyle
+		}
+		idCol := truncateOrPad(taskID, 5)
+		priCol := truncateOrPad(priBadge, 2)
+		statusCol := truncateOrPad(status, 22)
+
 		var line string
 		if l.showLineNumbers {
 			gutterWidth := l.lineNumWidth()
 			idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
-			// Use plain style for line number so selectedStyle's background covers it
-			idxCol := lipgloss.NewStyle().Width(gutterWidth).Render(idxStr)
+			idxCol := truncateOrPad(idxStr, gutterWidth)
 			if l.globalMode {
-				projName := task.ProjectName
-				if projName == "" {
-					projName = "-"
-				}
-				if len(projName) > 12 {
-					projName = projName[:12]
-				}
-				projCol := lipgloss.NewStyle().Width(14).Render(projName)
+				projCol := truncateOrPad(l.projectNameFor(task), 14)
 				line = fmt.Sprintf(" %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
 			} else {
 				line = fmt.Sprintf(" %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
 			}
 		} else {
 			if l.globalMode {
-				projName := task.ProjectName
-				if projName == "" {
-					projName = "-"
-				}
-				if len(projName) > 12 {
-					projName = projName[:12]
-				}
-				projCol := lipgloss.NewStyle().Width(14).Render(projName)
+				projCol := truncateOrPad(l.projectNameFor(task), 14)
 				line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
 			} else {
 				line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
@@ -332,10 +406,11 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		if lineWidth := lipgloss.Width(line); lineWidth < l.width {
 			line += strings.Repeat(" ", l.width-lineWidth)
 		}
-		return selectedStyle.Render(line)
+		return outerStyle.Render(line)
 	}
 
-	// Apply priority/status colors for non-selected rows
+	// Apply priority/status colors for non-selected, non-matched rows
+	idCol := lipgloss.NewStyle().Width(5).Render(taskID)
 	priCol := priorityStyle(task.Priority).Width(2).Render(priBadge)
 	statusSt := stateStyle(task.Status)
 	if strings.Contains(status, "(deadlocked)") {
@@ -348,39 +423,18 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
 		idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
 		if l.globalMode {
-			projName := task.ProjectName
-			if projName == "" {
-				projName = "-"
-			}
-			if len(projName) > 12 {
-				projName = projName[:12]
-			}
-			projCol := lipgloss.NewStyle().Width(14).Render(projName)
+			projCol := lipgloss.NewStyle().Width(14).Render(l.projectNameFor(task))
 			line = fmt.Sprintf(" %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
 		} else {
 			line = fmt.Sprintf(" %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
 		}
 	} else {
 		if l.globalMode {
-			projName := task.ProjectName
-			if projName == "" {
-				projName = "-"
-			}
-			if len(projName) > 12 {
-				projName = projName[:12]
-			}
-			projCol := lipgloss.NewStyle().Width(14).Render(projName)
+			projCol := lipgloss.NewStyle().Width(14).Render(l.projectNameFor(task))
 			line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
 		} else {
 			line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
 		}
-	}
-	if isMatch {
-		// Pad to full terminal width so the background fills the entire row
-		if lineWidth := lipgloss.Width(line); lineWidth < l.width {
-			line += strings.Repeat(" ", l.width-lineWidth)
-		}
-		return searchMatchStyle.Render(line)
 	}
 	return normalStyle.Render(line)
 }
@@ -416,3 +470,66 @@ func (l *listView) hasFailedBlocker(task daemon.TaskInfo) bool {
 	return false
 }
 
+// toRows converts tasks to table.Row for the table's internal management.
+func (l *listView) toRows() []table.Row {
+	rows := make([]table.Row, len(l.tasks))
+	for i, t := range l.tasks {
+		rows[i] = table.Row{fmt.Sprintf("%d", t.ID), t.Title}
+	}
+	return rows
+}
+
+// projectNameFor returns a sanitized project name for display.
+func (l *listView) projectNameFor(task daemon.TaskInfo) string {
+	name := task.ProjectName
+	if name == "" {
+		name = "-"
+	}
+	if len(name) > 12 {
+		name = name[:12]
+	}
+	return name
+}
+
+// statusIconFor returns the status icon for a given task status.
+func statusIconFor(status string) string {
+	switch status {
+	case "completed":
+		return "✓"
+	case "running":
+		return "●"
+	case "awaiting-approval":
+		return "◷"
+	case "tmux":
+		return "▣"
+	case "pending":
+		return "○"
+	case "failed":
+		return "✗"
+	case "summarizing":
+		return "◉"
+	case "stopped":
+		return "■"
+	case "artifact-missing":
+		return "◇"
+	default:
+		return "○"
+	}
+}
+
+// truncateOrPad truncates or pads a plain string to the given width.
+func truncateOrPad(s string, width int) string {
+	// Count rune width for proper handling
+	runeLen := len([]rune(s))
+	if runeLen > width {
+		runes := []rune(s)
+		if width > 3 {
+			return string(runes[:width-3]) + "..."
+		}
+		return string(runes[:width])
+	}
+	if runeLen < width {
+		return s + strings.Repeat(" ", width-runeLen)
+	}
+	return s
+}

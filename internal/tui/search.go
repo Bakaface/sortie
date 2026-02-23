@@ -49,25 +49,25 @@ func (l *listView) performSearchAndJump(query string, cursor int, direction int)
 		for i, idx := range l.matchedIndices {
 			if idx >= cursor {
 				l.currentMatchIdx = i
-				l.cursor = idx
+				l.table.SetCursor(idx)
 				return
 			}
 		}
 		// No match at/after cursor, wrap to first match
 		l.currentMatchIdx = 0
-		l.cursor = l.matchedIndices[0]
+		l.table.SetCursor(l.matchedIndices[0])
 	} else {
 		// Backward search: find first match at or before cursor
 		for i := len(l.matchedIndices) - 1; i >= 0; i-- {
 			if l.matchedIndices[i] <= cursor {
 				l.currentMatchIdx = i
-				l.cursor = l.matchedIndices[i]
+				l.table.SetCursor(l.matchedIndices[i])
 				return
 			}
 		}
 		// No match at/before cursor, wrap to last match
 		l.currentMatchIdx = len(l.matchedIndices) - 1
-		l.cursor = l.matchedIndices[l.currentMatchIdx]
+		l.table.SetCursor(l.matchedIndices[l.currentMatchIdx])
 	}
 }
 
@@ -89,7 +89,7 @@ func (l *listView) nextMatch(direction int) {
 			l.currentMatchIdx = len(l.matchedIndices) - 1
 		}
 	}
-	l.cursor = l.matchedIndices[l.currentMatchIdx]
+	l.table.SetCursor(l.matchedIndices[l.currentMatchIdx])
 }
 
 // previousMatch moves to the previous match (opposite direction) with wrapping.
@@ -110,7 +110,7 @@ func (l *listView) previousMatch(direction int) {
 		// Backward search: N goes to next (higher index)
 		l.currentMatchIdx = (l.currentMatchIdx + 1) % len(l.matchedIndices)
 	}
-	l.cursor = l.matchedIndices[l.currentMatchIdx]
+	l.table.SetCursor(l.matchedIndices[l.currentMatchIdx])
 }
 
 // isSearchMatch checks if the given task index is in the current match set.

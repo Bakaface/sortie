@@ -667,7 +667,7 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		direction := m.searchDirection
 		m.searchMode = false
 		if query != "" {
-			m.list.performSearchAndJump(query, m.list.cursor, direction)
+			m.list.performSearchAndJump(query, m.list.table.Cursor(), direction)
 		}
 		return m, nil
 

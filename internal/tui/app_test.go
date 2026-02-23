@@ -646,7 +646,7 @@ func TestListView_SortsTasksDescendingPreservesCursor(t *testing.T) {
 		{ID: 5, Title: "Task 5", Status: "running"},
 		{ID: 3, Title: "Task 3", Status: "pending"},
 	})
-	l.cursor = 1 // pointing at task 3
+	l.table.SetCursor(1) // pointing at task 3
 
 	// Update with same tasks — cursor should stay valid
 	l.SetTasks([]daemon.TaskInfo{
@@ -654,8 +654,8 @@ func TestListView_SortsTasksDescendingPreservesCursor(t *testing.T) {
 		{ID: 5, Title: "Task 5", Status: "running"},
 	})
 
-	if l.cursor > len(l.tasks)-1 {
-		t.Errorf("cursor %d exceeds task count %d", l.cursor, len(l.tasks))
+	if l.table.Cursor() > len(l.tasks)-1 {
+		t.Errorf("cursor %d exceeds task count %d", l.table.Cursor(), len(l.tasks))
 	}
 	// Tasks should still be sorted descending
 	if l.tasks[0].ID != 5 {
@@ -866,15 +866,15 @@ func newTestModelWithTasks(n int) Model {
 
 func TestHandleListKey_GGGoesToTop(t *testing.T) {
 	m := newTestModelWithTasks(20)
-	m.list.cursor = 15
+	m.list.table.SetCursor(15)
 
 	// First "g"
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
 	result, _ := m.handleListKey(msg)
 	m = result.(Model)
 
-	if m.list.cursor != 15 {
-		t.Errorf("expected cursor to stay at 15 after first 'g', got %d", m.list.cursor)
+	if m.list.table.Cursor() != 15 {
+		t.Errorf("expected cursor to stay at 15 after first 'g', got %d", m.list.table.Cursor())
 	}
 	if !m.list.IsPendingG() {
 		t.Error("expected pendingG to be true after first 'g'")
@@ -884,8 +884,8 @@ func TestHandleListKey_GGGoesToTop(t *testing.T) {
 	result, _ = m.handleListKey(msg)
 	m = result.(Model)
 
-	if m.list.cursor != 0 {
-		t.Errorf("expected cursor at 0 after 'gg', got %d", m.list.cursor)
+	if m.list.table.Cursor() != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.list.table.Cursor())
 	}
 	if m.list.IsPendingG() {
 		t.Error("expected pendingG to be false after 'gg'")
@@ -894,7 +894,7 @@ func TestHandleListKey_GGGoesToTop(t *testing.T) {
 
 func TestHandleListKey_GGResetByOtherKey(t *testing.T) {
 	m := newTestModelWithTasks(20)
-	m.list.cursor = 10
+	m.list.table.SetCursor(10)
 
 	// Press "g" then "j" — should NOT go to top, should move down
 	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
@@ -905,8 +905,8 @@ func TestHandleListKey_GGResetByOtherKey(t *testing.T) {
 	result, _ = m.handleListKey(jMsg)
 	m = result.(Model)
 
-	if m.list.cursor != 11 {
-		t.Errorf("expected cursor at 11 after g+j, got %d", m.list.cursor)
+	if m.list.table.Cursor() != 11 {
+		t.Errorf("expected cursor at 11 after g+j, got %d", m.list.table.Cursor())
 	}
 	if m.list.IsPendingG() {
 		t.Error("expected pendingG to be false after non-g key")
@@ -915,96 +915,96 @@ func TestHandleListKey_GGResetByOtherKey(t *testing.T) {
 
 func TestHandleListKey_ShiftGGoesToBottom(t *testing.T) {
 	m := newTestModelWithTasks(20)
-	m.list.cursor = 0
+	m.list.table.SetCursor(0)
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.list.cursor != 19 {
-		t.Errorf("expected cursor at 19 (last task) after 'G', got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 19 {
+		t.Errorf("expected cursor at 19 (last task) after 'G', got %d", updated.list.table.Cursor())
 	}
 }
 
 func TestHandleListKey_CtrlDPageDown(t *testing.T) {
 	m := newTestModelWithTasks(30)
-	m.list.cursor = 0
+	m.list.table.SetCursor(0)
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
 	// height=30, visibleRows=25, half=12
-	if updated.list.cursor != 12 {
-		t.Errorf("expected cursor at 12 after ctrl+d, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 12 {
+		t.Errorf("expected cursor at 12 after ctrl+d, got %d", updated.list.table.Cursor())
 	}
 }
 
 func TestHandleListKey_CtrlUPageUp(t *testing.T) {
 	m := newTestModelWithTasks(30)
-	m.list.cursor = 20
+	m.list.table.SetCursor(20)
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
 	// height=30, visibleRows=25, half=12
-	if updated.list.cursor != 8 {
-		t.Errorf("expected cursor at 8 after ctrl+u, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 8 {
+		t.Errorf("expected cursor at 8 after ctrl+u, got %d", updated.list.table.Cursor())
 	}
 }
 
 func TestHandleListKey_CtrlDClampsToEnd(t *testing.T) {
 	m := newTestModelWithTasks(10)
-	m.list.cursor = 8
+	m.list.table.SetCursor(8)
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.list.cursor != 9 {
-		t.Errorf("expected cursor clamped to 9 (last task) after ctrl+d, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 9 {
+		t.Errorf("expected cursor clamped to 9 (last task) after ctrl+d, got %d", updated.list.table.Cursor())
 	}
 }
 
 func TestHandleListKey_CtrlUClampsToStart(t *testing.T) {
 	m := newTestModelWithTasks(10)
-	m.list.cursor = 2
+	m.list.table.SetCursor(2)
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.list.cursor != 0 {
-		t.Errorf("expected cursor clamped to 0 after ctrl+u, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 0 {
+		t.Errorf("expected cursor clamped to 0 after ctrl+u, got %d", updated.list.table.Cursor())
 	}
 }
 
 func TestHandleListKey_PgDownPageDown(t *testing.T) {
 	m := newTestModelWithTasks(30)
-	m.list.cursor = 0
+	m.list.table.SetCursor(0)
 
 	msg := tea.KeyMsg{Type: tea.KeyPgDown}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
 	// height=30, visibleRows=25, half=12
-	if updated.list.cursor != 12 {
-		t.Errorf("expected cursor at 12 after pgdown, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 12 {
+		t.Errorf("expected cursor at 12 after pgdown, got %d", updated.list.table.Cursor())
 	}
 }
 
 func TestHandleListKey_PgUpPageUp(t *testing.T) {
 	m := newTestModelWithTasks(30)
-	m.list.cursor = 20
+	m.list.table.SetCursor(20)
 
 	msg := tea.KeyMsg{Type: tea.KeyPgUp}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
 	// height=30, visibleRows=25, half=12
-	if updated.list.cursor != 8 {
-		t.Errorf("expected cursor at 8 after pgup, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 8 {
+		t.Errorf("expected cursor at 8 after pgup, got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -1017,13 +1017,13 @@ func TestListView_GotoTopAndBottom(t *testing.T) {
 	l.SetTasks(tasks)
 
 	l.GotoBottom()
-	if l.cursor != 9 {
-		t.Errorf("expected cursor at 9 after GotoBottom, got %d", l.cursor)
+	if l.table.Cursor() != 9 {
+		t.Errorf("expected cursor at 9 after GotoBottom, got %d", l.table.Cursor())
 	}
 
 	l.GotoTop()
-	if l.cursor != 0 {
-		t.Errorf("expected cursor at 0 after GotoTop, got %d", l.cursor)
+	if l.table.Cursor() != 0 {
+		t.Errorf("expected cursor at 0 after GotoTop, got %d", l.table.Cursor())
 	}
 }
 
@@ -1037,18 +1037,18 @@ func TestListView_PageDownPageUp(t *testing.T) {
 	l.SetSize(100, 30) // visibleRows=25, half=12
 
 	l.PageDown()
-	if l.cursor != 12 {
-		t.Errorf("expected cursor at 12 after PageDown, got %d", l.cursor)
+	if l.table.Cursor() != 12 {
+		t.Errorf("expected cursor at 12 after PageDown, got %d", l.table.Cursor())
 	}
 
 	l.PageDown()
-	if l.cursor != 24 {
-		t.Errorf("expected cursor at 24 after second PageDown, got %d", l.cursor)
+	if l.table.Cursor() != 24 {
+		t.Errorf("expected cursor at 24 after second PageDown, got %d", l.table.Cursor())
 	}
 
 	l.PageUp()
-	if l.cursor != 12 {
-		t.Errorf("expected cursor at 12 after PageUp, got %d", l.cursor)
+	if l.table.Cursor() != 12 {
+		t.Errorf("expected cursor at 12 after PageUp, got %d", l.table.Cursor())
 	}
 }
 
@@ -1389,8 +1389,8 @@ func TestListView_PageWithSmallHeight(t *testing.T) {
 	l.SetSize(100, 6) // visibleRows=1, half=1 (minimum)
 
 	l.PageDown()
-	if l.cursor != 1 {
-		t.Errorf("expected cursor at 1 with small height, got %d", l.cursor)
+	if l.table.Cursor() != 1 {
+		t.Errorf("expected cursor at 1 with small height, got %d", l.table.Cursor())
 	}
 }
 
@@ -1826,8 +1826,8 @@ func TestHandleListKey_HelpConsumesKeys(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.list.cursor != 0 {
-		t.Errorf("expected cursor to stay at 0 while help shown, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 0 {
+		t.Errorf("expected cursor to stay at 0 while help shown, got %d", updated.list.table.Cursor())
 	}
 	if !updated.list.showHelp {
 		t.Error("expected showHelp to remain true")
@@ -1981,8 +1981,8 @@ func TestHandleListKey_NumberKeyNavigatesToTask(t *testing.T) {
 	msg = tea.KeyMsg{Type: tea.KeyEnter}
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
-	if updated.list.cursor != 9 {
-		t.Errorf("expected cursor at 9 (line 10) after :10<enter>, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 9 {
+		t.Errorf("expected cursor at 9 (line 10) after :10<enter>, got %d", updated.list.table.Cursor())
 	}
 	if updated.commandMode {
 		t.Error("expected command mode to exit after executing command")
@@ -1993,7 +1993,7 @@ func TestHandleListKey_NumberKeyClampedToTaskCount(t *testing.T) {
 	m := newTestModelWithTasks(3) // only 3 tasks, rows 0-2 (lines 1-3)
 
 	// Command mode: enter ":6" with only 3 tasks → cursor should stay in place
-	m.list.cursor = 1
+	m.list.table.SetCursor(1)
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
@@ -2006,8 +2006,8 @@ func TestHandleListKey_NumberKeyClampedToTaskCount(t *testing.T) {
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
 	// Line 6 doesn't exist; cursor should stay at 1
-	if updated.list.cursor != 1 {
-		t.Errorf("expected cursor to stay at 1 when target line exceeds task count, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 1 {
+		t.Errorf("expected cursor to stay at 1 when target line exceeds task count, got %d", updated.list.table.Cursor())
 	}
 
 	// Command mode: enter ":3" — maps to line 3, row index 2
@@ -2022,8 +2022,8 @@ func TestHandleListKey_NumberKeyClampedToTaskCount(t *testing.T) {
 	msg = tea.KeyMsg{Type: tea.KeyEnter}
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
-	if updated.list.cursor != 2 {
-		t.Errorf("expected cursor at 2 (line 3) after :3<enter>, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 2 {
+		t.Errorf("expected cursor at 2 (line 3) after :3<enter>, got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -2036,19 +2036,19 @@ func TestListView_GotoIndex(t *testing.T) {
 	l.SetTasks(tasks)
 
 	l.GotoIndex(3)
-	if l.cursor != 3 {
-		t.Errorf("expected cursor at 3, got %d", l.cursor)
+	if l.table.Cursor() != 3 {
+		t.Errorf("expected cursor at 3, got %d", l.table.Cursor())
 	}
 
 	// Out of bounds — should not move
 	l.GotoIndex(10)
-	if l.cursor != 3 {
-		t.Errorf("expected cursor to stay at 3 for out-of-bounds index, got %d", l.cursor)
+	if l.table.Cursor() != 3 {
+		t.Errorf("expected cursor to stay at 3 for out-of-bounds index, got %d", l.table.Cursor())
 	}
 
 	l.GotoIndex(-1)
-	if l.cursor != 3 {
-		t.Errorf("expected cursor to stay at 3 for negative index, got %d", l.cursor)
+	if l.table.Cursor() != 3 {
+		t.Errorf("expected cursor to stay at 3 for negative index, got %d", l.table.Cursor())
 	}
 }
 
@@ -2118,8 +2118,8 @@ func TestCommandMode_GotoLine(t *testing.T) {
 	msg = tea.KeyMsg{Type: tea.KeyEnter}
 	result, _ = updated.handleListKey(msg)
 	updated = result.(Model)
-	if updated.list.cursor != 2 {
-		t.Errorf("expected cursor at 2 (line 3) after :3<enter>, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 2 {
+		t.Errorf("expected cursor at 2 (line 3) after :3<enter>, got %d", updated.list.table.Cursor())
 	}
 	if updated.commandMode {
 		t.Error("expected command mode to exit after executing command")
@@ -2218,14 +2218,14 @@ func TestListView_LineNumWidth(t *testing.T) {
 
 func TestCommandMode_NumberKeysNoLongerNavigate(t *testing.T) {
 	m := newTestModelWithTasks(10)
-	m.list.cursor = 0
+	m.list.table.SetCursor(0)
 
 	// Press number key '5' in list view → should NOT move cursor (no direct navigation)
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'5'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
-	if updated.list.cursor != 0 {
-		t.Errorf("expected cursor to stay at 0 after pressing '5' (numbers no longer directly navigate), got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 0 {
+		t.Errorf("expected cursor to stay at 0 after pressing '5' (numbers no longer directly navigate), got %d", updated.list.table.Cursor())
 	}
 	// Should NOT enter command mode (need to press ':' first)
 	if updated.commandMode {
@@ -2278,15 +2278,15 @@ func TestTaskCreatedMsg_CursorMovesToTop(t *testing.T) {
 		{ID: 1, Title: "Task 1", Status: "pending"},
 	}
 	m.list.SetTasks(tasks)
-	m.list.cursor = 2 // cursor at bottom
+	m.list.table.SetCursor(2) // cursor at bottom
 
 	// Simulate a new task being created
 	msg := taskCreatedMsg(daemon.TaskInfo{ID: 4, Title: "New Task", Status: "pending"})
 	result, _ := m.Update(msg)
 	updated := result.(Model)
 
-	if updated.list.cursor != 0 {
-		t.Errorf("expected cursor at 0 after task creation, got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 0 {
+		t.Errorf("expected cursor at 0 after task creation, got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -3452,15 +3452,15 @@ func TestHandleListKey_NNavigatesToNextMatch(t *testing.T) {
 	})
 	// Order after sort: 3, 2, 1 => indices: 0="Fix crash", 1="Add feature", 2="Fix bug"
 	m.list.performSearch("fix")
-	m.list.cursor = 0
+	m.list.table.SetCursor(0)
 	m.list.currentMatchIdx = 0
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.list.cursor != 2 {
-		t.Errorf("expected cursor to move to 2 (next fix match), got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 2 {
+		t.Errorf("expected cursor to move to 2 (next fix match), got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -3477,15 +3477,15 @@ func TestHandleListKey_ShiftNNavigatesToPrevMatch(t *testing.T) {
 		{ID: 3, Title: "Fix crash", Status: "completed"},
 	})
 	m.list.performSearch("fix")
-	m.list.cursor = 2
+	m.list.table.SetCursor(2)
 	m.list.currentMatchIdx = 1
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.list.cursor != 0 {
-		t.Errorf("expected cursor to move to 0 (prev fix match), got %d", updated.list.cursor)
+	if updated.list.table.Cursor() != 0 {
+		t.Errorf("expected cursor to move to 0 (prev fix match), got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -3796,8 +3796,8 @@ func TestListView_ScrollOffsetFollowsCursor(t *testing.T) {
 		l.MoveDown()
 	}
 	// Cursor should be at 12, scrollOffset should have adjusted
-	if l.cursor != 12 {
-		t.Errorf("expected cursor at 12, got %d", l.cursor)
+	if l.table.Cursor() != 12 {
+		t.Errorf("expected cursor at 12, got %d", l.table.Cursor())
 	}
 	if l.scrollOffset < 3 {
 		t.Errorf("expected scrollOffset >= 3, got %d", l.scrollOffset)

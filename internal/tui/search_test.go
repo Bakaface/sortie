@@ -83,34 +83,34 @@ func TestPerformSearchAndJump_ForwardSearch(t *testing.T) {
 	// "fix" matches indices: 0, 1, 3
 
 	// Forward search from beginning
-	l.cursor = 0
+	l.table.SetCursor(0)
 	l.performSearchAndJump("fix", 0, 1)
 	if len(l.matchedIndices) != 3 {
 		t.Errorf("expected 3 matches, got %d", len(l.matchedIndices))
 	}
-	if l.cursor != 0 {
-		t.Errorf("expected cursor at 0 (first match), got %d", l.cursor)
+	if l.table.Cursor() != 0 {
+		t.Errorf("expected cursor at 0 (first match), got %d", l.table.Cursor())
 	}
 
 	// Forward search from middle (cursor at 1, next match is at 3)
-	l.cursor = 1
+	l.table.SetCursor(1)
 	l.performSearchAndJump("fix", 1, 1)
-	if l.cursor != 1 {
-		t.Errorf("expected cursor at 1 (match at cursor), got %d", l.cursor)
+	if l.table.Cursor() != 1 {
+		t.Errorf("expected cursor at 1 (match at cursor), got %d", l.table.Cursor())
 	}
 
 	// Forward search from index 2 (not a match), should jump to 3
-	l.cursor = 2
+	l.table.SetCursor(2)
 	l.performSearchAndJump("fix", 2, 1)
-	if l.cursor != 3 {
-		t.Errorf("expected cursor at 3 (next match after cursor), got %d", l.cursor)
+	if l.table.Cursor() != 3 {
+		t.Errorf("expected cursor at 3 (next match after cursor), got %d", l.table.Cursor())
 	}
 
 	// Forward search from last match wraps to beginning
-	l.cursor = 3
+	l.table.SetCursor(3)
 	l.performSearchAndJump("fix", 3, 1)
-	if l.cursor != 3 {
-		t.Errorf("expected cursor at 3 (match at cursor), got %d", l.cursor)
+	if l.table.Cursor() != 3 {
+		t.Errorf("expected cursor at 3 (match at cursor), got %d", l.table.Cursor())
 	}
 }
 
@@ -127,27 +127,27 @@ func TestPerformSearchAndJump_BackwardSearch(t *testing.T) {
 	// "fix" matches indices: 0, 1, 3
 
 	// Backward search from end
-	l.cursor = 3
+	l.table.SetCursor(3)
 	l.performSearchAndJump("fix", 3, -1)
 	if len(l.matchedIndices) != 3 {
 		t.Errorf("expected 3 matches, got %d", len(l.matchedIndices))
 	}
-	if l.cursor != 3 {
-		t.Errorf("expected cursor at 3 (match at cursor), got %d", l.cursor)
+	if l.table.Cursor() != 3 {
+		t.Errorf("expected cursor at 3 (match at cursor), got %d", l.table.Cursor())
 	}
 
 	// Backward search from middle (cursor at 2, previous match is at 1)
-	l.cursor = 2
+	l.table.SetCursor(2)
 	l.performSearchAndJump("fix", 2, -1)
-	if l.cursor != 1 {
-		t.Errorf("expected cursor at 1 (match at or before cursor), got %d", l.cursor)
+	if l.table.Cursor() != 1 {
+		t.Errorf("expected cursor at 1 (match at or before cursor), got %d", l.table.Cursor())
 	}
 
 	// Backward search from first match wraps to last
-	l.cursor = 0
+	l.table.SetCursor(0)
 	l.performSearchAndJump("fix", 0, -1)
-	if l.cursor != 0 {
-		t.Errorf("expected cursor at 0 (match at cursor), got %d", l.cursor)
+	if l.table.Cursor() != 0 {
+		t.Errorf("expected cursor at 0 (match at cursor), got %d", l.table.Cursor())
 	}
 }
 
@@ -160,13 +160,13 @@ func TestNextMatch_ForwardSearch(t *testing.T) {
 	})
 
 	l.performSearch("fix")
-	l.cursor = 0
+	l.table.SetCursor(0)
 	l.currentMatchIdx = 0
 
 	// Next match in forward direction
 	l.nextMatch(1)
-	if l.cursor != 2 {
-		t.Errorf("expected cursor at 2, got %d", l.cursor)
+	if l.table.Cursor() != 2 {
+		t.Errorf("expected cursor at 2, got %d", l.table.Cursor())
 	}
 	if l.currentMatchIdx != 1 {
 		t.Errorf("expected currentMatchIdx at 1, got %d", l.currentMatchIdx)
@@ -174,8 +174,8 @@ func TestNextMatch_ForwardSearch(t *testing.T) {
 
 	// Wrap to first match
 	l.nextMatch(1)
-	if l.cursor != 0 {
-		t.Errorf("expected cursor to wrap to 0, got %d", l.cursor)
+	if l.table.Cursor() != 0 {
+		t.Errorf("expected cursor to wrap to 0, got %d", l.table.Cursor())
 	}
 	if l.currentMatchIdx != 0 {
 		t.Errorf("expected currentMatchIdx to wrap to 0, got %d", l.currentMatchIdx)
@@ -191,13 +191,13 @@ func TestNextMatch_BackwardSearch(t *testing.T) {
 	})
 
 	l.performSearch("fix")
-	l.cursor = 2
+	l.table.SetCursor(2)
 	l.currentMatchIdx = 1
 
 	// Next match in backward direction (goes to lower index)
 	l.nextMatch(-1)
-	if l.cursor != 0 {
-		t.Errorf("expected cursor at 0, got %d", l.cursor)
+	if l.table.Cursor() != 0 {
+		t.Errorf("expected cursor at 0, got %d", l.table.Cursor())
 	}
 	if l.currentMatchIdx != 0 {
 		t.Errorf("expected currentMatchIdx at 0, got %d", l.currentMatchIdx)
@@ -205,8 +205,8 @@ func TestNextMatch_BackwardSearch(t *testing.T) {
 
 	// Wrap to last match
 	l.nextMatch(-1)
-	if l.cursor != 2 {
-		t.Errorf("expected cursor to wrap to 2, got %d", l.cursor)
+	if l.table.Cursor() != 2 {
+		t.Errorf("expected cursor to wrap to 2, got %d", l.table.Cursor())
 	}
 	if l.currentMatchIdx != 1 {
 		t.Errorf("expected currentMatchIdx to wrap to 1, got %d", l.currentMatchIdx)
@@ -222,13 +222,13 @@ func TestPreviousMatch_ForwardSearch(t *testing.T) {
 	})
 
 	l.performSearch("fix")
-	l.cursor = 2
+	l.table.SetCursor(2)
 	l.currentMatchIdx = 1
 
 	// Previous match in forward direction (goes to lower index)
 	l.previousMatch(1)
-	if l.cursor != 0 {
-		t.Errorf("expected cursor at 0, got %d", l.cursor)
+	if l.table.Cursor() != 0 {
+		t.Errorf("expected cursor at 0, got %d", l.table.Cursor())
 	}
 	if l.currentMatchIdx != 0 {
 		t.Errorf("expected currentMatchIdx at 0, got %d", l.currentMatchIdx)
@@ -236,8 +236,8 @@ func TestPreviousMatch_ForwardSearch(t *testing.T) {
 
 	// Wrap to last match
 	l.previousMatch(1)
-	if l.cursor != 2 {
-		t.Errorf("expected cursor to wrap to 2, got %d", l.cursor)
+	if l.table.Cursor() != 2 {
+		t.Errorf("expected cursor to wrap to 2, got %d", l.table.Cursor())
 	}
 	if l.currentMatchIdx != 1 {
 		t.Errorf("expected currentMatchIdx to wrap to 1, got %d", l.currentMatchIdx)
@@ -253,13 +253,13 @@ func TestPreviousMatch_BackwardSearch(t *testing.T) {
 	})
 
 	l.performSearch("fix")
-	l.cursor = 0
+	l.table.SetCursor(0)
 	l.currentMatchIdx = 0
 
 	// Previous match in backward direction (goes to higher index)
 	l.previousMatch(-1)
-	if l.cursor != 2 {
-		t.Errorf("expected cursor at 2, got %d", l.cursor)
+	if l.table.Cursor() != 2 {
+		t.Errorf("expected cursor at 2, got %d", l.table.Cursor())
 	}
 	if l.currentMatchIdx != 1 {
 		t.Errorf("expected currentMatchIdx at 1, got %d", l.currentMatchIdx)
@@ -267,8 +267,8 @@ func TestPreviousMatch_BackwardSearch(t *testing.T) {
 
 	// Wrap to first match
 	l.previousMatch(-1)
-	if l.cursor != 0 {
-		t.Errorf("expected cursor to wrap to 0, got %d", l.cursor)
+	if l.table.Cursor() != 0 {
+		t.Errorf("expected cursor to wrap to 0, got %d", l.table.Cursor())
 	}
 	if l.currentMatchIdx != 0 {
 		t.Errorf("expected currentMatchIdx to wrap to 0, got %d", l.currentMatchIdx)
@@ -308,18 +308,18 @@ func TestSearchWithNoMatches(t *testing.T) {
 		t.Errorf("expected 0 matches, got %d", len(l.matchedIndices))
 	}
 	// Cursor should not change when there are no matches
-	if l.cursor != 0 {
-		t.Errorf("expected cursor to remain at 0, got %d", l.cursor)
+	if l.table.Cursor() != 0 {
+		t.Errorf("expected cursor to remain at 0, got %d", l.table.Cursor())
 	}
 
 	// Next/previous match should do nothing with no matches
-	originalCursor := l.cursor
+	originalCursor := l.table.Cursor()
 	l.nextMatch(1)
-	if l.cursor != originalCursor {
+	if l.table.Cursor() != originalCursor {
 		t.Error("nextMatch should not change cursor when there are no matches")
 	}
 	l.previousMatch(1)
-	if l.cursor != originalCursor {
+	if l.table.Cursor() != originalCursor {
 		t.Error("previousMatch should not change cursor when there are no matches")
 	}
 }
