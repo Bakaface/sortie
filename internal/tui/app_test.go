@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aface/sortie/internal/client"
 	"github.com/aface/sortie/internal/config"
@@ -2489,8 +2490,11 @@ func TestHandleTaskInfoKey_YDCopiesDescription(t *testing.T) {
 	if cmd != nil {
 		t.Error("expected no command, got non-nil")
 	}
-	// Note: clipboard.WriteAll may fail in CI/headless environments,
-	// but the key dispatch logic itself should work correctly.
+	// Clipboard may fail in CI/headless environments — verify either
+	// status message (success) or error (clipboard unavailable) is set.
+	if updated.err == nil && updated.statusMessage != "Copied description to clipboard" {
+		t.Errorf("expected status message 'Copied description to clipboard', got %q", updated.statusMessage)
+	}
 }
 
 func TestHandleTaskInfoKey_YCCopiesContext(t *testing.T) {
@@ -2514,6 +2518,11 @@ func TestHandleTaskInfoKey_YCCopiesContext(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Error("expected no command, got non-nil")
+	}
+	// Clipboard may fail in CI/headless environments — verify either
+	// status message (success) or error (clipboard unavailable) is set.
+	if updated.err == nil && updated.statusMessage != "Copied context to clipboard" {
+		t.Errorf("expected status message 'Copied context to clipboard', got %q", updated.statusMessage)
 	}
 }
 
@@ -3565,6 +3574,134 @@ func TestFullHelp_ContainsSearchBindings(t *testing.T) {
 	}
 	if !foundBackward {
 		t.Error("expected FullHelp to contain '?' search backward binding")
+	}
+}
+
+func TestStatusMessage_ClearedOnKeypress(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		list:          newListView(false),
+		detail:        newDetailView(),
+		taskInfo:      newTaskInfoView(),
+		view:          viewList,
+		statusMessage: "Copied description to clipboard",
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	result, _ := m.handleKey(msg)
+	updated := result.(Model)
+
+	if updated.statusMessage != "" {
+		t.Errorf("expected statusMessage to be cleared on keypress, got %q", updated.statusMessage)
+	}
+}
+
+func TestStatusMessage_TickDecrementsAndClears(t *testing.T) {
+	m := Model{
+		keys:             newKeyMap(),
+		list:             newListView(false),
+		detail:           newDetailView(),
+		taskInfo:         newTaskInfoView(),
+		view:             viewList,
+		statusMessage:    "Copied description to clipboard",
+		statusMessageTTL: 2,
+	}
+
+	// First tick: TTL decrements to 1, message still visible
+	result, _ := m.Update(tickMsg(time.Now()))
+	updated := result.(Model)
+
+	if updated.statusMessage == "" {
+		t.Error("expected statusMessage to still be present after first tick")
+	}
+	if updated.statusMessageTTL != 1 {
+		t.Errorf("expected statusMessageTTL=1, got %d", updated.statusMessageTTL)
+	}
+
+	// Second tick: TTL decrements to 0, message cleared
+	result, _ = updated.Update(tickMsg(time.Now()))
+	updated = result.(Model)
+
+	if updated.statusMessage != "" {
+		t.Errorf("expected statusMessage to be cleared after TTL expired, got %q", updated.statusMessage)
+	}
+}
+
+func TestStatusMessage_RenderedInView(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		list:          newListView(false),
+		detail:        newDetailView(),
+		taskInfo:      newTaskInfoView(),
+		view:          viewList,
+		width:         80,
+		height:        24,
+		statusMessage: "Copied description to clipboard",
+	}
+
+	output := m.View()
+	if !strings.Contains(output, "Copied description to clipboard") {
+		t.Error("expected View() to contain the status message")
+	}
+}
+
+func TestStatusMessage_NotRenderedWhenEmpty(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		list:          newListView(false),
+		detail:        newDetailView(),
+		taskInfo:      newTaskInfoView(),
+		view:          viewList,
+		width:         80,
+		height:        24,
+		statusMessage: "",
+	}
+
+	output := m.View()
+	if strings.Contains(output, "Copied") {
+		t.Error("expected View() to not contain clipboard message when statusMessage is empty")
+	}
+}
+
+func TestYDEmptyDescription_NoStatusMessage(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		pendingY: true,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "", Context: "ctx"}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}}
+	result, _ := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.statusMessage != "" {
+		t.Errorf("expected no status message for empty description, got %q", updated.statusMessage)
+	}
+}
+
+func TestYCEmptyContext_NoStatusMessage(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		pendingY: true,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc", Context: ""}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
+	result, _ := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.statusMessage != "" {
+		t.Errorf("expected no status message for empty context, got %q", updated.statusMessage)
 	}
 }
 

@@ -83,6 +83,10 @@ type Model struct {
 	// Yank sequence state (task info view)
 	pendingY bool
 
+	// Status message (flash message, auto-clears after a few ticks)
+	statusMessage    string
+	statusMessageTTL int // ticks remaining before auto-clear
+
 	// Command mode state (vim-style : commands)
 	commandMode  bool
 	commandInput string
@@ -254,6 +258,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		var cmds []tea.Cmd
 
+		// Auto-clear status message after TTL expires
+		if m.statusMessage != "" {
+			m.statusMessageTTL--
+			if m.statusMessageTTL <= 0 {
+				m.statusMessage = ""
+			}
+		}
+
 		if m.view == viewDetail && m.detail.task != nil && m.client != nil {
 			cmds = append(cmds, m.loadOutput(m.detail.task.ID))
 		}
@@ -275,8 +287,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Clear error on any keypress, but still process the key
+	// Clear error and status message on any keypress, but still process the key
 	m.err = nil
+	m.statusMessage = ""
 
 	switch m.view {
 	case viewList:
@@ -965,6 +978,9 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.taskInfo.task != nil && m.taskInfo.task.Description != "" {
 				if err := clipboard.WriteAll(m.taskInfo.task.Description); err != nil {
 					m.err = fmt.Errorf("clipboard: %w", err)
+				} else {
+					m.statusMessage = "Copied description to clipboard"
+					m.statusMessageTTL = 2
 				}
 			}
 			return m, nil
@@ -972,6 +988,9 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.taskInfo.task != nil && m.taskInfo.task.Context != "" {
 				if err := clipboard.WriteAll(m.taskInfo.task.Context); err != nil {
 					m.err = fmt.Errorf("clipboard: %w", err)
+				} else {
+					m.statusMessage = "Copied context to clipboard"
+					m.statusMessageTTL = 2
 				}
 			}
 			return m, nil
@@ -1579,6 +1598,11 @@ func (m Model) View() string {
 			matchInfo = fmt.Sprintf(" [%d/%d]", m.list.currentMatchIdx+1, len(m.list.matchedIndices))
 		}
 		content += fmt.Sprintf("\n%s%s█%s", searchChar, m.searchQuery, matchInfo)
+	}
+
+	// Show status message (flash message, e.g. after yank)
+	if m.statusMessage != "" {
+		content += fmt.Sprintf("\n  %s", m.statusMessage)
 	}
 
 	return content
