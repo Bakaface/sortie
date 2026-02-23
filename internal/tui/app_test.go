@@ -3564,3 +3564,127 @@ func TestFullHelp_ContainsSearchBindings(t *testing.T) {
 		t.Error("expected FullHelp to contain '?' search backward binding")
 	}
 }
+
+func TestListView_WindowedRendering(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 20)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	l.SetSize(100, 15) // visibleRows = 15 - 5 = 10
+
+	output := l.View()
+	lines := strings.Split(output, "\n")
+
+	// Count task lines (lines containing "Task ")
+	taskLines := 0
+	for _, line := range lines {
+		if strings.Contains(line, "Task ") {
+			taskLines++
+		}
+	}
+	if taskLines != 10 {
+		t.Errorf("expected 10 visible task rows, got %d", taskLines)
+	}
+
+	// Helper row should always be present
+	if !strings.Contains(output, "quit") {
+		t.Error("expected help row to be present in windowed view")
+	}
+}
+
+func TestListView_HelperRowPersistsAfterSearchCancel(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false),
+		view: viewList,
+	}
+	tasks := make([]daemon.TaskInfo, 20)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	m.list.SetTasks(tasks)
+	m.list.SetSize(100, 15)
+
+	// Verify helper row is present initially
+	output := m.View()
+	if !strings.Contains(output, "quit") {
+		t.Error("expected help row before search")
+	}
+
+	// Enter search mode
+	m.searchMode = true
+	m.searchQuery = "test"
+	output = m.View()
+	if !strings.Contains(output, "quit") {
+		t.Error("expected help row during search")
+	}
+	if !strings.Contains(output, "/test") {
+		t.Error("expected search bar during search")
+	}
+
+	// Cancel search with Esc
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, _ := m.handleSearchKey(msg)
+	updated := result.(Model)
+	output = updated.View()
+	if !strings.Contains(output, "quit") {
+		t.Error("expected help row after cancelling search")
+	}
+	if strings.Contains(output, "/test") {
+		t.Error("expected search bar to be gone after cancel")
+	}
+}
+
+func TestListView_ScrollOffsetFollowsCursor(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 20)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	l.SetSize(100, 15) // visibleRows = 10
+
+	// Cursor starts at 0, scroll offset at 0
+	if l.scrollOffset != 0 {
+		t.Errorf("expected scrollOffset 0, got %d", l.scrollOffset)
+	}
+
+	// Move cursor past visible window
+	for i := 0; i < 12; i++ {
+		l.MoveDown()
+	}
+	// Cursor should be at 12, scrollOffset should have adjusted
+	if l.cursor != 12 {
+		t.Errorf("expected cursor at 12, got %d", l.cursor)
+	}
+	if l.scrollOffset < 3 {
+		t.Errorf("expected scrollOffset >= 3, got %d", l.scrollOffset)
+	}
+
+	// View should still contain the help row
+	output := l.View()
+	if !strings.Contains(output, "quit") {
+		t.Error("expected help row after scrolling down")
+	}
+}
+
+func TestListView_ExtraLinesReduceVisibleRows(t *testing.T) {
+	l := newListView(false)
+	l.SetSize(100, 15) // visibleRows = 15 - 5 = 10
+
+	if l.visibleRows() != 10 {
+		t.Errorf("expected 10 visible rows without extra lines, got %d", l.visibleRows())
+	}
+
+	l.extraLines = 1 // e.g., search bar
+	if l.visibleRows() != 9 {
+		t.Errorf("expected 9 visible rows with 1 extra line, got %d", l.visibleRows())
+	}
+
+	l.extraLines = 2 // e.g., search bar + command bar
+	if l.visibleRows() != 8 {
+		t.Errorf("expected 8 visible rows with 2 extra lines, got %d", l.visibleRows())
+	}
+}

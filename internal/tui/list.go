@@ -21,6 +21,8 @@ type listView struct {
 	pendingG        bool
 	matchedIndices  []int // indices of tasks matching current search
 	currentMatchIdx int   // index within matchedIndices
+	scrollOffset    int   // index of first visible task row
+	extraLines      int   // extra lines reserved below the list (search bar, command bar, etc.)
 }
 
 func newListView(globalMode bool) listView {
@@ -41,6 +43,7 @@ func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
 	if l.cursor >= len(tasks) {
 		l.cursor = max(0, len(tasks)-1)
 	}
+	l.ensureVisible()
 }
 
 func (l *listView) UpdateTask(task daemon.TaskInfo) {
@@ -76,28 +79,47 @@ func (l *listView) MoveUp() {
 	if l.cursor > 0 {
 		l.cursor--
 	}
+	l.ensureVisible()
 }
 
 func (l *listView) MoveDown() {
 	if l.cursor < len(l.tasks)-1 {
 		l.cursor++
 	}
+	l.ensureVisible()
 }
 
 func (l *listView) GotoTop() {
 	l.cursor = 0
+	l.ensureVisible()
 }
 
 func (l *listView) GotoBottom() {
 	if len(l.tasks) > 0 {
 		l.cursor = len(l.tasks) - 1
 	}
+	l.ensureVisible()
 }
 
 // GotoIndex moves the cursor to the task at the given row index.
 func (l *listView) GotoIndex(index int) {
 	if index >= 0 && index < len(l.tasks) {
 		l.cursor = index
+	}
+	l.ensureVisible()
+}
+
+// ensureVisible adjusts scrollOffset so the cursor is within the visible window.
+func (l *listView) ensureVisible() {
+	visible := l.visibleRows()
+	if l.cursor < l.scrollOffset {
+		l.scrollOffset = l.cursor
+	}
+	if l.cursor >= l.scrollOffset+visible {
+		l.scrollOffset = l.cursor - visible + 1
+	}
+	if l.scrollOffset < 0 {
+		l.scrollOffset = 0
 	}
 }
 
@@ -115,8 +137,9 @@ func (l *listView) lineNumWidth() int {
 
 // visibleRows returns the number of task rows visible in the list.
 // Layout: title(1) + blank(1) + header(1) + tasks + blank(1) + help(1) = 5 lines overhead.
+// extraLines accounts for overlays appended below (search bar, command bar, etc.).
 func (l *listView) visibleRows() int {
-	return max(1, l.height-5)
+	return max(1, l.height-5-l.extraLines)
 }
 
 func (l *listView) PageDown() {
@@ -125,6 +148,7 @@ func (l *listView) PageDown() {
 	if l.cursor >= len(l.tasks) {
 		l.cursor = max(0, len(l.tasks)-1)
 	}
+	l.ensureVisible()
 }
 
 func (l *listView) PageUp() {
@@ -133,6 +157,7 @@ func (l *listView) PageUp() {
 	if l.cursor < 0 {
 		l.cursor = 0
 	}
+	l.ensureVisible()
 }
 
 func (l *listView) IsPendingG() bool {
@@ -146,6 +171,7 @@ func (l *listView) SetPendingG(v bool) {
 func (l *listView) SetSize(width, height int) {
 	l.width = width
 	l.height = height
+	l.ensureVisible()
 }
 
 func (l *listView) View() string {
@@ -183,8 +209,12 @@ func (l *listView) View() string {
 		b.WriteString(headerStyle.Render(header))
 		b.WriteString("\n")
 
-		for i, task := range l.tasks {
-			line := l.renderTask(task, i, i == l.cursor)
+		// Windowed rendering: only show tasks in the visible range
+		visible := l.visibleRows()
+		l.ensureVisible()
+		end := min(l.scrollOffset+visible, len(l.tasks))
+		for i := l.scrollOffset; i < end; i++ {
+			line := l.renderTask(l.tasks[i], i, i == l.cursor)
 			b.WriteString(line)
 			b.WriteString("\n")
 		}

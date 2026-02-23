@@ -1576,6 +1576,20 @@ func (m Model) View() string {
 		return b.String()
 	}
 
+	// Count extra lines appended below the list view (search bar, command bar, etc.)
+	// so the list can reserve space and keep the help row visible.
+	extra := 0
+	if m.confirmAction != "" {
+		extra++
+	}
+	if m.commandMode {
+		extra++
+	}
+	if m.searchMode {
+		extra++
+	}
+	m.list.extraLines = extra
+
 	var content string
 	switch m.view {
 	case viewDetail:
