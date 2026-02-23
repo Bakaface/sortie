@@ -1760,24 +1760,24 @@ func TestHandleListKey_QuestionMarkTogglesHelp(t *testing.T) {
 		view:   viewList,
 	}
 
-	// Press "?" to open help
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}
+	// Press "ctrl+h" to open help
+	msg := tea.KeyMsg{Type: tea.KeyCtrlH}
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
 	if !updated.list.showHelp {
-		t.Error("expected showHelp to be true after '?'")
+		t.Error("expected showHelp to be true after 'ctrl+h'")
 	}
 	if cmd != nil {
 		t.Error("expected no command, got non-nil")
 	}
 
-	// Press "?" again to close help
+	// Press "ctrl+h" again to close help
 	result, cmd = updated.handleListKey(msg)
 	updated = result.(Model)
 
 	if updated.list.showHelp {
-		t.Error("expected showHelp to be false after second '?'")
+		t.Error("expected showHelp to be false after second 'ctrl+h'")
 	}
 	if cmd != nil {
 		t.Error("expected no command, got non-nil")
@@ -1874,13 +1874,13 @@ func TestShortHelp_ContainsHelpBinding(t *testing.T) {
 
 	found := false
 	for _, b := range bindings {
-		if b.Help().Key == "?" {
+		if b.Help().Key == "ctrl+h" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("expected ShortHelp to contain '?' help binding")
+		t.Error("expected ShortHelp to contain 'ctrl+h' help binding")
 	}
 }
 
@@ -3285,5 +3285,282 @@ func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
 	// Task row should contain line number "1"
 	if !strings.Contains(output, "1") {
 		t.Error("expected task row to show line number '1'")
+	}
+}
+
+func TestHandleListKey_SlashEntersForwardSearch(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false),
+		view: viewList,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if !updated.searchMode {
+		t.Error("expected searchMode to be true after '/'")
+	}
+	if updated.searchDirection != 1 {
+		t.Errorf("expected searchDirection to be 1 (forward), got %d", updated.searchDirection)
+	}
+	if updated.searchQuery != "" {
+		t.Error("expected searchQuery to be empty initially")
+	}
+}
+
+func TestHandleListKey_QuestionMarkEntersBackwardSearch(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false),
+		view: viewList,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if !updated.searchMode {
+		t.Error("expected searchMode to be true after '?'")
+	}
+	if updated.searchDirection != -1 {
+		t.Errorf("expected searchDirection to be -1 (backward), got %d", updated.searchDirection)
+	}
+}
+
+func TestHandleSearchKey_EscCancelsSearch(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		list:        newListView(false),
+		view:        viewList,
+		searchMode:  true,
+		searchQuery: "test",
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, _ := m.handleSearchKey(msg)
+	updated := result.(Model)
+
+	if updated.searchMode {
+		t.Error("expected searchMode to be false after esc")
+	}
+	if updated.searchQuery != "" {
+		t.Error("expected searchQuery to be cleared after esc")
+	}
+}
+
+func TestHandleSearchKey_EnterCommitsSearch(t *testing.T) {
+	m := Model{
+		keys:            newKeyMap(),
+		list:            newListView(false),
+		view:            viewList,
+		searchMode:      true,
+		searchQuery:     "fix",
+		searchDirection: 1,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Fix bug", Status: "pending"},
+		{ID: 2, Title: "Add feature", Status: "running"},
+		{ID: 3, Title: "Fix crash", Status: "completed"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ := m.handleSearchKey(msg)
+	updated := result.(Model)
+
+	if updated.searchMode {
+		t.Error("expected searchMode to be false after enter")
+	}
+	if len(updated.list.matchedIndices) != 2 {
+		t.Errorf("expected 2 matches for 'fix', got %d", len(updated.list.matchedIndices))
+	}
+}
+
+func TestHandleSearchKey_TypingBuildsQuery(t *testing.T) {
+	m := Model{
+		keys:       newKeyMap(),
+		list:       newListView(false),
+		view:       viewList,
+		searchMode: true,
+	}
+
+	// Type 'a'
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
+	result, _ := m.handleSearchKey(msg)
+	updated := result.(Model)
+	if updated.searchQuery != "a" {
+		t.Errorf("expected searchQuery 'a', got '%s'", updated.searchQuery)
+	}
+
+	// Type 'b'
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}}
+	result, _ = updated.handleSearchKey(msg)
+	updated = result.(Model)
+	if updated.searchQuery != "ab" {
+		t.Errorf("expected searchQuery 'ab', got '%s'", updated.searchQuery)
+	}
+}
+
+func TestHandleSearchKey_BackspaceDeletesChar(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		list:        newListView(false),
+		view:        viewList,
+		searchMode:  true,
+		searchQuery: "ab",
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyBackspace}
+	result, _ := m.handleSearchKey(msg)
+	updated := result.(Model)
+	if updated.searchQuery != "a" {
+		t.Errorf("expected searchQuery 'a', got '%s'", updated.searchQuery)
+	}
+
+	// Backspace on last char exits search mode
+	result, _ = updated.handleSearchKey(msg)
+	updated = result.(Model)
+	if updated.searchMode {
+		t.Error("expected searchMode to be false when query becomes empty via backspace")
+	}
+}
+
+func TestHandleListKey_NNavigatesToNextMatch(t *testing.T) {
+	m := Model{
+		keys:            newKeyMap(),
+		list:            newListView(false),
+		view:            viewList,
+		searchDirection: 1,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Fix bug", Status: "pending"},
+		{ID: 2, Title: "Add feature", Status: "running"},
+		{ID: 3, Title: "Fix crash", Status: "completed"},
+	})
+	// Order after sort: 3, 2, 1 => indices: 0="Fix crash", 1="Add feature", 2="Fix bug"
+	m.list.performSearch("fix")
+	m.list.cursor = 0
+	m.list.currentMatchIdx = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.list.cursor != 2 {
+		t.Errorf("expected cursor to move to 2 (next fix match), got %d", updated.list.cursor)
+	}
+}
+
+func TestHandleListKey_ShiftNNavigatesToPrevMatch(t *testing.T) {
+	m := Model{
+		keys:            newKeyMap(),
+		list:            newListView(false),
+		view:            viewList,
+		searchDirection: 1,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Fix bug", Status: "pending"},
+		{ID: 2, Title: "Add feature", Status: "running"},
+		{ID: 3, Title: "Fix crash", Status: "completed"},
+	})
+	m.list.performSearch("fix")
+	m.list.cursor = 2
+	m.list.currentMatchIdx = 1
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.list.cursor != 0 {
+		t.Errorf("expected cursor to move to 0 (prev fix match), got %d", updated.list.cursor)
+	}
+}
+
+func TestHandleListKey_NWithNoSearchCreatesNewTask(t *testing.T) {
+	cfg := &config.Config{}
+	m := Model{
+		cfg:         cfg,
+		keys:        newKeyMap(),
+		list:        newListView(false),
+		detail:      newDetailView(),
+		prompt:      newPromptView(),
+		view:        viewList,
+		client:      &client.Client{},
+		projectPath: "/some/path",
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// With no search matches, n should open prompt view for new task
+	if updated.view != viewPrompt {
+		t.Errorf("expected view to be viewPrompt (%d), got %d", viewPrompt, updated.view)
+	}
+}
+
+func TestViewRendersSearchBar(t *testing.T) {
+	m := Model{
+		keys:            newKeyMap(),
+		list:            newListView(false),
+		view:            viewList,
+		searchMode:      true,
+		searchQuery:     "test",
+		searchDirection: 1,
+	}
+
+	output := m.View()
+	if !strings.Contains(output, "/test") {
+		t.Error("expected View to contain '/test' search bar for forward search")
+	}
+
+	// Backward search
+	m.searchDirection = -1
+	output = m.View()
+	if !strings.Contains(output, "?test") {
+		t.Error("expected View to contain '?test' search bar for backward search")
+	}
+}
+
+func TestHandleListKey_SearchModeDispatchesToHandleSearchKey(t *testing.T) {
+	m := Model{
+		keys:       newKeyMap(),
+		list:       newListView(false),
+		view:       viewList,
+		searchMode: true,
+	}
+
+	// Typing while in search mode should build query
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.searchQuery != "x" {
+		t.Errorf("expected searchQuery 'x' when typing in search mode, got '%s'", updated.searchQuery)
+	}
+}
+
+func TestFullHelp_ContainsSearchBindings(t *testing.T) {
+	keys := newKeyMap()
+	groups := keys.FullHelp()
+
+	foundForward := false
+	foundBackward := false
+	for _, group := range groups {
+		for _, b := range group {
+			if b.Help().Key == "/" {
+				foundForward = true
+			}
+			if b.Help().Key == "?" {
+				foundBackward = true
+			}
+		}
+	}
+	if !foundForward {
+		t.Error("expected FullHelp to contain '/' search forward binding")
+	}
+	if !foundBackward {
+		t.Error("expected FullHelp to contain '?' search backward binding")
 	}
 }

@@ -86,6 +86,11 @@ type Model struct {
 	// Command mode state (vim-style : commands)
 	commandMode  bool
 	commandInput string
+
+	// Search mode state (vim-style / and ? search)
+	searchMode      bool
+	searchQuery     string
+	searchDirection int // 1 for forward (/), -1 for backward (?)
 }
 
 type clientConnectedMsg struct {
@@ -289,6 +294,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle search mode input
+	if m.searchMode {
+		return m.handleSearchKey(msg)
+	}
+
 	// Handle command mode input
 	if m.commandMode {
 		return m.handleCommandKey(msg)
@@ -345,9 +355,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	keyStr := msg.String()
 
-	// Handle help overlay — consume all keys except ? and esc which dismiss it
+	// Handle help overlay — consume all keys except ctrl+h and esc which dismiss it
 	if m.list.showHelp {
-		if keyStr == "?" || keyStr == "esc" {
+		if keyStr == "ctrl+h" || keyStr == "esc" {
 			m.list.showHelp = false
 			return m, nil
 		}
@@ -558,6 +568,12 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "n":
+		// If search is active, "n" navigates to next match
+		if len(m.list.matchedIndices) > 0 {
+			m.list.nextMatch(m.searchDirection)
+			return m, nil
+		}
+		// Otherwise, "n" is new task
 		if m.client == nil || m.projectPath == "" {
 			return m, nil
 		}
@@ -574,8 +590,27 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.Focus()
 		return m, nil
 
-	case "?":
+	case "N":
+		// Previous match (opposite direction)
+		if len(m.list.matchedIndices) > 0 {
+			m.list.previousMatch(m.searchDirection)
+		}
+		return m, nil
+
+	case "ctrl+h":
 		m.list.showHelp = !m.list.showHelp
+		return m, nil
+
+	case "/":
+		m.searchMode = true
+		m.searchQuery = ""
+		m.searchDirection = 1 // forward search
+		return m, nil
+
+	case "?":
+		m.searchMode = true
+		m.searchQuery = ""
+		m.searchDirection = -1 // backward search
 		return m, nil
 
 	case ":":
@@ -615,6 +650,42 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Only accept printable characters
 		if len(keyStr) == 1 && keyStr[0] >= ' ' && keyStr[0] <= '~' {
 			m.commandInput += keyStr
+		}
+		return m, nil
+	}
+}
+
+func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	keyStr := msg.String()
+
+	switch keyStr {
+	case "esc":
+		m.searchMode = false
+		m.searchQuery = ""
+		return m, nil
+
+	case "enter":
+		query := m.searchQuery
+		direction := m.searchDirection
+		m.searchMode = false
+		if query != "" {
+			m.list.performSearchAndJump(query, m.list.cursor, direction)
+		}
+		return m, nil
+
+	case "backspace":
+		if len(m.searchQuery) > 0 {
+			m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+		}
+		if m.searchQuery == "" {
+			m.searchMode = false
+		}
+		return m, nil
+
+	default:
+		// Only accept printable characters
+		if len(keyStr) == 1 && keyStr[0] >= ' ' && keyStr[0] <= '~' {
+			m.searchQuery += keyStr
 		}
 		return m, nil
 	}
@@ -1522,6 +1593,19 @@ func (m Model) View() string {
 		content += fmt.Sprintf("\n  :%s█", m.commandInput)
 	}
 
+	// Show search bar if in search mode
+	if m.searchMode {
+		searchChar := "/"
+		if m.searchDirection < 0 {
+			searchChar = "?"
+		}
+		matchInfo := ""
+		if len(m.list.matchedIndices) > 0 {
+			matchInfo = fmt.Sprintf(" [%d/%d]", m.list.currentMatchIdx+1, len(m.list.matchedIndices))
+		}
+		content += fmt.Sprintf("\n%s%s█%s", searchChar, m.searchQuery, matchInfo)
+	}
+
 	return content
 }
 
@@ -1546,7 +1630,7 @@ func (m Model) renderHelpOverlay() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(dimStyle.Render("  Press ? or esc to close"))
+	b.WriteString(dimStyle.Render("  Press ctrl+h or esc to close"))
 	return b.String()
 }
 

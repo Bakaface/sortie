@@ -30,6 +30,10 @@ type keyMap struct {
 	GotoTop        key.Binding
 	GotoBottom     key.Binding
 	GotoTask       key.Binding
+	SearchForward  key.Binding
+	SearchBackward key.Binding
+	NextMatch      key.Binding
+	PrevMatch      key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -111,8 +115,8 @@ func newKeyMap() keyMap {
 			key.WithHelp("q", "quit"),
 		),
 		Help: key.NewBinding(
-			key.WithKeys("?"),
-			key.WithHelp("?", "help"),
+			key.WithKeys("ctrl+h"),
+			key.WithHelp("ctrl+h", "help"),
 		),
 		PageUp: key.NewBinding(
 			key.WithKeys("pgup", "ctrl+u"),
@@ -134,6 +138,22 @@ func newKeyMap() keyMap {
 			key.WithKeys(":"),
 			key.WithHelp(":n", "go to line"),
 		),
+		SearchForward: key.NewBinding(
+			key.WithKeys("/"),
+			key.WithHelp("/", "search forward"),
+		),
+		SearchBackward: key.NewBinding(
+			key.WithKeys("?"),
+			key.WithHelp("?", "search backward"),
+		),
+		NextMatch: key.NewBinding(
+			key.WithKeys("n"),
+			key.WithHelp("n", "next match"),
+		),
+		PrevMatch: key.NewBinding(
+			key.WithKeys("N"),
+			key.WithHelp("N", "prev match"),
+		),
 	}
 }
 
@@ -143,7 +163,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.GotoTask, k.Enter, k.Logs},
+		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.GotoTask, k.SearchForward, k.SearchBackward, k.NextMatch, k.PrevMatch, k.Enter, k.Logs},
 		{k.NewTask, k.RunTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}

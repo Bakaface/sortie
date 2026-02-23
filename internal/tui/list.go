@@ -19,6 +19,8 @@ type listView struct {
 	globalMode      bool
 	tmuxSessions    map[int64]bool
 	pendingG        bool
+	matchedIndices  []int // indices of tasks matching current search
+	currentMatchIdx int   // index within matchedIndices
 }
 
 func newListView(globalMode bool) listView {
@@ -167,7 +169,8 @@ func (l *listView) View() string {
 		gutter := ""
 		if l.showLineNumbers {
 			gutterWidth := l.lineNumWidth()
-			gutter = strings.Repeat(" ", gutterWidth+2)
+			// +3 accounts for: match indicator (1) + space (1) + trailing space (1)
+			gutter = strings.Repeat(" ", gutterWidth+3)
 		}
 		var header string
 		if l.globalMode {
@@ -194,6 +197,9 @@ func (l *listView) View() string {
 }
 
 func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) string {
+	// Check if this task is a search match
+	isMatch := l.isSearchMatch(index)
+
 	// Status icons
 	statusIcon := ""
 	switch task.Status {
@@ -264,6 +270,11 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 			idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
 			// Use plain style for line number so selectedStyle's background covers it
 			idxCol := lipgloss.NewStyle().Width(gutterWidth).Render(idxStr)
+			// Add search match indicator
+			matchIndicator := " "
+			if isMatch {
+				matchIndicator = searchMatchStyle.Render("*")
+			}
 			if l.globalMode {
 				projName := task.ProjectName
 				if projName == "" {
@@ -273,9 +284,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 					projName = projName[:12]
 				}
 				projCol := lipgloss.NewStyle().Width(14).Render(projName)
-				line = fmt.Sprintf("  %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
+				line = fmt.Sprintf(" %s%s %s %s %s %s %s", matchIndicator, idxCol, idCol, priCol, projCol, statusCol, title)
 			} else {
-				line = fmt.Sprintf("  %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
+				line = fmt.Sprintf(" %s%s %s %s %s %s", matchIndicator, idxCol, idCol, priCol, statusCol, title)
 			}
 		} else {
 			if l.globalMode {
@@ -311,6 +322,11 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		gutterWidth := l.lineNumWidth()
 		idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
 		idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
+		// Add search match indicator
+		matchIndicator := " "
+		if isMatch {
+			matchIndicator = searchMatchStyle.Render("*")
+		}
 		if l.globalMode {
 			projName := task.ProjectName
 			if projName == "" {
@@ -320,9 +336,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 				projName = projName[:12]
 			}
 			projCol := lipgloss.NewStyle().Width(14).Render(projName)
-			line = fmt.Sprintf("  %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
+			line = fmt.Sprintf(" %s%s %s %s %s %s %s", matchIndicator, idxCol, idCol, priCol, projCol, statusCol, title)
 		} else {
-			line = fmt.Sprintf("  %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
+			line = fmt.Sprintf(" %s%s %s %s %s %s", matchIndicator, idxCol, idCol, priCol, statusCol, title)
 		}
 	} else {
 		if l.globalMode {

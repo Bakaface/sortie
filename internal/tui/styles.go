@@ -65,6 +65,14 @@ var (
 			BorderForeground(subtle).
 			Padding(0, 1)
 
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}).
+			Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"})
+
+	searchMatchStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFCC00")).
+				Bold(true)
+
 	subHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA"))
 )
 
