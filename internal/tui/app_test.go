@@ -3828,3 +3828,406 @@ func TestListView_ExtraLinesReduceVisibleRows(t *testing.T) {
 		t.Errorf("expected 8 visible rows with 2 extra lines, got %d", l.visibleRows())
 	}
 }
+
+// --- Selection menu vim navigation tests ---
+
+func newTestModelWithWorkflows(n int) Model {
+	workflows := make([]config.WorkflowConfig, n)
+	for i := range workflows {
+		workflows[i] = config.WorkflowConfig{Name: fmt.Sprintf("workflow-%d", i+1)}
+	}
+	cfg := &config.Config{Workflows: workflows}
+	return Model{
+		cfg:               cfg,
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingWorkflow: true,
+		workflowCursor:    0,
+	}
+}
+
+func TestWorkflowSelect_GGGoesToTop(t *testing.T) {
+	m := newTestModelWithWorkflows(10)
+	m.workflowCursor = 7
+
+	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
+
+	// First "g"
+	result, _ := m.handleWorkflowSelectKey(gMsg)
+	m = result.(Model)
+	if m.workflowCursor != 7 {
+		t.Errorf("expected cursor at 7 after first 'g', got %d", m.workflowCursor)
+	}
+	if !m.workflowPendingG {
+		t.Error("expected workflowPendingG to be true after first 'g'")
+	}
+
+	// Second "g"
+	result, _ = m.handleWorkflowSelectKey(gMsg)
+	m = result.(Model)
+	if m.workflowCursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.workflowCursor)
+	}
+}
+
+func TestWorkflowSelect_GGResetByOtherKey(t *testing.T) {
+	m := newTestModelWithWorkflows(10)
+	m.workflowCursor = 5
+
+	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
+	result, _ := m.handleWorkflowSelectKey(gMsg)
+	m = result.(Model)
+
+	jMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
+	result, _ = m.handleWorkflowSelectKey(jMsg)
+	m = result.(Model)
+
+	if m.workflowCursor != 6 {
+		t.Errorf("expected cursor at 6 after g+j, got %d", m.workflowCursor)
+	}
+	if m.workflowPendingG {
+		t.Error("expected workflowPendingG to be false after non-g key")
+	}
+}
+
+func TestWorkflowSelect_ShiftGGoesToBottom(t *testing.T) {
+	m := newTestModelWithWorkflows(10)
+	m.workflowCursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
+	result, _ := m.handleWorkflowSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.workflowCursor != 9 {
+		t.Errorf("expected cursor at 9 after 'G', got %d", updated.workflowCursor)
+	}
+}
+
+func TestWorkflowSelect_CtrlDPageDown(t *testing.T) {
+	m := newTestModelWithWorkflows(10)
+	m.workflowCursor = 0
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, _ := m.handleWorkflowSelectKey(msg)
+	updated := result.(Model)
+
+	// half = 10/2 = 5
+	if updated.workflowCursor != 5 {
+		t.Errorf("expected cursor at 5 after ctrl+d, got %d", updated.workflowCursor)
+	}
+}
+
+func TestWorkflowSelect_CtrlUPageUp(t *testing.T) {
+	m := newTestModelWithWorkflows(10)
+	m.workflowCursor = 8
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
+	result, _ := m.handleWorkflowSelectKey(msg)
+	updated := result.(Model)
+
+	// half = 10/2 = 5
+	if updated.workflowCursor != 3 {
+		t.Errorf("expected cursor at 3 after ctrl+u, got %d", updated.workflowCursor)
+	}
+}
+
+func TestWorkflowSelect_CtrlDClampsToEnd(t *testing.T) {
+	m := newTestModelWithWorkflows(10)
+	m.workflowCursor = 8
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, _ := m.handleWorkflowSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.workflowCursor != 9 {
+		t.Errorf("expected cursor clamped to 9 after ctrl+d, got %d", updated.workflowCursor)
+	}
+}
+
+func TestWorkflowSelect_CtrlUClampsToStart(t *testing.T) {
+	m := newTestModelWithWorkflows(10)
+	m.workflowCursor = 2
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
+	result, _ := m.handleWorkflowSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.workflowCursor != 0 {
+		t.Errorf("expected cursor clamped to 0 after ctrl+u, got %d", updated.workflowCursor)
+	}
+}
+
+func TestPrioritySelect_GGGoesToTop(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingPriority: true,
+		priorityCursor:    3,
+	}
+
+	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
+
+	result, _ := m.handlePrioritySelectKey(gMsg)
+	m = result.(Model)
+	result, _ = m.handlePrioritySelectKey(gMsg)
+	m = result.(Model)
+
+	if m.priorityCursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.priorityCursor)
+	}
+}
+
+func TestPrioritySelect_ShiftGGoesToBottom(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingPriority: true,
+		priorityCursor:    0,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
+	result, _ := m.handlePrioritySelectKey(msg)
+	updated := result.(Model)
+
+	if updated.priorityCursor != 3 {
+		t.Errorf("expected cursor at 3 after 'G', got %d", updated.priorityCursor)
+	}
+}
+
+func TestPrioritySelect_CtrlDPageDown(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingPriority: true,
+		priorityCursor:    0,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, _ := m.handlePrioritySelectKey(msg)
+	updated := result.(Model)
+
+	// half = 4/2 = 2
+	if updated.priorityCursor != 2 {
+		t.Errorf("expected cursor at 2 after ctrl+d, got %d", updated.priorityCursor)
+	}
+}
+
+func TestPrioritySelect_CtrlUPageUp(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingPriority: true,
+		priorityCursor:    3,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
+	result, _ := m.handlePrioritySelectKey(msg)
+	updated := result.(Model)
+
+	// half = 4/2 = 2
+	if updated.priorityCursor != 1 {
+		t.Errorf("expected cursor at 1 after ctrl+u, got %d", updated.priorityCursor)
+	}
+}
+
+func TestTaskSelect_GGGoesToTop(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: make([]config.TaskConfig, 10),
+	}
+	for i := range cfg.Tasks {
+		cfg.Tasks[i] = config.TaskConfig{Name: fmt.Sprintf("task-%d", i+1), Description: fmt.Sprintf("desc %d", i+1)}
+	}
+	m := Model{
+		cfg:           cfg,
+		keys:          newKeyMap(),
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    7,
+	}
+
+	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
+	result, _ := m.handleTaskSelectKey(gMsg)
+	m = result.(Model)
+	result, _ = m.handleTaskSelectKey(gMsg)
+	m = result.(Model)
+
+	if m.taskCursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.taskCursor)
+	}
+}
+
+func TestTaskSelect_ShiftGGoesToBottom(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: make([]config.TaskConfig, 10),
+	}
+	for i := range cfg.Tasks {
+		cfg.Tasks[i] = config.TaskConfig{Name: fmt.Sprintf("task-%d", i+1)}
+	}
+	m := Model{
+		cfg:           cfg,
+		keys:          newKeyMap(),
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    0,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
+	result, _ := m.handleTaskSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.taskCursor != 9 {
+		t.Errorf("expected cursor at 9 after 'G', got %d", updated.taskCursor)
+	}
+}
+
+func TestTaskSelect_CtrlDPageDown(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: make([]config.TaskConfig, 10),
+	}
+	for i := range cfg.Tasks {
+		cfg.Tasks[i] = config.TaskConfig{Name: fmt.Sprintf("task-%d", i+1)}
+	}
+	m := Model{
+		cfg:           cfg,
+		keys:          newKeyMap(),
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    0,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, _ := m.handleTaskSelectKey(msg)
+	updated := result.(Model)
+
+	// half = 10/2 = 5
+	if updated.taskCursor != 5 {
+		t.Errorf("expected cursor at 5 after ctrl+d, got %d", updated.taskCursor)
+	}
+}
+
+func TestTaskSelect_CtrlUPageUp(t *testing.T) {
+	cfg := &config.Config{
+		Tasks: make([]config.TaskConfig, 10),
+	}
+	for i := range cfg.Tasks {
+		cfg.Tasks[i] = config.TaskConfig{Name: fmt.Sprintf("task-%d", i+1)}
+	}
+	m := Model{
+		cfg:           cfg,
+		keys:          newKeyMap(),
+		list:          newListView(false),
+		detail:        newDetailView(),
+		view:          viewList,
+		selectingTask: true,
+		taskCursor:    8,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
+	result, _ := m.handleTaskSelectKey(msg)
+	updated := result.(Model)
+
+	// half = 10/2 = 5
+	if updated.taskCursor != 3 {
+		t.Errorf("expected cursor at 3 after ctrl+u, got %d", updated.taskCursor)
+	}
+}
+
+func TestArtifactSelect_GGGoesToTop(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingArtifact: true,
+		artifactCursor:    5,
+		artifactNames:     []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+	}
+
+	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
+	result, _ := m.handleArtifactSelectKey(gMsg)
+	m = result.(Model)
+	result, _ = m.handleArtifactSelectKey(gMsg)
+	m = result.(Model)
+
+	if m.artifactCursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.artifactCursor)
+	}
+}
+
+func TestArtifactSelect_ShiftGGoesToBottom(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingArtifact: true,
+		artifactCursor:    0,
+		artifactNames:     []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
+	result, _ := m.handleArtifactSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.artifactCursor != 7 {
+		t.Errorf("expected cursor at 7 after 'G', got %d", updated.artifactCursor)
+	}
+}
+
+func TestArtifactSelect_CtrlDPageDown(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingArtifact: true,
+		artifactCursor:    0,
+		artifactNames:     []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, _ := m.handleArtifactSelectKey(msg)
+	updated := result.(Model)
+
+	// half = 8/2 = 4
+	if updated.artifactCursor != 4 {
+		t.Errorf("expected cursor at 4 after ctrl+d, got %d", updated.artifactCursor)
+	}
+}
+
+func TestArtifactSelect_CtrlUPageUp(t *testing.T) {
+	m := Model{
+		keys:              newKeyMap(),
+		list:              newListView(false),
+		detail:            newDetailView(),
+		view:              viewList,
+		selectingArtifact: true,
+		artifactCursor:    6,
+		artifactNames:     []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
+	result, _ := m.handleArtifactSelectKey(msg)
+	updated := result.(Model)
+
+	// half = 8/2 = 4
+	if updated.artifactCursor != 2 {
+		t.Errorf("expected cursor at 2 after ctrl+u, got %d", updated.artifactCursor)
+	}
+}

@@ -54,15 +54,18 @@ type Model struct {
 	// Workflow selection state
 	selectingWorkflow bool
 	workflowCursor    int
+	workflowPendingG  bool
 	selectedWorkflow  string
 
 	// Predefined task selection state
 	selectingTask bool
 	taskCursor    int
+	taskPendingG  bool
 
 	// Priority selection state
 	selectingPriority bool
 	priorityCursor    int
+	priorityPendingG  bool
 	priorityTaskID    int64
 
 	// Artifact pending key state
@@ -72,6 +75,7 @@ type Model struct {
 	// Artifact selection state
 	selectingArtifact bool
 	artifactCursor    int
+	artifactPendingG  bool
 	artifactNames     []string
 	artifactTaskID    int64
 	artifactWorktree  string
@@ -691,8 +695,21 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	workflows := m.cfg.ListWorkflowNames()
+	keyStr := msg.String()
 
-	switch msg.String() {
+	// Handle "gg" sequence for go-to-top
+	if keyStr == "g" {
+		if m.workflowPendingG {
+			m.workflowPendingG = false
+			m.workflowCursor = 0
+			return m, nil
+		}
+		m.workflowPendingG = true
+		return m, nil
+	}
+	m.workflowPendingG = false
+
+	switch keyStr {
 	case "up", "k":
 		if m.workflowCursor > 0 {
 			m.workflowCursor--
@@ -702,6 +719,17 @@ func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.workflowCursor < len(workflows)-1 {
 			m.workflowCursor++
 		}
+		return m, nil
+	case "G":
+		m.workflowCursor = max(0, len(workflows)-1)
+		return m, nil
+	case "ctrl+d", "pgdown":
+		half := max(1, len(workflows)/2)
+		m.workflowCursor = min(m.workflowCursor+half, len(workflows)-1)
+		return m, nil
+	case "ctrl+u", "pgup":
+		half := max(1, len(workflows)/2)
+		m.workflowCursor = max(m.workflowCursor-half, 0)
 		return m, nil
 	case "enter":
 		m.selectedWorkflow = workflows[m.workflowCursor]
@@ -716,8 +744,8 @@ func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Number keys for quick selection (1-9)
-	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
-		idx := int(msg.String()[0] - '1')
+	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
+		idx := int(keyStr[0] - '1')
 		if idx < len(workflows) {
 			m.selectedWorkflow = workflows[idx]
 			m.selectingWorkflow = false
@@ -733,8 +761,21 @@ func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	tasks := m.cfg.ListPredefinedTaskNames()
+	keyStr := msg.String()
 
-	switch msg.String() {
+	// Handle "gg" sequence for go-to-top
+	if keyStr == "g" {
+		if m.taskPendingG {
+			m.taskPendingG = false
+			m.taskCursor = 0
+			return m, nil
+		}
+		m.taskPendingG = true
+		return m, nil
+	}
+	m.taskPendingG = false
+
+	switch keyStr {
 	case "up", "k":
 		if m.taskCursor > 0 {
 			m.taskCursor--
@@ -744,6 +785,17 @@ func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.taskCursor < len(tasks)-1 {
 			m.taskCursor++
 		}
+		return m, nil
+	case "G":
+		m.taskCursor = max(0, len(tasks)-1)
+		return m, nil
+	case "ctrl+d", "pgdown":
+		half := max(1, len(tasks)/2)
+		m.taskCursor = min(m.taskCursor+half, len(tasks)-1)
+		return m, nil
+	case "ctrl+u", "pgup":
+		half := max(1, len(tasks)/2)
+		m.taskCursor = max(m.taskCursor-half, 0)
 		return m, nil
 	case "enter":
 		taskName := tasks[m.taskCursor]
@@ -765,8 +817,8 @@ func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Number keys for quick selection (1-9)
-	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
-		idx := int(msg.String()[0] - '1')
+	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
+		idx := int(keyStr[0] - '1')
 		if idx < len(tasks) {
 			taskName := tasks[idx]
 			taskCfg := m.cfg.GetPredefinedTask(taskName)
@@ -788,8 +840,21 @@ func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handlePrioritySelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	priorities := []string{"low", "medium", "high", "urgent"}
+	keyStr := msg.String()
 
-	switch msg.String() {
+	// Handle "gg" sequence for go-to-top
+	if keyStr == "g" {
+		if m.priorityPendingG {
+			m.priorityPendingG = false
+			m.priorityCursor = 0
+			return m, nil
+		}
+		m.priorityPendingG = true
+		return m, nil
+	}
+	m.priorityPendingG = false
+
+	switch keyStr {
 	case "up", "k":
 		if m.priorityCursor > 0 {
 			m.priorityCursor--
@@ -799,6 +864,17 @@ func (m Model) handlePrioritySelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.priorityCursor < len(priorities)-1 {
 			m.priorityCursor++
 		}
+		return m, nil
+	case "G":
+		m.priorityCursor = len(priorities) - 1
+		return m, nil
+	case "ctrl+d", "pgdown":
+		half := max(1, len(priorities)/2)
+		m.priorityCursor = min(m.priorityCursor+half, len(priorities)-1)
+		return m, nil
+	case "ctrl+u", "pgup":
+		half := max(1, len(priorities)/2)
+		m.priorityCursor = max(m.priorityCursor-half, 0)
 		return m, nil
 	case "enter":
 		selected := priorities[m.priorityCursor]
@@ -810,8 +886,8 @@ func (m Model) handlePrioritySelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Number keys for quick selection (1-4)
-	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '4' {
-		idx := int(msg.String()[0] - '1')
+	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '4' {
+		idx := int(keyStr[0] - '1')
 		selected := priorities[idx]
 		m.selectingPriority = false
 		return m, m.updateTaskPriority(m.priorityTaskID, selected)
@@ -1353,7 +1429,21 @@ func (m Model) openArtifactSelection(task *daemon.TaskInfo, action string) (tea.
 
 // handleArtifactSelectKey handles key input in the artifact selection menu.
 func (m Model) handleArtifactSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	keyStr := msg.String()
+
+	// Handle "gg" sequence for go-to-top
+	if keyStr == "g" {
+		if m.artifactPendingG {
+			m.artifactPendingG = false
+			m.artifactCursor = 0
+			return m, nil
+		}
+		m.artifactPendingG = true
+		return m, nil
+	}
+	m.artifactPendingG = false
+
+	switch keyStr {
 	case "up", "k":
 		if m.artifactCursor > 0 {
 			m.artifactCursor--
@@ -1363,6 +1453,17 @@ func (m Model) handleArtifactSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.artifactCursor < len(m.artifactNames)-1 {
 			m.artifactCursor++
 		}
+		return m, nil
+	case "G":
+		m.artifactCursor = max(0, len(m.artifactNames)-1)
+		return m, nil
+	case "ctrl+d", "pgdown":
+		half := max(1, len(m.artifactNames)/2)
+		m.artifactCursor = min(m.artifactCursor+half, len(m.artifactNames)-1)
+		return m, nil
+	case "ctrl+u", "pgup":
+		half := max(1, len(m.artifactNames)/2)
+		m.artifactCursor = max(m.artifactCursor-half, 0)
 		return m, nil
 	case "enter":
 		name := m.artifactNames[m.artifactCursor]
@@ -1374,8 +1475,8 @@ func (m Model) handleArtifactSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Number keys for quick selection (1-9)
-	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '9' {
-		idx := int(msg.String()[0] - '1')
+	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
+		idx := int(keyStr[0] - '1')
 		if idx < len(m.artifactNames) {
 			name := m.artifactNames[idx]
 			m.selectingArtifact = false
