@@ -64,7 +64,6 @@ type Model struct {
 	selectingPriority bool
 	priorityCursor    int
 	priorityTaskID    int64
-	pendingC          bool
 
 	// Artifact pending key state
 	pendingO bool // tracks first "o" press for oa sequence
@@ -384,37 +383,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle second key after "c" prefix
-	if m.pendingC {
-		m.pendingC = false
-		m.pendingDelete = false
-		m.list.SetPendingG(false)
-		if keyStr == "p" {
-			// "cp" — open priority selection
-			if task := m.list.Selected(); task != nil && m.client != nil {
-				m.selectingPriority = true
-				m.priorityTaskID = task.ID
-				m.priorityCursor = 0
-				return m, nil
-			}
-			return m, nil
-		}
-		// Not "p", so treat the pending "c" as continue/finalize, and consume this key
-		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "completed" || task.Status == "failed" {
-				m.confirmAction = "continue"
-				m.confirmTaskID = task.ID
-				return m, nil
-			}
-			if task.Status == "tmux" {
-				m.confirmAction = "finalize"
-				m.confirmTaskID = task.ID
-				return m, nil
-			}
-		}
-		// Fall through to process this key normally
-	}
-
 	// Handle second key after "o" prefix
 	if m.pendingO {
 		m.pendingO = false
@@ -441,22 +409,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle "c" key — start "cp" sequence or immediate continue
-	if keyStr == "c" {
-		m.pendingC = true
-		m.pendingDelete = false
-		m.list.SetPendingG(false)
-		m.pendingO = false
-		m.pendingE = false
-		return m, nil
-	}
-
 	// Handle "o" key — start "oa" sequence
 	if keyStr == "o" {
 		m.pendingO = true
 		m.pendingDelete = false
 		m.list.SetPendingG(false)
-		m.pendingC = false
 		m.pendingE = false
 		return m, nil
 	}
@@ -466,7 +423,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pendingE = true
 		m.pendingDelete = false
 		m.list.SetPendingG(false)
-		m.pendingC = false
 		m.pendingO = false
 		return m, nil
 	}
@@ -574,6 +530,30 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		if task := m.list.Selected(); task != nil {
 			return m, m.attachTmuxSession(task.ID)
+		}
+		return m, nil
+
+	case "c":
+		if task := m.list.Selected(); task != nil && m.client != nil {
+			if task.Status == "completed" || task.Status == "failed" {
+				m.confirmAction = "continue"
+				m.confirmTaskID = task.ID
+				return m, nil
+			}
+			if task.Status == "tmux" {
+				m.confirmAction = "finalize"
+				m.confirmTaskID = task.ID
+				return m, nil
+			}
+		}
+		return m, nil
+
+	case "p":
+		if task := m.list.Selected(); task != nil && m.client != nil {
+			m.selectingPriority = true
+			m.priorityTaskID = task.ID
+			m.priorityCursor = 0
+			return m, nil
 		}
 		return m, nil
 

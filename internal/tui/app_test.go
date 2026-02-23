@@ -687,17 +687,10 @@ func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
 		{ID: 10, Title: "Completed task", Status: "completed"},
 	})
 
-	// First "c" sets pendingC
+	// Single "c" triggers continue confirm immediately
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
-	result, _ := m.handleListKey(msg)
+	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
-	if !updated.pendingC {
-		t.Error("expected pendingC to be true after first 'c'")
-	}
-
-	// Second "c" triggers continue confirm
-	result, cmd := updated.handleListKey(msg)
-	updated = result.(Model)
 
 	if updated.confirmAction != "continue" {
 		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
@@ -722,14 +715,10 @@ func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
 		{ID: 11, Title: "Failed task", Status: "failed"},
 	})
 
-	// First "c" sets pendingC
+	// Single "c" triggers continue confirm immediately
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
-	result, _ := m.handleListKey(msg)
+	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
-
-	// Second "c" triggers continue confirm
-	result, cmd := updated.handleListKey(msg)
-	updated = result.(Model)
 
 	if updated.confirmAction != "continue" {
 		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
@@ -795,17 +784,10 @@ func TestHandleListKey_CTriggersFinalizeForTmuxTask(t *testing.T) {
 		{ID: 14, Title: "Tmux task", Status: "tmux"},
 	})
 
-	// First "c" sets pendingC
+	// Single "c" triggers finalize confirm immediately
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
-	result, _ := m.handleListKey(msg)
+	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
-	if !updated.pendingC {
-		t.Error("expected pendingC to be true after first 'c'")
-	}
-
-	// Second "c" triggers finalize confirm
-	result, cmd := updated.handleListKey(msg)
-	updated = result.(Model)
 
 	if updated.confirmAction != "finalize" {
 		t.Errorf("expected confirmAction to be 'finalize', got %q", updated.confirmAction)
@@ -830,14 +812,10 @@ func TestHandleListKey_CNoOpForPendingTask(t *testing.T) {
 		{ID: 15, Title: "Pending task", Status: "pending"},
 	})
 
-	// First "c" sets pendingC
+	// Single "c" should not trigger any action for pending task
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
-
-	// Second "c" should not trigger any action for pending task
-	result, _ = updated.handleListKey(msg)
-	updated = result.(Model)
 
 	if updated.confirmAction != "" {
 		t.Errorf("expected no confirmAction for pending task, got %q", updated.confirmAction)
@@ -856,14 +834,10 @@ func TestHandleListKey_CNoOpForAwaitingApprovalTask(t *testing.T) {
 		{ID: 16, Title: "Awaiting task", Status: "awaiting-approval"},
 	})
 
-	// First "c" sets pendingC
+	// Single "c" should not trigger any action for awaiting-approval task
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
-
-	// Second "c" should not trigger any action
-	result, _ = updated.handleListKey(msg)
-	updated = result.(Model)
 
 	if updated.confirmAction != "" {
 		t.Errorf("expected no confirmAction for awaiting-approval task, got %q", updated.confirmAction)
@@ -1642,7 +1616,7 @@ func TestPromptView_WordJumpKeybindings(t *testing.T) {
 	}
 }
 
-func TestHandleListKey_CPOpensPrioritySelection(t *testing.T) {
+func TestHandleListKey_POpensPrioritySelection(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
@@ -1654,21 +1628,13 @@ func TestHandleListKey_CPOpensPrioritySelection(t *testing.T) {
 		{ID: 20, Title: "Test task", Status: "pending", Priority: "medium"},
 	})
 
-	// First "c" sets pendingC
-	cMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
-	result, _ := m.handleListKey(cMsg)
-	updated := result.(Model)
-	if !updated.pendingC {
-		t.Error("expected pendingC to be true after 'c'")
-	}
-
-	// "p" opens priority selection
+	// Single "p" opens priority selection immediately
 	pMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}
-	result, _ = updated.handleListKey(pMsg)
-	updated = result.(Model)
+	result, _ := m.handleListKey(pMsg)
+	updated := result.(Model)
 
 	if !updated.selectingPriority {
-		t.Error("expected selectingPriority to be true after 'cp'")
+		t.Error("expected selectingPriority to be true after 'p'")
 	}
 	if updated.priorityTaskID != 20 {
 		t.Errorf("expected priorityTaskID to be 20, got %d", updated.priorityTaskID)

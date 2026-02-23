@@ -84,7 +84,7 @@ func newKeyMap() keyMap {
 		),
 		ChangePriority: key.NewBinding(
 			key.WithKeys("p"),
-			key.WithHelp("cp", "set priority"),
+			key.WithHelp("p", "set priority"),
 		),
 		Attach: key.NewBinding(
 			key.WithKeys("t"),
