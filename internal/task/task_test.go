@@ -15,6 +15,7 @@ func TestStatus_IsActive(t *testing.T) {
 		{StatusSummarizing, true},
 		{StatusCompleted, false},
 		{StatusFailed, false},
+		{StatusArtifactMissing, true},
 	}
 
 	for _, tt := range tests {
@@ -37,6 +38,7 @@ func TestStatus_IsTerminal(t *testing.T) {
 		{StatusSummarizing, false},
 		{StatusCompleted, true},
 		{StatusFailed, true},
+		{StatusArtifactMissing, false},
 	}
 
 	for _, tt := range tests {
@@ -117,6 +119,7 @@ func TestStatusValues(t *testing.T) {
 		{StatusSummarizing, "summarizing"},
 		{StatusCompleted, "completed"},
 		{StatusFailed, "failed"},
+		{StatusArtifactMissing, "artifact-missing"},
 	}
 
 	for _, tt := range tests {

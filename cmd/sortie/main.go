@@ -580,9 +580,9 @@ var retryCmd = &cobra.Command{
 
 var continueCmd = &cobra.Command{
 	Use:               "continue <task_id>",
-	Short:             "Continue a completed/failed task in a tmux session",
+	Short:             "Continue a completed/failed/artifact-missing task",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: completeTaskIDs(task.StatusCompleted, task.StatusFailed),
+	ValidArgsFunction: completeTaskIDs(task.StatusCompleted, task.StatusFailed, task.StatusArtifactMissing),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {

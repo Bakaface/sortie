@@ -15,6 +15,7 @@ type ProjectConfig struct {
 	MaxWorkers      int              `yaml:"max_workers"`
 	DefaultPriority string           `yaml:"default_priority"`
 	Yolo            *bool            `yaml:"yolo,omitempty"`
+	ValidateArtifact *bool           `yaml:"validate_artifact,omitempty"`
 	Git             GitConfig        `yaml:"git"`
 	Workflows       []WorkflowConfig `yaml:"workflows"`
 	Workflow        WorkflowConfig   `yaml:"workflow"` // deprecated, backward compat
@@ -78,6 +79,7 @@ func (c *Config) GetStepTimeout(step StepConfig) time.Duration {
 type GlobalConfig struct {
 	MaxWorkers               int                 `yaml:"max_workers"`
 	Yolo                     *bool               `yaml:"yolo,omitempty"`
+	ValidateArtifact         *bool               `yaml:"validate_artifact,omitempty"`
 	Notifications            NotificationsConfig `yaml:"notifications"`
 	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
 }
@@ -115,11 +117,12 @@ type CommandsConfig struct {
 // It combines global config, project config (.sortie.yml), and computed paths.
 type Config struct {
 	// From .sortie.yml (project config)
-	MaxWorkers      int
-	DefaultPriority string
-	Git             GitConfig
-	Workflows       []WorkflowConfig
-	Tasks           []TaskConfig
+	MaxWorkers       int
+	DefaultPriority  string
+	ValidateArtifact bool
+	Git              GitConfig
+	Workflows        []WorkflowConfig
+	Tasks            []TaskConfig
 
 	// From global config
 	Notifications            NotificationsConfig
@@ -287,6 +290,9 @@ func loadGlobalConfig(path string, cfg *Config) error {
 	if global.Yolo != nil {
 		cfg.Claude.Yolo = *global.Yolo
 	}
+	if global.ValidateArtifact != nil {
+		cfg.ValidateArtifact = *global.ValidateArtifact
+	}
 	cfg.Notifications = global.Notifications
 	if global.TmuxNestedAttachBehavior != "" {
 		cfg.TmuxNestedAttachBehavior = global.TmuxNestedAttachBehavior
@@ -323,6 +329,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.Yolo != nil {
 		cfg.Claude.Yolo = *proj.Yolo
+	}
+	if proj.ValidateArtifact != nil {
+		cfg.ValidateArtifact = *proj.ValidateArtifact
 	}
 
 	// Handle workflows: prefer new plural form, fall back to old singular

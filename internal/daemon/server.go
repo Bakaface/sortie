@@ -592,8 +592,25 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
+	// Artifact-missing tasks: advance to next step and resume
+	if t.Status == task.StatusArtifactMissing {
+		// Advance step index past the step that missed the artifact
+		if err := s.database.UpdateTaskStep(t.ID, t.StepIndex+1, ""); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to advance task step: %v", err))
+			return
+		}
+		if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
+			return
+		}
+		s.broadcastTaskUpdate(t.ID)
+		log.Printf("Task #%d continued past artifact-missing at step %d", t.ID, t.StepIndex)
+		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d continued past missing artifact", t.ID)})
+		return
+	}
+
 	if !t.Status.IsTerminal() {
-		s.sendError(conn, fmt.Sprintf("task is not in a terminal state (status: %s)", t.Status))
+		s.sendError(conn, fmt.Sprintf("task is not in a continuable state (status: %s)", t.Status))
 		return
 	}
 
@@ -1046,7 +1063,7 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		// Check if the task is awaiting approval or in tmux status (engine set this in the DB).
 		// If so, don't mark it completed — it's paused for approval.
 		refreshedTask, err := s.database.GetTask(a.Task.ID)
-		if err == nil && (refreshedTask.Status == task.StatusAwaitingApproval || refreshedTask.Status == task.StatusTmux) {
+		if err == nil && (refreshedTask.Status == task.StatusAwaitingApproval || refreshedTask.Status == task.StatusTmux || refreshedTask.Status == task.StatusArtifactMissing) {
 			log.Printf("Agent %s paused task #%d for approval", a.ID, a.Task.ID)
 			s.notifier.AgentWaitingForInput(a.ID, taskTitle)
 			return
@@ -1092,7 +1109,7 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 	}
 	for _, t := range tasks {
 		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusSummarizing, task.StatusInit:
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusSummarizing, task.StatusInit, task.StatusArtifactMissing:
 			return // Still active work
 		}
 	}
@@ -1254,6 +1271,9 @@ func (s *Server) recoverOrphanedTasks() error {
 		}
 		if t.Status == task.StatusTmux {
 			log.Printf("Task #%d has tmux session running (use 'approve' or 'reject' command)", t.ID)
+		}
+		if t.Status == task.StatusArtifactMissing {
+			log.Printf("Task #%d has missing artifact (use 'continue' command to skip)", t.ID)
 		}
 	}
 

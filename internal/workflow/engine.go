@@ -179,6 +179,17 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 		}
 
+		// Validate artifact file was written if validate_artifact is enabled
+		if step.Artifact && e.cfg.ValidateArtifact {
+			artifactPath := filepath.Join(artifactsDir, step.Name+".md")
+			if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
+				if err := e.database.UpdateTaskStatus(t.ID, task.StatusArtifactMissing); err != nil {
+					log.Printf("Warning: failed to set artifact-missing: %v", err)
+				}
+				return nil
+			}
+		}
+
 		// Check if approval required before continuing
 		needsApproval := step.Human || useTmux
 		if needsApproval {

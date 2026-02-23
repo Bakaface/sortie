@@ -407,6 +407,80 @@ func TestRunClaudeSyncEmptyWorkDir(t *testing.T) {
 	}
 }
 
+func TestArtifactValidationDetectsMissingArtifact(t *testing.T) {
+	// Simulate the artifact validation check from RunTask:
+	// if step.Artifact && cfg.ValidateArtifact, check if artifact file exists
+	dir := t.TempDir()
+	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
+	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	stepName := "implement"
+	artifactPath := filepath.Join(artifactsDir, stepName+".md")
+
+	// Artifact file does NOT exist — should be detected as missing
+	if _, err := os.Stat(artifactPath); !os.IsNotExist(err) {
+		t.Error("expected artifact file to not exist")
+	}
+
+	// Now write the artifact file — should pass validation
+	os.WriteFile(artifactPath, []byte("implementation notes"), 0644)
+	if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
+		t.Error("expected artifact file to exist after writing")
+	}
+}
+
+func TestArtifactValidationSkippedWhenDisabled(t *testing.T) {
+	// When validate_artifact is false (default), artifact validation should not trigger
+	cfg := &config.Config{
+		ValidateArtifact: false,
+	}
+
+	step := config.StepConfig{
+		Name:     "implement",
+		Artifact: true,
+	}
+
+	// Even though the step has artifact: true, validation is skipped when disabled
+	shouldValidate := step.Artifact && cfg.ValidateArtifact
+	if shouldValidate {
+		t.Error("expected artifact validation to be skipped when validate_artifact is false")
+	}
+}
+
+func TestArtifactValidationTriggeredWhenEnabled(t *testing.T) {
+	cfg := &config.Config{
+		ValidateArtifact: true,
+	}
+
+	step := config.StepConfig{
+		Name:     "implement",
+		Artifact: true,
+	}
+
+	shouldValidate := step.Artifact && cfg.ValidateArtifact
+	if !shouldValidate {
+		t.Error("expected artifact validation to trigger when validate_artifact is true and step has artifact: true")
+	}
+}
+
+func TestArtifactValidationSkippedForNonArtifactStep(t *testing.T) {
+	cfg := &config.Config{
+		ValidateArtifact: true,
+	}
+
+	step := config.StepConfig{
+		Name:     "review",
+		Artifact: false,
+	}
+
+	shouldValidate := step.Artifact && cfg.ValidateArtifact
+	if shouldValidate {
+		t.Error("expected artifact validation to be skipped for step without artifact: true")
+	}
+}
+
 func TestSummarizerDiffStatPromptIncludesReadInstruction(t *testing.T) {
 	// Verify that the no-artifacts summarizer prompt instructs Claude to read files
 	// rather than just summarizing based on filenames

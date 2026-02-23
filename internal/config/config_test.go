@@ -348,3 +348,83 @@ func TestYoloProjectOverridesGlobal(t *testing.T) {
 		t.Error("expected yolo to be false after project config overrides global")
 	}
 }
+
+func TestValidateArtifactDefaultFalse(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.ValidateArtifact {
+		t.Error("expected validate_artifact to default to false")
+	}
+}
+
+func TestValidateArtifactProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+validate_artifact: true
+workflow:
+  steps:
+    - name: implement
+      prompt: "Implement the task"
+      artifact: true
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.ValidateArtifact {
+		t.Error("expected validate_artifact to be true from project config")
+	}
+}
+
+func TestValidateArtifactGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	yamlContent := `
+validate_artifact: true
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadGlobalConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.ValidateArtifact {
+		t.Error("expected validate_artifact to be true from global config")
+	}
+}
+
+func TestValidateArtifactProjectOverridesGlobal(t *testing.T) {
+	// Global sets validate_artifact: true, project sets validate_artifact: false
+	globalDir := t.TempDir()
+	globalPath := filepath.Join(globalDir, "config.yaml")
+	os.WriteFile(globalPath, []byte("validate_artifact: true\n"), 0644)
+
+	projectDir := t.TempDir()
+	projectPath := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectPath, []byte("validate_artifact: false\n"), 0644)
+
+	cfg := defaultConfig()
+	if err := loadGlobalConfig(globalPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ValidateArtifact {
+		t.Error("expected validate_artifact to be true after loading global config")
+	}
+
+	if err := loadProjectConfig(projectPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ValidateArtifact {
+		t.Error("expected validate_artifact to be false after project config overrides global")
+	}
+}
