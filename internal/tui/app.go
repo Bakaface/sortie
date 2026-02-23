@@ -617,6 +617,13 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.commandMode = true
 		m.commandInput = ""
 		return m, nil
+
+	case "esc":
+		// Clear search highlights (like :noh in vim)
+		m.list.matchedIndices = nil
+		m.list.currentMatchIdx = 0
+		m.searchQuery = ""
+		return m, nil
 	}
 
 	return m, nil

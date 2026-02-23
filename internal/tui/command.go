@@ -30,6 +30,11 @@ var commands = []command{
 		exec:  execSetNumber,
 		help:  "toggle line numbers",
 	},
+	{
+		match: matchNoh,
+		exec:  execNoh,
+		help:  "clear search highlights",
+	},
 }
 
 // matchLineNumber matches a bare positive number input (e.g. "3", "12").
@@ -72,6 +77,23 @@ func execSetNumber(m Model, args string) (tea.Model, tea.Cmd) {
 	case "set number!":
 		m.list.showLineNumbers = !m.list.showLineNumbers
 	}
+	return m, nil
+}
+
+// matchNoh matches the "noh" or "nohlsearch" commands.
+func matchNoh(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	if input == "noh" || input == "nohlsearch" {
+		return input, true
+	}
+	return "", false
+}
+
+// execNoh clears search highlights.
+func execNoh(m Model, _ string) (tea.Model, tea.Cmd) {
+	m.list.matchedIndices = nil
+	m.list.currentMatchIdx = 0
+	m.searchQuery = ""
 	return m, nil
 }
 

@@ -70,8 +70,7 @@ var (
 			Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"})
 
 	searchMatchStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFCC00")).
-				Bold(true)
+				Background(lipgloss.Color("#333333"))
 
 	subHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA"))
 )

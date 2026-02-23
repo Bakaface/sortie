@@ -169,8 +169,8 @@ func (l *listView) View() string {
 		gutter := ""
 		if l.showLineNumbers {
 			gutterWidth := l.lineNumWidth()
-			// +3 accounts for: match indicator (1) + space (1) + trailing space (1)
-			gutter = strings.Repeat(" ", gutterWidth+3)
+			// +2 accounts for: leading space (1) + trailing space (1)
+			gutter = strings.Repeat(" ", gutterWidth+2)
 		}
 		var header string
 		if l.globalMode {
@@ -270,11 +270,6 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 			idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
 			// Use plain style for line number so selectedStyle's background covers it
 			idxCol := lipgloss.NewStyle().Width(gutterWidth).Render(idxStr)
-			// Add search match indicator
-			matchIndicator := " "
-			if isMatch {
-				matchIndicator = searchMatchStyle.Render("*")
-			}
 			if l.globalMode {
 				projName := task.ProjectName
 				if projName == "" {
@@ -284,9 +279,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 					projName = projName[:12]
 				}
 				projCol := lipgloss.NewStyle().Width(14).Render(projName)
-				line = fmt.Sprintf(" %s%s %s %s %s %s %s", matchIndicator, idxCol, idCol, priCol, projCol, statusCol, title)
+				line = fmt.Sprintf(" %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
 			} else {
-				line = fmt.Sprintf(" %s%s %s %s %s %s", matchIndicator, idxCol, idCol, priCol, statusCol, title)
+				line = fmt.Sprintf(" %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
 			}
 		} else {
 			if l.globalMode {
@@ -303,7 +298,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 				line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
 			}
 		}
-		// Pad to full terminal width so the blue background fills the entire row
+		// Pad to full terminal width so the background fills the entire row
 		if lineWidth := lipgloss.Width(line); lineWidth < l.width {
 			line += strings.Repeat(" ", l.width-lineWidth)
 		}
@@ -322,11 +317,6 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		gutterWidth := l.lineNumWidth()
 		idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
 		idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
-		// Add search match indicator
-		matchIndicator := " "
-		if isMatch {
-			matchIndicator = searchMatchStyle.Render("*")
-		}
 		if l.globalMode {
 			projName := task.ProjectName
 			if projName == "" {
@@ -336,9 +326,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 				projName = projName[:12]
 			}
 			projCol := lipgloss.NewStyle().Width(14).Render(projName)
-			line = fmt.Sprintf(" %s%s %s %s %s %s %s", matchIndicator, idxCol, idCol, priCol, projCol, statusCol, title)
+			line = fmt.Sprintf(" %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
 		} else {
-			line = fmt.Sprintf(" %s%s %s %s %s %s", matchIndicator, idxCol, idCol, priCol, statusCol, title)
+			line = fmt.Sprintf(" %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
 		}
 	} else {
 		if l.globalMode {
@@ -354,6 +344,13 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		} else {
 			line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
 		}
+	}
+	if isMatch {
+		// Pad to full terminal width so the background fills the entire row
+		if lineWidth := lipgloss.Width(line); lineWidth < l.width {
+			line += strings.Repeat(" ", l.width-lineWidth)
+		}
+		return searchMatchStyle.Render(line)
 	}
 	return normalStyle.Render(line)
 }
