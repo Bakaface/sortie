@@ -338,6 +338,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleUpdatePriority(conn, req)
 
+	case MsgUpdateField:
+		var req UpdateFieldRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleUpdateField(conn, req)
+
 	case MsgShutdown:
 		s.Shutdown()
 
@@ -918,6 +926,27 @@ func (s *Server) handleUpdatePriority(conn net.Conn, req UpdatePriorityRequest) 
 
 	s.broadcastTaskUpdate(req.TaskID)
 	s.sendMessage(conn, MsgOK, OKResponse{Message: "priority updated"})
+}
+
+func (s *Server) handleUpdateField(conn net.Conn, req UpdateFieldRequest) {
+	var err error
+	switch req.Field {
+	case "title":
+		err = s.database.UpdateTaskTitle(req.TaskID, req.Value)
+	case "description":
+		err = s.database.UpdateTaskDescription(req.TaskID, req.Value)
+	case "context":
+		err = s.database.UpdateTaskContext(req.TaskID, req.Value)
+	default:
+		s.sendError(conn, fmt.Sprintf("unknown field: %s", req.Field))
+		return
+	}
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update %s: %v", req.Field, err))
+		return
+	}
+	s.broadcastTaskUpdate(req.TaskID)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("%s updated", req.Field)})
 }
 
 func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {

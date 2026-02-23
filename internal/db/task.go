@@ -268,6 +268,22 @@ func (db *DB) UpdateTaskContext(id int64, taskContext string) error {
 	return err
 }
 
+func (db *DB) UpdateTaskTitle(id int64, title string) error {
+	_, err := db.Exec(
+		"UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?",
+		title, time.Now(), id,
+	)
+	return err
+}
+
+func (db *DB) UpdateTaskDescription(id int64, description string) error {
+	_, err := db.Exec(
+		"UPDATE tasks SET description = ?, updated_at = ? WHERE id = ?",
+		description, time.Now(), id,
+	)
+	return err
+}
+
 func (db *DB) FinalizeTaskIdentity(id int64, title, slug, branch string) error {
 	_, err := db.Exec(
 		"UPDATE tasks SET title = ?, slug = ?, branch = ?, updated_at = ? WHERE id = ?",

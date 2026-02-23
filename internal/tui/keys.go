@@ -19,6 +19,9 @@ type keyMap struct {
 	Attach         key.Binding
 	OpenArtifact   key.Binding
 	EditArtifact   key.Binding
+	EditDesc       key.Binding
+	EditTitle      key.Binding
+	EditContext    key.Binding
 	Refresh        key.Binding
 	Back           key.Binding
 	Quit           key.Binding
@@ -92,6 +95,18 @@ func newKeyMap() keyMap {
 			key.WithKeys("e"),
 			key.WithHelp("ea", "edit artifact"),
 		),
+		EditDesc: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("ed", "edit desc"),
+		),
+		EditTitle: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("et", "edit title"),
+		),
+		EditContext: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("ec", "edit context"),
+		),
 		Refresh: key.NewBinding(
 			key.WithKeys("R"),
 			key.WithHelp("R", "refresh"),
@@ -154,7 +169,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.GotoTask, k.SearchForward, k.SearchBackward, k.NextMatch, k.PrevMatch, k.Enter, k.Logs},
-		{k.NewTask, k.RunTask, k.Stop, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.Refresh},
+		{k.NewTask, k.RunTask, k.Stop, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }
@@ -316,6 +331,9 @@ type taskInfoKeyMap struct {
 	Attach       key.Binding
 	OpenArtifact key.Binding
 	EditArtifact key.Binding
+	EditDesc     key.Binding
+	EditTitle    key.Binding
+	EditContext  key.Binding
 	YankDesc     key.Binding
 	YankContext  key.Binding
 }
@@ -370,6 +388,18 @@ func newTaskInfoKeyMap() taskInfoKeyMap {
 			key.WithKeys("e"),
 			key.WithHelp("ea", "edit artifact"),
 		),
+		EditDesc: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("ed", "edit desc"),
+		),
+		EditTitle: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("et", "edit title"),
+		),
+		EditContext: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("ec", "edit context"),
+		),
 		YankDesc: key.NewBinding(
 			key.WithKeys("y"),
 			key.WithHelp("yd", "copy desc"),
@@ -382,7 +412,7 @@ func newTaskInfoKeyMap() taskInfoKeyMap {
 }
 
 func (k taskInfoKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.Attach, k.OpenArtifact, k.EditArtifact, k.YankDesc, k.YankContext, k.Back}
+	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.YankDesc, k.YankContext, k.Back}
 }
 
 // Pre-allocated key maps to avoid allocations on every renderHelp() call.

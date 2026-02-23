@@ -119,6 +119,11 @@ type tickMsg time.Time
 type tmuxDetachedMsg struct{ taskID int64 }
 type tmuxSessionsMsg map[int64]bool
 type editorArtifactFinishedMsg struct{}
+type editorFieldFinishedMsg struct {
+	taskID int64
+	field  string
+	path   string
+}
 type artifactLoadedMsg struct {
 	name    string
 	content string
@@ -233,6 +238,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case editorArtifactFinishedMsg:
 		return m, nil
+
+	case editorFieldFinishedMsg:
+		return m, m.handleFieldEditorResult(msg)
+
+	case taskFieldUpdatedMsg:
+		label := msg.field
+		if len(label) > 0 {
+			label = strings.ToUpper(label[:1]) + label[1:]
+		}
+		m.statusMessage = fmt.Sprintf("%s updated", label)
+		m.statusMessageTTL = 2
+		return m, m.refreshTasks()
 
 	case artifactLoadedMsg:
 		m.artifactView.SetContent(msg.name, msg.content)
@@ -426,9 +443,22 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.pendingE = false
 		m.pendingDelete = false
 		m.list.SetPendingG(false)
-		if keyStr == "a" {
+		switch keyStr {
+		case "a":
 			if task := m.list.Selected(); task != nil {
 				return m.openArtifactSelection(task, "edit")
+			}
+		case "d":
+			if task := m.list.Selected(); task != nil {
+				return m, m.openEditorForField(task.ID, "description", task.Description)
+			}
+		case "t":
+			if task := m.list.Selected(); task != nil {
+				return m, m.openEditorForField(task.ID, "title", task.Title)
+			}
+		case "c":
+			if task := m.list.Selected(); task != nil {
+				return m, m.openEditorForField(task.ID, "context", task.Context)
 			}
 		}
 		return m, nil
@@ -1013,9 +1043,22 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle second key after "e" prefix
 	if m.pendingE {
 		m.pendingE = false
-		if keyStr == "a" {
+		switch keyStr {
+		case "a":
 			if m.taskInfo.task != nil {
 				return m.openArtifactSelection(m.taskInfo.task, "edit")
+			}
+		case "d":
+			if m.taskInfo.task != nil {
+				return m, m.openEditorForField(m.taskInfo.task.ID, "description", m.taskInfo.task.Description)
+			}
+		case "t":
+			if m.taskInfo.task != nil {
+				return m, m.openEditorForField(m.taskInfo.task.ID, "title", m.taskInfo.task.Title)
+			}
+		case "c":
+			if m.taskInfo.task != nil {
+				return m, m.openEditorForField(m.taskInfo.task.ID, "context", m.taskInfo.task.Context)
 			}
 		}
 		// Fall through to handle this key normally
@@ -1210,6 +1253,67 @@ func (m Model) openEditorForPrompt() tea.Cmd {
 		}
 		return editorPromptFinishedMsg{path: path}
 	})
+}
+
+func (m Model) openEditorForField(taskID int64, field, currentValue string) tea.Cmd {
+	f, err := os.CreateTemp("", fmt.Sprintf("sortie-%s-*.md", field))
+	if err != nil {
+		return func() tea.Msg { return errorMsg(fmt.Errorf("failed to create temp file: %w", err)) }
+	}
+
+	if currentValue != "" {
+		if _, err := f.WriteString(currentValue); err != nil {
+			f.Close()
+			os.Remove(f.Name())
+			return func() tea.Msg { return errorMsg(fmt.Errorf("failed to write temp file: %w", err)) }
+		}
+	}
+	f.Close()
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	path := f.Name()
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			os.Remove(path)
+			return errorMsg(fmt.Errorf("editor exited with error: %w", err))
+		}
+		return editorFieldFinishedMsg{taskID: taskID, field: field, path: path}
+	})
+}
+
+func (m Model) handleFieldEditorResult(msg editorFieldFinishedMsg) tea.Cmd {
+	return func() tea.Msg {
+		defer os.Remove(msg.path)
+
+		data, err := os.ReadFile(msg.path)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to read temp file: %w", err))
+		}
+
+		value := strings.TrimSpace(string(data))
+		if value == "" {
+			return nil // User cleared the field or cancelled
+		}
+
+		if m.client == nil {
+			return nil
+		}
+
+		if err := m.client.UpdateTaskField(msg.taskID, msg.field, value); err != nil {
+			return errorMsg(fmt.Errorf("failed to update %s: %w", msg.field, err))
+		}
+
+		return taskFieldUpdatedMsg{field: msg.field}
+	}
+}
+
+type taskFieldUpdatedMsg struct {
+	field string
 }
 
 func (m Model) handleEditorResult(path string) tea.Cmd {

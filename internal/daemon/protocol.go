@@ -25,6 +25,7 @@ const (
 	MsgFinalizeTask   MessageType = "finalize_task"
 	MsgDeleteTask     MessageType = "delete_task"
 	MsgUpdatePriority MessageType = "update_priority"
+	MsgUpdateField    MessageType = "update_field"
 	MsgAgentList      MessageType = "agent_list"
 	MsgTaskList     MessageType = "task_list"
 	MsgAgentUpdate  MessageType = "agent_update"
@@ -126,6 +127,12 @@ type DeleteTaskRequest struct {
 type UpdatePriorityRequest struct {
 	TaskID   int64  `json:"task_id"`
 	Priority string `json:"priority"`
+}
+
+type UpdateFieldRequest struct {
+	TaskID int64  `json:"task_id"`
+	Field  string `json:"field"`
+	Value  string `json:"value"`
 }
 
 type CreateTaskResponse struct {
