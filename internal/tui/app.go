@@ -47,7 +47,7 @@ type Model struct {
 	globalMode  bool
 
 	// Confirmation state
-	confirmAction string // "approve", "reject", or "delete"; empty if no confirmation pending
+	confirmAction string // "continue", "finalize", or "delete"; empty if no confirmation pending
 	confirmTaskID int64
 	pendingDelete bool // tracks first "d" press for dd sequence
 
@@ -333,8 +333,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmAction = ""
 			m.confirmTaskID = 0
 			switch action {
-			case "approve":
-				return m, m.approveTask(taskID)
 			case "continue":
 				return m, m.continueTask(taskID)
 			case "finalize":
@@ -342,7 +340,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "delete":
 				return m, m.deleteTask(taskID)
 			default:
-				return m, m.rejectTask(taskID)
+				return m, nil
 			}
 		case "n", "esc":
 			m.confirmAction = ""
@@ -489,26 +487,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "a":
-		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "awaiting-approval" || task.Status == "tmux" {
-				m.confirmAction = "approve"
-				m.confirmTaskID = task.ID
-				return m, nil
-			}
-		}
-		return m, nil
-
-	case "x":
-		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "awaiting-approval" || task.Status == "tmux" {
-				m.confirmAction = "reject"
-				m.confirmTaskID = task.ID
-				return m, nil
-			}
-		}
-		return m, nil
-
 	case "r":
 		// Retry if selected task is failed
 		if task := m.list.Selected(); task != nil && m.client != nil {
@@ -545,7 +523,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "c":
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "completed" || task.Status == "failed" || task.Status == "artifact-missing" {
+			if task.Status == "awaiting-approval" || task.Status == "completed" || task.Status == "failed" || task.Status == "artifact-missing" {
 				m.confirmAction = "continue"
 				m.confirmTaskID = task.ID
 				return m, nil
@@ -1101,30 +1079,6 @@ func (m Model) stopTask(taskID int64) tea.Cmd {
 			return nil
 		}
 		if err := m.client.StopTask(taskID); err != nil {
-			return errorMsg(err)
-		}
-		return nil
-	}
-}
-
-func (m Model) approveTask(taskID int64) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		if err := m.client.ApproveTask(taskID); err != nil {
-			return errorMsg(err)
-		}
-		return nil
-	}
-}
-
-func (m Model) rejectTask(taskID int64) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		if err := m.client.RejectTask(taskID); err != nil {
 			return errorMsg(err)
 		}
 		return nil

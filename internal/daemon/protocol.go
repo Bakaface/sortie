@@ -18,8 +18,6 @@ const (
 	MsgSendInput    MessageType = "send_input"
 	MsgGetOutput    MessageType = "get_output"
 	MsgGetTask      MessageType = "get_task"
-	MsgApproveTask  MessageType = "approve_task"
-	MsgRejectTask   MessageType = "reject_task"
 	MsgRetryTask    MessageType = "retry_task"
 	MsgGetLogs      MessageType = "get_logs"
 	MsgCreateTask   MessageType = "create_task"
@@ -88,14 +86,6 @@ type GetOutputRequest struct {
 }
 
 type GetTaskRequest struct {
-	TaskID int64 `json:"task_id"`
-}
-
-type ApproveTaskRequest struct {
-	TaskID int64 `json:"task_id"`
-}
-
-type RejectTaskRequest struct {
 	TaskID int64 `json:"task_id"`
 }
 

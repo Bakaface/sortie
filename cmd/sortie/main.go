@@ -500,58 +500,6 @@ var stopCmd = &cobra.Command{
 	},
 }
 
-var approveCmd = &cobra.Command{
-	Use:               "approve <task_id>",
-	Short:             "Approve a task awaiting approval",
-	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval, task.StatusTmux),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		taskID, err := strconv.ParseInt(args[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid task ID: %s", args[0])
-		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.ApproveTask(taskID); err != nil {
-			return fmt.Errorf("failed to approve task: %w", err)
-		}
-
-		fmt.Printf("Task #%d approved and resumed\n", taskID)
-		return nil
-	},
-}
-
-var rejectCmd = &cobra.Command{
-	Use:               "reject <task_id>",
-	Short:             "Reject a task awaiting approval",
-	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval, task.StatusTmux),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		taskID, err := strconv.ParseInt(args[0], 10, 64)
-		if err != nil {
-			return fmt.Errorf("invalid task ID: %s", args[0])
-		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.RejectTask(taskID); err != nil {
-			return fmt.Errorf("failed to reject task: %w", err)
-		}
-
-		fmt.Printf("Task #%d rejected\n", taskID)
-		return nil
-	},
-}
-
 var retryCmd = &cobra.Command{
 	Use:               "retry <task_id>",
 	Short:             "Retry a failed task",
@@ -580,9 +528,9 @@ var retryCmd = &cobra.Command{
 
 var continueCmd = &cobra.Command{
 	Use:               "continue <task_id>",
-	Short:             "Continue a completed/failed/artifact-missing task",
+	Short:             "Continue a task (awaiting-approval, completed, failed, or artifact-missing)",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: completeTaskIDs(task.StatusCompleted, task.StatusFailed, task.StatusArtifactMissing),
+	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval, task.StatusTmux, task.StatusCompleted, task.StatusFailed, task.StatusArtifactMissing),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
@@ -846,8 +794,6 @@ func init() {
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(listCmd)
 	rootCmd.AddCommand(stopCmd)
-	rootCmd.AddCommand(approveCmd)
-	rootCmd.AddCommand(rejectCmd)
 	rootCmd.AddCommand(retryCmd)
 	rootCmd.AddCommand(continueCmd)
 	rootCmd.AddCommand(logsCmd)

@@ -50,7 +50,7 @@ func TestSendAndWait_ConcurrentCallsGetCorrectResponses(t *testing.T) {
 
 	// Start mock server that responds with a message type matching the request:
 	// - list_tasks -> task_list with empty tasks
-	// - approve_task -> ok
+	// - continue_task -> ok
 	// - ping -> pong
 	go mockServer(t, listener, func(msg *daemon.Message) *daemon.Message {
 		switch msg.Type {
@@ -59,8 +59,8 @@ func TestSendAndWait_ConcurrentCallsGetCorrectResponses(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 			resp, _ := daemon.NewMessage(daemon.MsgTaskList, daemon.TaskListResponse{Tasks: []daemon.TaskInfo{}})
 			return resp
-		case daemon.MsgApproveTask:
-			resp, _ := daemon.NewMessage(daemon.MsgOK, daemon.OKResponse{Message: "task approved and resumed"})
+		case daemon.MsgContinueTask:
+			resp, _ := daemon.NewMessage(daemon.MsgOK, daemon.OKResponse{Message: "task continued and resumed"})
 			return resp
 		case daemon.MsgPing:
 			resp, _ := daemon.NewMessage(daemon.MsgPong, nil)
@@ -110,16 +110,16 @@ func TestSendAndWait_ConcurrentCallsGetCorrectResponses(t *testing.T) {
 			}
 		}()
 
-		// Goroutine 2: ApproveTask expects MsgOK response
+		// Goroutine 2: ContinueTask expects MsgOK response
 		go func() {
 			defer wg.Done()
-			msg, err := c.sendAndWait(daemon.MsgApproveTask, daemon.ApproveTaskRequest{TaskID: 1})
+			msg, err := c.sendAndWait(daemon.MsgContinueTask, daemon.ContinueTaskRequest{TaskID: 1})
 			if err != nil {
-				errCh <- "ApproveTask error: " + err.Error()
+				errCh <- "ContinueTask error: " + err.Error()
 				return
 			}
 			if msg.Type != daemon.MsgOK {
-				errCh <- "ApproveTask got wrong response type: " + string(msg.Type)
+				errCh <- "ContinueTask got wrong response type: " + string(msg.Type)
 			}
 		}()
 	}
@@ -264,20 +264,3 @@ func TestContinueTaskRequest_JSONEncoding(t *testing.T) {
 	}
 }
 
-// Verify JSON encoding consistency (regression test for the original bug scenario).
-func TestApproveTaskRequest_JSONEncoding(t *testing.T) {
-	req := daemon.ApproveTaskRequest{TaskID: 26}
-	data, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("failed to marshal: %v", err)
-	}
-
-	var decoded daemon.ApproveTaskRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("failed to unmarshal: %v", err)
-	}
-
-	if decoded.TaskID != 26 {
-		t.Errorf("expected task_id=26, got %d", decoded.TaskID)
-	}
-}

@@ -282,22 +282,6 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleGetTask(conn, req)
 
-	case MsgApproveTask:
-		var req ApproveTaskRequest
-		if err := msg.DecodePayload(&req); err != nil {
-			s.sendError(conn, "invalid payload")
-			return
-		}
-		s.handleApproveTask(conn, req)
-
-	case MsgRejectTask:
-		var req RejectTaskRequest
-		if err := msg.DecodePayload(&req); err != nil {
-			s.sendError(conn, "invalid payload")
-			return
-		}
-		s.handleRejectTask(conn, req)
-
 	case MsgRetryTask:
 		var req RetryTaskRequest
 		if err := msg.DecodePayload(&req); err != nil {
@@ -495,87 +479,6 @@ func (s *Server) handleGetTask(conn net.Conn, req GetTaskRequest) {
 	s.sendMessage(conn, MsgGetTask, GetTaskResponse{Task: info})
 }
 
-func (s *Server) handleApproveTask(conn net.Conn, req ApproveTaskRequest) {
-	t, err := s.database.GetTask(req.TaskID)
-	if err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
-		return
-	}
-
-	if t.Status != task.StatusAwaitingApproval && t.Status != task.StatusTmux {
-		s.sendError(conn, fmt.Sprintf("task is not awaiting approval (status: %s)", t.Status))
-		return
-	}
-
-	// Kill any tmux sessions from the approved step before resuming
-	agentID := fmt.Sprintf("%d", t.ID)
-	if err := tmux.KillSessionsForTask(agentID); err != nil {
-		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
-	}
-
-	// Save original status for rollback
-	origStatus := t.Status
-
-	// Set status to running
-	if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
-		return
-	}
-
-	// Resume the task (engine will continue from t.StepIndex)
-	if err := s.startTaskAgent(t); err != nil {
-		// Roll back status so the task isn't stuck as "running" with no agent
-		_ = s.database.UpdateTaskStatus(t.ID, origStatus)
-		s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
-		return
-	}
-
-	s.sendMessage(conn, MsgOK, OKResponse{Message: "task approved and resumed"})
-}
-
-func (s *Server) handleRejectTask(conn net.Conn, req RejectTaskRequest) {
-	t, err := s.database.GetTask(req.TaskID)
-	if err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
-		return
-	}
-
-	if t.Status != task.StatusAwaitingApproval && t.Status != task.StatusTmux {
-		s.sendError(conn, fmt.Sprintf("task is not awaiting approval (status: %s)", t.Status))
-		return
-	}
-
-	// Kill any tmux sessions from the rejected step
-	agentID := fmt.Sprintf("%d", t.ID)
-	if err := tmux.KillSessionsForTask(agentID); err != nil {
-		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
-	}
-
-	repoRoot := s.getProjectRepoRoot(t)
-
-	// Remove worktree if it exists
-	if t.WorktreePath != "" && repoRoot != "" {
-		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
-			log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, err)
-		}
-	}
-
-	// Delete branch if it exists
-	if t.Branch != "" && repoRoot != "" {
-		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
-			log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, err)
-		}
-	}
-
-	// Set status to failed
-	if err := s.database.UpdateTaskStatus(t.ID, task.StatusFailed); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
-		return
-	}
-
-	s.sendMessage(conn, MsgOK, OKResponse{Message: "task rejected"})
-}
-
 func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 	if err := s.database.ResetTaskForRetry(req.TaskID); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
@@ -589,6 +492,35 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	t, err := s.database.GetTask(req.TaskID)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	// Awaiting-approval tasks: resume from the next step (like the old approve action)
+	if t.Status == task.StatusAwaitingApproval || t.Status == task.StatusTmux {
+		// Kill any tmux sessions from the approved step before resuming
+		agentID := fmt.Sprintf("%d", t.ID)
+		if err := tmux.KillSessionsForTask(agentID); err != nil {
+			log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+		}
+
+		// Save original status for rollback
+		origStatus := t.Status
+
+		// Set status to running
+		if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
+			return
+		}
+
+		// Resume the task (engine will continue from t.StepIndex)
+		if err := s.startTaskAgent(t); err != nil {
+			// Roll back status so the task isn't stuck as "running" with no agent
+			_ = s.database.UpdateTaskStatus(t.ID, origStatus)
+			s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
+			return
+		}
+
+		s.sendMessage(conn, MsgOK, OKResponse{Message: "task continued and resumed"})
 		return
 	}
 
@@ -1267,10 +1199,10 @@ func (s *Server) recoverOrphanedTasks() error {
 			}
 		}
 		if t.Status == task.StatusAwaitingApproval {
-			log.Printf("Task #%d is awaiting approval (use 'approve' or 'reject' command)", t.ID)
+			log.Printf("Task #%d is awaiting approval (use 'continue' command)", t.ID)
 		}
 		if t.Status == task.StatusTmux {
-			log.Printf("Task #%d has tmux session running (use 'approve' or 'reject' command)", t.ID)
+			log.Printf("Task #%d has tmux session running (use 'continue' command)", t.ID)
 		}
 		if t.Status == task.StatusArtifactMissing {
 			log.Printf("Task #%d has missing artifact (use 'continue' command to skip)", t.ID)

@@ -311,16 +311,16 @@ func TestHandleKey_ClearsErrorAndProcessesKey(t *testing.T) {
 		{ID: 26, Title: "Test task", Status: "awaiting-approval"},
 	})
 
-	// Press "a" while m.err is set — should clear error AND trigger approve confirmation
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
+	// Press "c" while m.err is set — should clear error AND trigger continue confirmation
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
 	result, _ := m.handleKey(msg)
 	updated := result.(Model)
 
 	if updated.err != nil {
 		t.Error("expected error to be cleared")
 	}
-	if updated.confirmAction != "approve" {
-		t.Errorf("expected confirmAction to be 'approve', got %q", updated.confirmAction)
+	if updated.confirmAction != "continue" {
+		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
 	}
 	if updated.confirmTaskID != 26 {
 		t.Errorf("expected confirmTaskID to be 26, got %d", updated.confirmTaskID)
@@ -822,7 +822,7 @@ func TestHandleListKey_CNoOpForPendingTask(t *testing.T) {
 	}
 }
 
-func TestHandleListKey_CNoOpForAwaitingApprovalTask(t *testing.T) {
+func TestHandleListKey_CContinuesAwaitingApprovalTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
@@ -834,13 +834,16 @@ func TestHandleListKey_CNoOpForAwaitingApprovalTask(t *testing.T) {
 		{ID: 16, Title: "Awaiting task", Status: "awaiting-approval"},
 	})
 
-	// Single "c" should not trigger any action for awaiting-approval task
+	// Single "c" should trigger continue confirmation for awaiting-approval task
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.confirmAction != "" {
-		t.Errorf("expected no confirmAction for awaiting-approval task, got %q", updated.confirmAction)
+	if updated.confirmAction != "continue" {
+		t.Errorf("expected confirmAction to be 'continue' for awaiting-approval task, got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 16 {
+		t.Errorf("expected confirmTaskID to be 16, got %d", updated.confirmTaskID)
 	}
 }
 

@@ -10,8 +10,6 @@ type keyMap struct {
 	Enter          key.Binding
 	Logs           key.Binding
 	Stop           key.Binding
-	Approve        key.Binding
-	Reject         key.Binding
 	Retry          key.Binding
 	RunTask        key.Binding
 	Delete         key.Binding
@@ -57,14 +55,6 @@ func newKeyMap() keyMap {
 		Stop: key.NewBinding(
 			key.WithKeys("s"),
 			key.WithHelp("s", "stop"),
-		),
-		Approve: key.NewBinding(
-			key.WithKeys("a"),
-			key.WithHelp("a", "approve"),
-		),
-		Reject: key.NewBinding(
-			key.WithKeys("x"),
-			key.WithHelp("x", "reject"),
 		),
 		Retry: key.NewBinding(
 			key.WithKeys("r"),
@@ -158,13 +148,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.Approve, k.Stop, k.Quit, k.Help}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.Continue, k.Stop, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.GotoTask, k.SearchForward, k.SearchBackward, k.NextMatch, k.PrevMatch, k.Enter, k.Logs},
-		{k.NewTask, k.RunTask, k.Stop, k.Approve, k.Reject, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.Refresh},
+		{k.NewTask, k.RunTask, k.Stop, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

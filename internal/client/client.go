@@ -315,36 +315,6 @@ func (c *Client) GetTask(id int64) (*daemon.TaskInfo, error) {
 	return &resp.Task, nil
 }
 
-func (c *Client) ApproveTask(id int64) error {
-	msg, err := c.sendAndWait(daemon.MsgApproveTask, daemon.ApproveTaskRequest{TaskID: id})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
-}
-
-func (c *Client) RejectTask(id int64) error {
-	msg, err := c.sendAndWait(daemon.MsgRejectTask, daemon.RejectTaskRequest{TaskID: id})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
-}
-
 func (c *Client) RetryTask(id int64) error {
 	msg, err := c.sendAndWait(daemon.MsgRetryTask, daemon.RetryTaskRequest{TaskID: id})
 	if err != nil {
