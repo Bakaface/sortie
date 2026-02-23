@@ -72,8 +72,8 @@ func (d *detailView) SetSize(width, height int) {
 }
 
 func (d *detailView) headerLines() int {
-	// "Sortie" + blank line = 2 lines
-	base := 2
+	// "Sortie" title bar + blank line + gap before viewport = 3 lines
+	base := 3
 	if d.task != nil && d.width > 0 {
 		taskTitle := d.task.Title
 		if taskTitle == "" {
@@ -176,7 +176,7 @@ func (d *detailView) View() string {
 
 	// App title
 	b.WriteString(titleStyle.Render(" Sortie "))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	// Task title with word wrapping
 	taskTitle := d.task.Title
@@ -184,7 +184,7 @@ func (d *detailView) View() string {
 		taskTitle = d.task.Description
 	}
 	titleText := fmt.Sprintf("#%d %s", d.task.ID, taskTitle)
-	wrappedTitle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Width(d.width).Render(titleText)
+	wrappedTitle := subHeaderStyle.Width(d.width).Render("  " + titleText)
 	b.WriteString(wrappedTitle)
 	b.WriteString("\n")
 
@@ -232,23 +232,3 @@ func (d *detailView) renderHelp() string {
 	return help.String()
 }
 
-func (d *detailView) renderStatusBar() string {
-	if d.task == nil {
-		return ""
-	}
-
-	scrollPercent := 0
-	if d.viewport.TotalLineCount() > 0 {
-		scrollPercent = int(float64(d.viewport.YOffset) / float64(d.viewport.TotalLineCount()) * 100)
-	}
-
-	left := fmt.Sprintf(" #%d ", d.task.ID)
-	right := fmt.Sprintf(" %d%% ", scrollPercent)
-
-	gap := d.width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 0 {
-		gap = 0
-	}
-
-	return statusBarStyle.Render(left + strings.Repeat(" ", gap) + right)
-}

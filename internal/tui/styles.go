@@ -7,7 +7,6 @@ import (
 var (
 	subtle    = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"}
 	highlight = lipgloss.AdaptiveColor{Light: "#4078C0", Dark: "#6CA0DC"}
-	special   = lipgloss.AdaptiveColor{Light: "#43BF6D", Dark: "#73F59F"}
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -65,9 +64,7 @@ var (
 			BorderForeground(subtle).
 			Padding(0, 1)
 
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}).
-			Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"})
+	subHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA"))
 )
 
 func stateStyle(state string) lipgloss.Style {

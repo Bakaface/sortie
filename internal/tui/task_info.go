@@ -45,9 +45,9 @@ func (v *taskInfoView) recalcViewport() {
 		return
 	}
 
-	// Header: title bar + blank line = 2 lines
+	// Header: title bar + blank line + gap before viewport = 3 lines
 	// Footer: help bar = 2 lines
-	headerHeight := 2
+	headerHeight := 3
 	footerHeight := 2
 	vpHeight := v.height - headerHeight - footerHeight
 	if vpHeight < 1 {
@@ -80,7 +80,7 @@ func (v *taskInfoView) renderMetadata() string {
 	t := v.task
 	var b strings.Builder
 
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#6CA0DC"))
+	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA"))
 
 	// Task title
@@ -88,7 +88,7 @@ func (v *taskInfoView) renderMetadata() string {
 	if taskTitle == "" {
 		taskTitle = t.Description
 	}
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Render(
+	b.WriteString(subHeaderStyle.Render(
 		fmt.Sprintf("#%d %s", t.ID, taskTitle)))
 	b.WriteString("\n\n")
 
@@ -255,7 +255,7 @@ func (v *taskInfoView) View() string {
 
 	// App title
 	b.WriteString(titleStyle.Render(" Sortie "))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	// Scrollable content viewport
 	if v.ready {

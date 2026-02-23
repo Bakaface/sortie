@@ -179,7 +179,7 @@ func (p *promptView) View() string {
 	// Attached images
 	if len(p.images) > 0 {
 		b.WriteString("\n")
-		labelStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#6CA0DC"))
+		labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
 		b.WriteString("  ")
 		b.WriteString(labelStyle.Render("Attached images:"))
 		b.WriteString("\n")

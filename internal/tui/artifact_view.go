@@ -28,9 +28,9 @@ func (v *artifactViewState) recalcViewport() {
 		return
 	}
 
-	// Header: title bar + artifact name + blank = 3 lines
+	// Header: title bar + blank line + artifact name + gap = 4 lines
 	// Footer: help bar = 2 lines
-	headerHeight := 3
+	headerHeight := 4
 	footerHeight := 2
 	vpHeight := v.height - headerHeight - footerHeight
 	if vpHeight < 1 {
@@ -69,11 +69,11 @@ func (v *artifactViewState) View() string {
 
 	// App title
 	b.WriteString(titleStyle.Render(" Sortie "))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	// Artifact name
-	artifactTitle := fmt.Sprintf("Artifact: %s", v.name)
-	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA")).Render(artifactTitle))
+	artifactTitle := fmt.Sprintf("  Artifact: %s", v.name)
+	b.WriteString(subHeaderStyle.Render(artifactTitle))
 	b.WriteString("\n")
 
 	// Scrollable content viewport

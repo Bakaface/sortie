@@ -1415,7 +1415,7 @@ func (m Model) View() string {
 	}
 
 	if m.err != nil {
-		return fmt.Sprintf("Error: %v\n\nPress any key to continue.", m.err)
+		return fmt.Sprintf("  Error: %v\n\n  Press any key to continue.", m.err)
 	}
 
 	// Show help overlay
@@ -1427,7 +1427,7 @@ func (m Model) View() string {
 	if m.selectingPriority {
 		priorities := []string{"low", "medium", "high", "urgent"}
 		var b strings.Builder
-		b.WriteString(titleStyle.Render("Select Priority") + "\n\n")
+		b.WriteString(titleStyle.Render(" Select Priority ") + "\n\n")
 		for i, name := range priorities {
 			label := fmt.Sprintf("  %d. %s", i+1, name)
 			if i == m.priorityCursor {
@@ -1444,7 +1444,7 @@ func (m Model) View() string {
 	if m.selectingWorkflow {
 		workflows := m.cfg.ListWorkflowNames()
 		var b strings.Builder
-		b.WriteString(titleStyle.Render("Select Workflow") + "\n\n")
+		b.WriteString(titleStyle.Render(" Select Workflow ") + "\n\n")
 		for i, name := range workflows {
 			label := fmt.Sprintf("  %d. %s", i+1, name)
 			if i == m.workflowCursor {
@@ -1461,7 +1461,7 @@ func (m Model) View() string {
 	if m.selectingTask {
 		tasks := m.cfg.ListPredefinedTaskNames()
 		var b strings.Builder
-		b.WriteString(titleStyle.Render("Run Predefined Task") + "\n\n")
+		b.WriteString(titleStyle.Render(" Run Predefined Task ") + "\n\n")
 		for i, name := range tasks {
 			taskCfg := m.cfg.GetPredefinedTask(name)
 			label := fmt.Sprintf("  %d. %s", i+1, name)
@@ -1481,9 +1481,9 @@ func (m Model) View() string {
 	// Show artifact selection as its own screen
 	if m.selectingArtifact {
 		var b strings.Builder
-		title := "Select Artifact"
+		title := " Select Artifact "
 		if m.artifactAction == "edit" {
-			title = "Edit Artifact"
+			title = " Edit Artifact "
 		}
 		b.WriteString(titleStyle.Render(title) + "\n\n")
 		for i, name := range m.artifactNames {
@@ -1519,7 +1519,7 @@ func (m Model) View() string {
 
 	// Show command bar if in command mode
 	if m.commandMode {
-		content += fmt.Sprintf("\n:%s█", m.commandInput)
+		content += fmt.Sprintf("\n  :%s█", m.commandInput)
 	}
 
 	return content
