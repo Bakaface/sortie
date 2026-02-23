@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority TEXT NOT NULL DEFAULT 'medium',
     step_index INTEGER NOT NULL DEFAULT 0,
     current_step TEXT,
+    loop_iteration INTEGER NOT NULL DEFAULT 0,
     branch TEXT NOT NULL DEFAULT '',
     worktree_path TEXT,
     exit_code INTEGER,

@@ -20,10 +20,16 @@ type GitVars struct {
 	RepoRoot   string
 }
 
+type LoopVars struct {
+	Iteration     int
+	MaxIterations int
+}
+
 type TemplateContext struct {
 	Task      TaskVars
 	Artifacts map[string]string
 	Git       GitVars
+	Loop      LoopVars
 }
 
 var templatePattern = regexp.MustCompile(`\{\{([a-zA-Z0-9_.]+)\}\}`)
@@ -50,6 +56,10 @@ func ResolveTemplate(tmpl string, ctx *TemplateContext) string {
 			return ctx.Git.BaseBranch
 		case key == "git.repo_root":
 			return ctx.Git.RepoRoot
+		case key == "loop.iteration":
+			return fmt.Sprintf("%d", ctx.Loop.Iteration)
+		case key == "loop.max_iterations":
+			return fmt.Sprintf("%d", ctx.Loop.MaxIterations)
 		case strings.HasPrefix(key, "artifacts."):
 			artifactName := key[len("artifacts."):]
 			if val, ok := ctx.Artifacts[artifactName]; ok {

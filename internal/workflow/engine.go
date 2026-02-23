@@ -41,6 +41,16 @@ func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, r
 	}
 }
 
+// findStepIndex returns the index of a step by name, or -1 if not found.
+func findStepIndex(steps []config.StepConfig, name string) int {
+	for i, s := range steps {
+		if s.Name == name {
+			return i
+		}
+	}
+	return -1
+}
+
 // RunTask executes the full workflow pipeline for a task.
 // It creates/reuses the worktree, then loops through steps starting from t.StepIndex.
 // outputFn is called with parsed log lines for live streaming (may be nil).
@@ -105,6 +115,24 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		artifacts := CollectArtifacts(t.WorktreePath, priorStepNames)
 
 		// Build template context and resolve prompt
+		loopVars := LoopVars{}
+		if step.Loop != nil {
+			loopVars.Iteration = t.LoopIteration
+			loopVars.MaxIterations = step.Loop.MaxIterations
+		} else {
+			// Check if any step in the current loop range references this step
+			// to populate loop vars for non-loop steps inside a loop
+			for _, s := range steps {
+				if s.Loop != nil && s.Loop.Goto != "" {
+					targetIdx := findStepIndex(steps, s.Loop.Goto)
+					if targetIdx >= 0 && targetIdx <= i && i <= findStepIndex(steps, s.Name) {
+						loopVars.Iteration = t.LoopIteration
+						loopVars.MaxIterations = s.Loop.MaxIterations
+						break
+					}
+				}
+			}
+		}
 		tmplCtx := &TemplateContext{
 			Task: TaskVars{
 				ID:          t.ID,
@@ -119,6 +147,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 				BaseBranch: e.cfg.Git.BaseBranch,
 				RepoRoot:   e.repoRoot,
 			},
+			Loop: loopVars,
 		}
 
 		resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
@@ -187,6 +216,48 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 					log.Printf("Warning: failed to set artifact-missing: %v", err)
 				}
 				return nil
+			}
+		}
+
+		// Evaluate loop condition
+		if step.Loop != nil {
+			shouldLoop := true
+
+			// Check max iterations
+			if t.LoopIteration >= step.Loop.MaxIterations {
+				shouldLoop = false
+			}
+
+			// Check exit condition
+			if shouldLoop && step.Loop.ExitCondition != nil {
+				if step.Loop.ExitCondition.ArtifactEmpty != "" {
+					content, _ := ReadArtifact(t.WorktreePath, step.Loop.ExitCondition.ArtifactEmpty)
+					if strings.TrimSpace(content) == "" {
+						shouldLoop = false
+						log.Printf("Loop exit: artifact %q is empty for task #%d", step.Loop.ExitCondition.ArtifactEmpty, t.ID)
+					}
+				}
+			}
+
+			if shouldLoop {
+				targetIdx := findStepIndex(steps, step.Loop.Goto)
+				t.LoopIteration++
+				if err := e.database.UpdateTaskLoopIteration(t.ID, t.LoopIteration); err != nil {
+					log.Printf("Warning: failed to update loop iteration: %v", err)
+				}
+				if err := e.database.UpdateTaskStep(t.ID, targetIdx, steps[targetIdx].Name); err != nil {
+					log.Printf("Warning: failed to update task step for loop: %v", err)
+				}
+				log.Printf("Task #%d looping back to step %q (iteration %d/%d)", t.ID, step.Loop.Goto, t.LoopIteration, step.Loop.MaxIterations)
+				i = targetIdx - 1 // for-loop will increment
+				continue
+			}
+
+			// Loop done, reset counter
+			log.Printf("Task #%d loop completed after %d iterations", t.ID, t.LoopIteration)
+			t.LoopIteration = 0
+			if err := e.database.UpdateTaskLoopIteration(t.ID, 0); err != nil {
+				log.Printf("Warning: failed to reset loop iteration: %v", err)
 			}
 		}
 
@@ -404,15 +475,19 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	if err := os.MkdirAll(ProjectLogsDir(e.dataDir, t.ID), 0755); err != nil {
 		return 1, "", fmt.Errorf("failed to create log dir: %w", err)
 	}
-	logFile, err := os.Create(logPath)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return 1, "", fmt.Errorf("failed to create step log: %w", err)
+		return 1, "", fmt.Errorf("failed to open step log: %w", err)
 	}
 	defer logFile.Close()
 
 	// Write step header and prompt to log file and outputFn
-	header := fmt.Sprintf("[%s] === Step: %s (task #%d) ===",
-		time.Now().Format("15:04:05"), step.Name, t.ID)
+	iterSuffix := ""
+	if t.LoopIteration > 0 {
+		iterSuffix = fmt.Sprintf(" [iteration %d]", t.LoopIteration)
+	}
+	header := fmt.Sprintf("[%s] === Step: %s (task #%d)%s ===",
+		time.Now().Format("15:04:05"), step.Name, t.ID, iterSuffix)
 	promptHeader := fmt.Sprintf("[%s] Prompt:", time.Now().Format("15:04:05"))
 	var promptLines []string
 	promptLines = append(promptLines, header)

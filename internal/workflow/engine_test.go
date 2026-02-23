@@ -512,3 +512,58 @@ func TestSummarizerDiffStatPromptIncludesReadInstruction(t *testing.T) {
 		t.Error("expected prompt to contain the diff stat")
 	}
 }
+
+func TestTemplateLoopVars(t *testing.T) {
+	ctx := &TemplateContext{
+		Task: TaskVars{ID: 1, Title: "Test task", Description: "A test"},
+		Loop: LoopVars{Iteration: 3, MaxIterations: 5},
+	}
+
+	result := ResolveTemplate("Iteration {{loop.iteration}} of {{loop.max_iterations}}", ctx)
+	expected := "Iteration 3 of 5"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestTemplateLoopVarsZero(t *testing.T) {
+	ctx := &TemplateContext{
+		Task: TaskVars{ID: 1, Title: "Test task", Description: "A test"},
+		Loop: LoopVars{Iteration: 0, MaxIterations: 0},
+	}
+
+	result := ResolveTemplate("Iteration {{loop.iteration}} of {{loop.max_iterations}}", ctx)
+	expected := "Iteration 0 of 0"
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestFindStepIndex(t *testing.T) {
+	steps := []config.StepConfig{
+		{Name: "implement"},
+		{Name: "review"},
+		{Name: "test"},
+	}
+
+	tests := []struct {
+		name     string
+		stepName string
+		expected int
+	}{
+		{"first step", "implement", 0},
+		{"middle step", "review", 1},
+		{"last step", "test", 2},
+		{"not found", "deploy", -1},
+		{"empty string", "", -1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := findStepIndex(steps, tt.stepName)
+			if result != tt.expected {
+				t.Errorf("findStepIndex(%q) = %d, want %d", tt.stepName, result, tt.expected)
+			}
+		})
+	}
+}

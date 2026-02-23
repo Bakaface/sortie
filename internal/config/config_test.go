@@ -428,3 +428,309 @@ func TestValidateArtifactProjectOverridesGlobal(t *testing.T) {
 		t.Error("expected validate_artifact to be false after project config overrides global")
 	}
 }
+
+func TestLoopConfigParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+workflow:
+  steps:
+    - name: plan
+      prompt: "Plan"
+      artifact: true
+    - name: implement
+      prompt: "Implement"
+    - name: verify
+      prompt: "Verify"
+      loop:
+        goto: plan
+        max_iterations: 5
+        exit_condition:
+          artifact_empty: plan
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	steps := cfg.Workflows[0].Steps
+	if len(steps) != 3 {
+		t.Fatalf("expected 3 steps, got %d", len(steps))
+	}
+
+	// Check first two steps have no loop
+	if steps[0].Loop != nil {
+		t.Error("expected plan step to have no loop")
+	}
+	if steps[1].Loop != nil {
+		t.Error("expected implement step to have no loop")
+	}
+
+	// Check third step has loop config
+	if steps[2].Loop == nil {
+		t.Fatal("expected verify step to have loop config")
+	}
+
+	loop := steps[2].Loop
+	if loop.Goto != "plan" {
+		t.Errorf("expected goto 'plan', got %q", loop.Goto)
+	}
+	if loop.MaxIterations != 5 {
+		t.Errorf("expected max_iterations 5, got %d", loop.MaxIterations)
+	}
+
+	// Check exit condition
+	if loop.ExitCondition == nil {
+		t.Fatal("expected exit_condition to be set")
+	}
+	if loop.ExitCondition.ArtifactEmpty != "plan" {
+		t.Errorf("expected artifact_empty 'plan', got %q", loop.ExitCondition.ArtifactEmpty)
+	}
+}
+
+func TestValidateLoopsValidConfig(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{Name: "plan", Prompt: "Plan", Artifact: true},
+			{Name: "implement", Prompt: "Implement"},
+			{
+				Name:   "verify",
+				Prompt: "Verify",
+				Loop: &LoopConfig{
+					Goto:          "plan",
+					MaxIterations: 3,
+					ExitCondition: &LoopExitCondition{
+						ArtifactEmpty: "plan",
+					},
+				},
+			},
+		},
+	}
+
+	if err := wf.ValidateLoops(); err != nil {
+		t.Errorf("expected valid config to pass validation, got error: %v", err)
+	}
+}
+
+func TestValidateLoopsInvalidGoto(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{Name: "plan", Prompt: "Plan"},
+			{
+				Name:   "implement",
+				Prompt: "Implement",
+				Loop: &LoopConfig{
+					Goto:          "nonexistent",
+					MaxIterations: 3,
+				},
+			},
+		},
+	}
+
+	err := wf.ValidateLoops()
+	if err == nil {
+		t.Error("expected error for goto referencing unknown step")
+	}
+	if err != nil && !containsString(err.Error(), "unknown step") {
+		t.Errorf("expected error about unknown step, got: %v", err)
+	}
+}
+
+func TestValidateLoopsForwardGoto(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{
+				Name:   "plan",
+				Prompt: "Plan",
+				Loop: &LoopConfig{
+					Goto:          "implement",
+					MaxIterations: 3,
+				},
+			},
+			{Name: "implement", Prompt: "Implement"},
+		},
+	}
+
+	err := wf.ValidateLoops()
+	if err == nil {
+		t.Error("expected error for forward goto")
+	}
+	if err != nil && !containsString(err.Error(), "earlier step") {
+		t.Errorf("expected error about earlier step, got: %v", err)
+	}
+}
+
+func TestValidateLoopsSelfReference(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{
+				Name:   "plan",
+				Prompt: "Plan",
+				Loop: &LoopConfig{
+					Goto:          "plan",
+					MaxIterations: 3,
+				},
+			},
+		},
+	}
+
+	err := wf.ValidateLoops()
+	if err == nil {
+		t.Error("expected error for self-reference")
+	}
+	if err != nil && !containsString(err.Error(), "earlier step") {
+		t.Errorf("expected error about earlier step, got: %v", err)
+	}
+}
+
+func TestValidateLoopsMaxIterationsZero(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{Name: "plan", Prompt: "Plan"},
+			{
+				Name:   "implement",
+				Prompt: "Implement",
+				Loop: &LoopConfig{
+					Goto:          "plan",
+					MaxIterations: 0,
+				},
+			},
+		},
+	}
+
+	err := wf.ValidateLoops()
+	if err == nil {
+		t.Error("expected error for max_iterations 0")
+	}
+	if err != nil && !containsString(err.Error(), "must be >= 1") {
+		t.Errorf("expected error about max_iterations >= 1, got: %v", err)
+	}
+}
+
+func TestValidateLoopsHumanStep(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{Name: "plan", Prompt: "Plan"},
+			{
+				Name:   "implement",
+				Prompt: "Implement",
+				Human:  true,
+				Loop: &LoopConfig{
+					Goto:          "plan",
+					MaxIterations: 3,
+				},
+			},
+		},
+	}
+
+	err := wf.ValidateLoops()
+	if err == nil {
+		t.Error("expected error for human step with loop")
+	}
+	if err != nil && !containsString(err.Error(), "human: true") {
+		t.Errorf("expected error about human: true, got: %v", err)
+	}
+}
+
+func TestValidateLoopsInvalidExitCondition(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{Name: "plan", Prompt: "Plan"},
+			{
+				Name:   "implement",
+				Prompt: "Implement",
+				Loop: &LoopConfig{
+					Goto:          "plan",
+					MaxIterations: 3,
+					ExitCondition: &LoopExitCondition{
+						ArtifactEmpty: "nonexistent",
+					},
+				},
+			},
+		},
+	}
+
+	err := wf.ValidateLoops()
+	if err == nil {
+		t.Error("expected error for exit condition referencing unknown step")
+	}
+	if err != nil && !containsString(err.Error(), "unknown step") {
+		t.Errorf("expected error about unknown step, got: %v", err)
+	}
+}
+
+func TestValidateLoopsOverlapping(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{Name: "step1", Prompt: "Step 1"},
+			{Name: "step2", Prompt: "Step 2"},
+			{Name: "step3", Prompt: "Step 3"},
+			{
+				Name:   "step4",
+				Prompt: "Step 4",
+				Loop: &LoopConfig{
+					Goto:          "step1",
+					MaxIterations: 2,
+				},
+			},
+			{
+				Name:   "step5",
+				Prompt: "Step 5",
+				Loop: &LoopConfig{
+					Goto:          "step2",
+					MaxIterations: 2,
+				},
+			},
+		},
+	}
+
+	err := wf.ValidateLoops()
+	if err == nil {
+		t.Error("expected error for overlapping loops")
+	}
+	if err != nil && !containsString(err.Error(), "overlaps") {
+		t.Errorf("expected error about overlapping loops, got: %v", err)
+	}
+}
+
+func TestValidateLoopsNoLoop(t *testing.T) {
+	wf := &WorkflowConfig{
+		Name: "test",
+		Steps: []StepConfig{
+			{Name: "plan", Prompt: "Plan"},
+			{Name: "implement", Prompt: "Implement"},
+			{Name: "verify", Prompt: "Verify"},
+		},
+	}
+
+	if err := wf.ValidateLoops(); err != nil {
+		t.Errorf("expected workflow without loops to pass validation, got error: %v", err)
+	}
+}
+
+// Helper function to check if string contains substring
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && contains(s, substr))
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

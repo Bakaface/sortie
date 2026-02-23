@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (7)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (8)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -169,6 +169,18 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to add default_priority column to projects: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 7`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 8: Add loop_iteration to tasks
+	if version < 8 {
+		_, err := db.Exec(`ALTER TABLE tasks ADD COLUMN loop_iteration INTEGER NOT NULL DEFAULT 0`)
+		if err != nil {
+			return fmt.Errorf("failed to add loop_iteration column: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 8`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}

@@ -165,8 +165,9 @@ type TaskInfo struct {
 	Workflow     string     `json:"workflow,omitempty"`
 	Status       string     `json:"status"`
 	Priority     string     `json:"priority"`
-	StepIndex    int        `json:"step_index"`
-	CurrentStep  string     `json:"current_step"`
+	StepIndex     int        `json:"step_index"`
+	CurrentStep   string     `json:"current_step"`
+	LoopIteration int        `json:"loop_iteration,omitempty"`
 	Branch       string     `json:"branch"`
 	WorktreePath string     `json:"worktree_path,omitempty"`
 	ErrorMessage string     `json:"error_message,omitempty"`

@@ -120,8 +120,12 @@ func (v *taskInfoView) renderMetadata() string {
 
 	// Current step
 	if t.CurrentStep != "" {
+		stepText := fmt.Sprintf("%s (%d)", t.CurrentStep, t.StepIndex+1)
+		if t.LoopIteration > 0 {
+			stepText += fmt.Sprintf(" — loop iteration %d", t.LoopIteration)
+		}
 		b.WriteString(labelStyle.Render("Step:      "))
-		b.WriteString(valueStyle.Render(fmt.Sprintf("%s (%d)", t.CurrentStep, t.StepIndex+1)))
+		b.WriteString(valueStyle.Render(stepText))
 		b.WriteString("\n")
 	}
 
@@ -194,6 +198,9 @@ func (v *taskInfoView) renderMetadata() string {
 			}
 			if step.Artifact {
 				suffix += " [artifact]"
+			}
+			if step.Loop != nil {
+				suffix += fmt.Sprintf(" [loop→%s ×%d]", step.Loop.Goto, step.Loop.MaxIterations)
 			}
 
 			b.WriteString(style.Render(fmt.Sprintf("  %s %d. %s%s", icon, i+1, step.Name, suffix)))

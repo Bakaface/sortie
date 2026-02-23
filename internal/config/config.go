@@ -45,13 +45,96 @@ type WorkflowConfig struct {
 }
 
 type StepConfig struct {
-	Name             string `yaml:"name"`
-	Prompt           string `yaml:"prompt"`
-	Mode             string `yaml:"mode"`
-	Tmux             *bool  `yaml:"tmux,omitempty"`
-	Timeout          string `yaml:"timeout"`
-	Human            bool   `yaml:"human"`
-	Artifact         bool   `yaml:"artifact"`
+	Name             string      `yaml:"name"`
+	Prompt           string      `yaml:"prompt"`
+	Mode             string      `yaml:"mode"`
+	Tmux             *bool       `yaml:"tmux,omitempty"`
+	Timeout          string      `yaml:"timeout"`
+	Human            bool        `yaml:"human"`
+	Artifact         bool        `yaml:"artifact"`
+	Loop             *LoopConfig `yaml:"loop,omitempty"`
+}
+
+// LoopConfig defines a closed-loop jump back to an earlier step.
+type LoopConfig struct {
+	Goto          string             `yaml:"goto"`
+	MaxIterations int                `yaml:"max_iterations"`
+	ExitCondition *LoopExitCondition `yaml:"exit_condition,omitempty"`
+}
+
+// LoopExitCondition defines when a loop should exit early.
+type LoopExitCondition struct {
+	ArtifactEmpty string `yaml:"artifact_empty"` // step name whose artifact to check
+}
+
+// ValidateLoops checks all loop configurations in a workflow for correctness.
+func (wf *WorkflowConfig) ValidateLoops() error {
+	stepIndex := make(map[string]int)
+	for i, s := range wf.Steps {
+		stepIndex[s.Name] = i
+	}
+
+	// Track loop ranges [goto_target, loop_step] to detect overlaps
+	type loopRange struct {
+		from, to int
+		stepName string
+	}
+	var ranges []loopRange
+
+	for i, step := range wf.Steps {
+		if step.Loop == nil {
+			continue
+		}
+
+		// goto must reference an existing step
+		targetIdx, ok := stepIndex[step.Loop.Goto]
+		if !ok {
+			return fmt.Errorf("step %q: loop goto references unknown step %q", step.Name, step.Loop.Goto)
+		}
+
+		// goto must be an earlier step (no forward jumps, no self-reference)
+		if targetIdx >= i {
+			return fmt.Errorf("step %q: loop goto must reference an earlier step (got %q at index %d, current at %d)", step.Name, step.Loop.Goto, targetIdx, i)
+		}
+
+		// max_iterations is required and must be >= 1
+		if step.Loop.MaxIterations < 1 {
+			return fmt.Errorf("step %q: loop max_iterations must be >= 1", step.Name)
+		}
+
+		// A step with loop cannot have human or tmux
+		if step.Human {
+			return fmt.Errorf("step %q: loop steps cannot have human: true", step.Name)
+		}
+		if step.Tmux != nil && *step.Tmux {
+			return fmt.Errorf("step %q: loop steps cannot have tmux: true", step.Name)
+		}
+
+		// Validate exit condition
+		if step.Loop.ExitCondition != nil {
+			if step.Loop.ExitCondition.ArtifactEmpty != "" {
+				if _, ok := stepIndex[step.Loop.ExitCondition.ArtifactEmpty]; !ok {
+					return fmt.Errorf("step %q: exit_condition artifact_empty references unknown step %q", step.Name, step.Loop.ExitCondition.ArtifactEmpty)
+				}
+			}
+		}
+
+		// Check for overlapping loops
+		newRange := loopRange{from: targetIdx, to: i, stepName: step.Name}
+		for _, existing := range ranges {
+			// Overlapping if one range starts inside the other
+			if (newRange.from > existing.from && newRange.from < existing.to) ||
+				(newRange.to > existing.from && newRange.to < existing.to) ||
+				(existing.from > newRange.from && existing.from < newRange.to) {
+				return fmt.Errorf("step %q: loop range [%d..%d] overlaps with step %q range [%d..%d]",
+					step.Name, newRange.from, newRange.to,
+					existing.stepName, existing.from, existing.to)
+			}
+		}
+		ranges = append(ranges, newRange)
+	}
+
+	return nil
 }
 
 // UseTmux returns whether this step should use tmux execution.
@@ -367,6 +450,13 @@ func loadProjectConfig(path string, cfg *Config) error {
 				Steps:            task.Steps,
 				SummarizerPrompt: task.SummarizerPrompt,
 			})
+		}
+	}
+
+	// Validate loop configurations (after all workflows are assembled)
+	for i := range cfg.Workflows {
+		if err := cfg.Workflows[i].ValidateLoops(); err != nil {
+			return fmt.Errorf("workflow %q: %w", cfg.Workflows[i].Name, err)
 		}
 	}
 

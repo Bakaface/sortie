@@ -84,8 +84,9 @@ type Task struct {
 	Workflow     string
 	Status       Status
 	Priority     Priority
-	StepIndex    int
-	CurrentStep  string
+	StepIndex     int
+	CurrentStep   string
+	LoopIteration int
 	Branch       string
 	WorktreePath string
 	ExitCode     *int

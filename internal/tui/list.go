@@ -357,6 +357,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 			}
 		}
 	}
+	if task.LoopIteration > 0 {
+		statusLabel += fmt.Sprintf(" [L%d]", task.LoopIteration)
+	}
 	if l.tmuxSessions[task.ID] {
 		statusLabel += " [T]"
 	}

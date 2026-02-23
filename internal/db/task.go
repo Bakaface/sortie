@@ -40,7 +40,7 @@ func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, 
 	return db.GetTask(id)
 }
 
-const taskColumns = `id, project_id, title, description, slug, workflow, status, priority, step_index, current_step,
+const taskColumns = `id, project_id, title, description, slug, workflow, status, priority, step_index, current_step, loop_iteration,
 	branch, worktree_path, exit_code, error_message, context, images,
 	created_at, started_at, completed_at, updated_at`
 
@@ -276,9 +276,17 @@ func (db *DB) FinalizeTaskIdentity(id int64, title, slug, branch string) error {
 	return err
 }
 
+func (db *DB) UpdateTaskLoopIteration(id int64, iteration int) error {
+	_, err := db.Exec(
+		"UPDATE tasks SET loop_iteration = ?, updated_at = ? WHERE id = ?",
+		iteration, time.Now(), id,
+	)
+	return err
+}
+
 func (db *DB) ResetTaskForRetry(id int64) error {
 	_, err := db.Exec(
-		`UPDATE tasks SET status = ?, step_index = 0, current_step = NULL,
+		`UPDATE tasks SET status = ?, step_index = 0, current_step = NULL, loop_iteration = 0,
 		 exit_code = NULL, error_message = NULL, started_at = NULL,
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
 		task.StatusPending, time.Now(), id,
@@ -319,7 +327,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 
 	err := row.Scan(
 		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
-		&t.StepIndex, &currentStep,
+		&t.StepIndex, &currentStep, &t.LoopIteration,
 		&branch, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 	)
@@ -398,7 +406,7 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 
 		err := rows.Scan(
 			&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
-			&t.StepIndex, &currentStep,
+			&t.StepIndex, &currentStep, &t.LoopIteration,
 			&branch, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
 			&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 		)
