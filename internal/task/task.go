@@ -100,6 +100,44 @@ type Task struct {
 	UpdatedAt    time.Time
 }
 
+// MaxTitleLength is the maximum allowed length for a task title.
+const MaxTitleLength = 80
+
+// SanitizeTitle cleans a title string by taking only the first line,
+// collapsing whitespace, removing control characters, and truncating
+// to MaxTitleLength.
+func SanitizeTitle(title string) string {
+	// Take only the first line (split on any line break)
+	if idx := strings.IndexAny(title, "\n\r"); idx != -1 {
+		title = title[:idx]
+	}
+
+	// Replace control characters: tabs become spaces, others are removed
+	var b strings.Builder
+	for _, r := range title {
+		if r == '\t' {
+			b.WriteByte(' ')
+		} else if r >= ' ' {
+			b.WriteRune(r)
+		}
+	}
+	title = b.String()
+
+	// Collapse multiple spaces and trim
+	title = strings.Join(strings.Fields(title), " ")
+
+	// Truncate to max length
+	if len(title) > MaxTitleLength {
+		title = title[:MaxTitleLength]
+		// Avoid cutting in the middle of a word — trim back to last space
+		if idx := strings.LastIndexByte(title, ' '); idx > MaxTitleLength/2 {
+			title = title[:idx]
+		}
+	}
+
+	return title
+}
+
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 func Slugify(title string) string {

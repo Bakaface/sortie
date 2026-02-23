@@ -795,15 +795,8 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		return
 	}
 
-	// Generate title from first line, truncated to 80 chars
-	title := description
-	if idx := strings.IndexByte(title, '\n'); idx != -1 {
-		title = title[:idx]
-	}
-	title = strings.TrimSpace(title)
-	if len(title) > 80 {
-		title = title[:80]
-	}
+	// Generate title from first line, sanitized
+	title := task.SanitizeTitle(description)
 
 	slug := task.Slugify(title)
 
@@ -904,13 +897,9 @@ func (s *Server) generateTitle(ctx context.Context, description string) (string,
 		return "", fmt.Errorf("claude command failed: %w (stderr: %s)", err, stderr.String())
 	}
 
-	title := strings.TrimSpace(stdout.String())
+	title := task.SanitizeTitle(stdout.String())
 	if title == "" {
 		return "", fmt.Errorf("claude returned empty title")
-	}
-
-	if len(title) > 80 {
-		title = title[:80]
 	}
 
 	return title, nil

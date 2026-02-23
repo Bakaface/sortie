@@ -1,6 +1,9 @@
 package task
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestStatus_IsActive(t *testing.T) {
 	tests := []struct {
@@ -102,6 +105,98 @@ func TestValidPriorities(t *testing.T) {
 	}
 	if priorities[0] != PriorityLow || priorities[3] != PriorityUrgent {
 		t.Error("priorities should be in ascending order: low, medium, high, urgent")
+	}
+}
+
+func TestSanitizeTitle(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "simple title unchanged",
+			input: "Fix the login bug",
+			want:  "Fix the login bug",
+		},
+		{
+			name:  "strips trailing newline",
+			input: "Fix the login bug\n",
+			want:  "Fix the login bug",
+		},
+		{
+			name:  "takes first line only",
+			input: "Fix the login bug\nThis is a longer description\nwith multiple lines",
+			want:  "Fix the login bug",
+		},
+		{
+			name:  "handles carriage return",
+			input: "Fix the login bug\r\nSecond line",
+			want:  "Fix the login bug",
+		},
+		{
+			name:  "removes tab characters",
+			input: "Fix\tthe\tlogin\tbug",
+			want:  "Fix the login bug",
+		},
+		{
+			name:  "collapses multiple spaces",
+			input: "Fix   the    login   bug",
+			want:  "Fix the login bug",
+		},
+		{
+			name:  "trims leading and trailing whitespace",
+			input: "   Fix the login bug   ",
+			want:  "Fix the login bug",
+		},
+		{
+			name:  "removes control characters",
+			input: "Fix the \x00login \x01bug",
+			want:  "Fix the login bug",
+		},
+		{
+			name:  "truncates long titles at word boundary",
+			input: "This is a very long task title that exceeds the maximum allowed length of eighty characters and should be truncated",
+			want:  "This is a very long task title that exceeds the maximum allowed length of",
+		},
+		{
+			name:  "exactly 80 chars is not truncated",
+			input: "This is a very long task title that exceeds the maximum allowed length of eighty",
+			want:  "This is a very long task title that exceeds the maximum allowed length of eighty",
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "only whitespace",
+			input: "   \n\t  ",
+			want:  "",
+		},
+		{
+			name:  "only newlines",
+			input: "\n\n\n",
+			want:  "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SanitizeTitle(tt.input)
+			if got != tt.want {
+				t.Errorf("SanitizeTitle(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeTitle_MaxLength(t *testing.T) {
+	// Any sanitized title should never exceed MaxTitleLength
+	long := strings.Repeat("a", 200)
+	got := SanitizeTitle(long)
+	if len(got) > MaxTitleLength {
+		t.Errorf("SanitizeTitle produced title of length %d, want <= %d", len(got), MaxTitleLength)
 	}
 }
 
