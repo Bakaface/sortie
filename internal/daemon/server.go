@@ -682,9 +682,14 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 		return
 	}
 
-	// Run on_complete action (commit/merge/cleanup)
+	// Run summarizer + on_complete action (commit/merge/cleanup)
+	if err := s.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
+		log.Printf("Warning: failed to set summarizing status for task #%d: %v", t.ID, err)
+	}
+	s.broadcastTaskUpdate(t.ID)
+
 	if err := pc.engine.FinalizeTask(s.ctx, t); err != nil {
-		log.Printf("Warning: finalize on_complete failed for task #%d: %v", t.ID, err)
+		log.Printf("Warning: finalize failed for task #%d: %v", t.ID, err)
 		// Don't fail the whole operation — still mark as completed
 	}
 

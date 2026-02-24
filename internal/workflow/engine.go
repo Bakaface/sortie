@@ -407,13 +407,22 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 	}
 }
 
-// FinalizeTask runs the on_complete action (commit/merge/cleanup) for a task.
+// FinalizeTask runs the summarizer and on_complete action for a task.
 // Used when finalizing a tmux-continued task.
 func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	// Resolve branch name if not set (may not have been persisted to DB)
 	if t.Branch == "" {
 		t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
 	}
+
+	// Run summarizer to generate task context (same as normal completion)
+	wf := e.cfg.GetWorkflow(t.Workflow)
+	if wf != nil {
+		if err := e.runSummarizer(ctx, t, wf); err != nil {
+			log.Printf("Warning: summarizer failed for task #%d during finalize: %v", t.ID, err)
+		}
+	}
+
 	return e.executeOnComplete(ctx, t, nil)
 }
 
