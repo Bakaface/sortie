@@ -81,7 +81,7 @@ func (v *taskInfoView) renderMetadata() string {
 	var b strings.Builder
 
 	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
-	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#FAFAFA"))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#E8E8E8"))
 
 	// Task title
 	taskTitle := t.Title

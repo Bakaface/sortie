@@ -188,7 +188,7 @@ func (p *promptView) View() string {
 		b.WriteString(labelStyle.Render("Attached images:"))
 		b.WriteString("\n")
 
-		imgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#73F59F"))
+		imgStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#7EC99D"))
 		for _, img := range p.images {
 			name := filepath.Base(img)
 			b.WriteString("  ")

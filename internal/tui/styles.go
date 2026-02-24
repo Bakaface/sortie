@@ -13,12 +13,12 @@ const AppTitle = "✈ Sortie"
 const PromptPrefix = "✈ "
 
 var (
-	subtle    = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"}
-	highlight = lipgloss.AdaptiveColor{Light: "#4078C0", Dark: "#6CA0DC"}
+	subtle    = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#3A3A3A"}
+	highlight = lipgloss.AdaptiveColor{Light: "#3D6E99", Dark: "#5F8AB3"}
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
+			Foreground(lipgloss.Color("#E8E8E8")).
 			Background(highlight).
 			Padding(0, 1)
 
@@ -31,40 +31,40 @@ var (
 
 	selectedStyle = lipgloss.NewStyle().
 			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
+			Foreground(lipgloss.Color("#E8E8E8")).
 			Background(highlight)
 
 	normalStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FAFAFA"))
+			Foreground(lipgloss.Color("#E8E8E8"))
 
 	dimStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262"))
+			Foreground(lipgloss.Color("#6B6B6B"))
 
 	stateStyles = map[string]lipgloss.Style{
-		"pending":           lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")),
-		"init":              lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")).Italic(true),
-		"starting":          lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")),
-		"running":           lipgloss.NewStyle().Foreground(lipgloss.Color("#73F59F")),
-		"waiting_for_input": lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Bold(true),
-		"awaiting-approval": lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")).Bold(true),
-		"tmux":              lipgloss.NewStyle().Foreground(lipgloss.Color("#FF69B4")).Bold(true),
-		"finalizing":        lipgloss.NewStyle().Foreground(lipgloss.Color("#6CA0DC")),
-		"summarizing":       lipgloss.NewStyle().Foreground(lipgloss.Color("#6CA0DC")),
-		"completed":         lipgloss.NewStyle().Foreground(lipgloss.Color("#43BF6D")),
-		"failed":            lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")),
-		"stopped":           lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")),
-		"artifact-missing":  lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6B6B")).Bold(true),
+		"pending":           lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B")),
+		"init":              lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")).Italic(true),
+		"starting":          lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")),
+		"running":           lipgloss.NewStyle().Foreground(lipgloss.Color("#7EC99D")),
+		"waiting_for_input": lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
+		"awaiting-approval": lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")).Bold(true),
+		"tmux":              lipgloss.NewStyle().Foreground(lipgloss.Color("#B07AAD")).Bold(true),
+		"finalizing":        lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
+		"summarizing":       lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
+		"completed":         lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
+		"failed":            lipgloss.NewStyle().Foreground(lipgloss.Color("#D94F4F")),
+		"stopped":           lipgloss.NewStyle().Foreground(lipgloss.Color("#7A7A7A")),
+		"artifact-missing":  lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
 	}
 
 	priorityStyles = map[string]lipgloss.Style{
-		"low":    lipgloss.NewStyle().Foreground(lipgloss.Color("#626262")),
-		"medium": lipgloss.NewStyle().Foreground(lipgloss.Color("#6CA0DC")),
-		"high":   lipgloss.NewStyle().Foreground(lipgloss.Color("#FFCC00")),
-		"urgent": lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")).Bold(true),
+		"low":    lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B")),
+		"medium": lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
+		"high":   lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")),
+		"urgent": lipgloss.NewStyle().Foreground(lipgloss.Color("#D94F4F")).Bold(true),
 	}
 
 	lineNumStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#626262"))
+			Foreground(lipgloss.Color("#6B6B6B"))
 
 	helpStyle = lipgloss.NewStyle().
 			Foreground(dimStyle.GetForeground())
@@ -75,14 +75,14 @@ var (
 			Padding(0, 1)
 
 	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.AdaptiveColor{Light: "#343433", Dark: "#C1C6B2"}).
-			Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#353533"})
+			Foreground(lipgloss.AdaptiveColor{Light: "#3A3A3A", Dark: "#B0B0A8"}).
+			Background(lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#333333"})
 
 	searchMatchStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("#333333")).
-				Foreground(lipgloss.Color("#FAFAFA"))
+				Background(lipgloss.Color("#3A3A3A")).
+				Foreground(lipgloss.Color("#E8E8E8"))
 
-	subHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FAFAFA"))
+	subHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E8E8E8"))
 )
 
 func stateStyle(state string) lipgloss.Style {
