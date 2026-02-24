@@ -8,6 +8,10 @@ import (
 // the aviation origin of the word "sortie" — a short combat mission.
 const AppTitle = "✈ Sortie"
 
+// PromptPrefix is the airplane character used as a prompt prefix for task input,
+// similar to Claude Code's ❯ character.
+const PromptPrefix = "✈ "
+
 var (
 	subtle    = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#383838"}
 	highlight = lipgloss.AdaptiveColor{Light: "#4078C0", Dark: "#6CA0DC"}

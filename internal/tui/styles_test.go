@@ -16,3 +16,9 @@ func TestAppTitleContainsSortie(t *testing.T) {
 		t.Errorf("AppTitle should contain 'Sortie', got %q", AppTitle)
 	}
 }
+
+func TestPromptPrefixContainsAirplane(t *testing.T) {
+	if !strings.Contains(PromptPrefix, "✈") {
+		t.Errorf("PromptPrefix should contain airplane (✈), got %q", PromptPrefix)
+	}
+}

@@ -29,6 +29,7 @@ type promptView struct {
 
 func newPromptView() promptView {
 	ta := textarea.New()
+	ta.Prompt = PromptPrefix
 	ta.Placeholder = "Describe the task..."
 	ta.Focus()
 	ta.CharLimit = 0 // unlimited

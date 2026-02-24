@@ -8,6 +8,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+func TestPromptView_HasAirplanePrompt(t *testing.T) {
+	p := newPromptView()
+	if p.textarea.Prompt != PromptPrefix {
+		t.Errorf("expected textarea prompt to be %q, got %q", PromptPrefix, p.textarea.Prompt)
+	}
+}
+
 func TestPromptView_DetectImages(t *testing.T) {
 	// Create a temporary directory for test files
 	tmpDir := t.TempDir()
