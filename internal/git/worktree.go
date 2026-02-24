@@ -15,7 +15,7 @@ type Worktree struct {
 	Path       string
 	Branch     string
 	RepoRoot   string
-	WorktreDir string
+	WorktreeDir string
 }
 
 func CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string) (*Worktree, error) {
@@ -65,7 +65,7 @@ func CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string
 		Path:       worktreePath,
 		Branch:     branchName,
 		RepoRoot:   repoRoot,
-		WorktreDir: worktreePath,
+		WorktreeDir: worktreePath,
 	}, nil
 }
 

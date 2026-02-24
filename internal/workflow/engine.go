@@ -76,7 +76,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	}
 
 	// Ensure .sortie directories exist in worktree
-	if err := EnsureRTKDirs(t.WorktreePath); err != nil {
+	if err := EnsureWorkDirs(t.WorktreePath); err != nil {
 		return fmt.Errorf("failed to create sortie dirs: %w", err)
 	}
 

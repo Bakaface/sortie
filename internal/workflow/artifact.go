@@ -21,8 +21,8 @@ func LogPath(worktreePath, stepName string) string {
 	return filepath.Join(LogsDir(worktreePath), stepName+".log")
 }
 
-// EnsureRTKDirs creates the .sortie/artifacts and .sortie/logs directories in a worktree.
-func EnsureRTKDirs(worktreePath string) error {
+// EnsureWorkDirs creates the .sortie/artifacts and .sortie/logs directories in a worktree.
+func EnsureWorkDirs(worktreePath string) error {
 	if err := os.MkdirAll(ArtifactsDir(worktreePath), 0755); err != nil {
 		return err
 	}

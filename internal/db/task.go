@@ -329,7 +329,12 @@ func (db *DB) DeleteTask(id int64) error {
 	return err
 }
 
-func scanTask(row *sql.Row) (*task.Task, error) {
+// scanner is the common interface between *sql.Row and *sql.Rows.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanTaskRow(s scanner) (*task.Task, error) {
 	var t task.Task
 	var projectID sql.NullInt64
 	var title, slug, workflow, branch sql.NullString
@@ -341,7 +346,7 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	var startedAt, completedAt sql.NullTime
 	var updatedAt sql.NullTime
 
-	err := row.Scan(
+	err := s.Scan(
 		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
 		&t.StepIndex, &currentStep, &t.LoopIteration,
 		&branch, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
@@ -405,84 +410,18 @@ func scanTask(row *sql.Row) (*task.Task, error) {
 	return &t, nil
 }
 
+func scanTask(row *sql.Row) (*task.Task, error) {
+	return scanTaskRow(row)
+}
+
 func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 	var tasks []*task.Task
-
 	for rows.Next() {
-		var t task.Task
-		var projectID sql.NullInt64
-		var title, slug, workflow, branch sql.NullString
-		var priority sql.NullString
-		var currentStep, worktreePath, errorMessage sql.NullString
-		var taskContext sql.NullString
-		var imagesJSON sql.NullString
-		var exitCode sql.NullInt64
-		var startedAt, completedAt sql.NullTime
-		var updatedAt sql.NullTime
-
-		err := rows.Scan(
-			&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
-			&t.StepIndex, &currentStep, &t.LoopIteration,
-			&branch, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
-			&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
-		)
+		t, err := scanTaskRow(rows)
 		if err != nil {
 			return nil, err
 		}
-
-		if projectID.Valid {
-			t.ProjectID = projectID.Int64
-		}
-		if title.Valid {
-			t.Title = title.String
-		}
-		if slug.Valid {
-			t.Slug = slug.String
-		}
-		if workflow.Valid {
-			t.Workflow = workflow.String
-		}
-		if priority.Valid {
-			t.Priority = task.Priority(priority.String)
-		} else {
-			t.Priority = task.PriorityMedium
-		}
-		if currentStep.Valid {
-			t.CurrentStep = currentStep.String
-		}
-		if branch.Valid {
-			t.Branch = branch.String
-		}
-		if worktreePath.Valid {
-			t.WorktreePath = worktreePath.String
-		}
-		if exitCode.Valid {
-			code := int(exitCode.Int64)
-			t.ExitCode = &code
-		}
-		if errorMessage.Valid {
-			t.ErrorMessage = errorMessage.String
-		}
-		if taskContext.Valid {
-			t.Context = taskContext.String
-		}
-		if imagesJSON.Valid && imagesJSON.String != "" {
-			if err := json.Unmarshal([]byte(imagesJSON.String), &t.Images); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal images: %w", err)
-			}
-		}
-		if startedAt.Valid {
-			t.StartedAt = &startedAt.Time
-		}
-		if completedAt.Valid {
-			t.CompletedAt = &completedAt.Time
-		}
-		if updatedAt.Valid {
-			t.UpdatedAt = updatedAt.Time
-		}
-
-		tasks = append(tasks, &t)
+		tasks = append(tasks, t)
 	}
-
 	return tasks, rows.Err()
 }

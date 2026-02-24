@@ -153,6 +153,26 @@ func (c *Client) sendAndWait(msgType daemon.MessageType, payload any) (*daemon.M
 	}
 }
 
+// request sends a message and waits for a non-error response.
+func (c *Client) request(msgType daemon.MessageType, payload any) (*daemon.Message, error) {
+	msg, err := c.sendAndWait(msgType, payload)
+	if err != nil {
+		return nil, err
+	}
+	if msg.Type == daemon.MsgError {
+		var errResp daemon.ErrorResponse
+		msg.DecodePayload(&errResp)
+		return nil, fmt.Errorf("%s", errResp.Message)
+	}
+	return msg, nil
+}
+
+// requestOK sends a message and returns an error if the response is not successful.
+func (c *Client) requestOK(msgType daemon.MessageType, payload any) error {
+	_, err := c.request(msgType, payload)
+	return err
+}
+
 func (c *Client) Ping() error {
 	msg, err := c.sendAndWait(daemon.MsgPing, nil)
 	if err != nil {
@@ -165,15 +185,9 @@ func (c *Client) Ping() error {
 }
 
 func (c *Client) ListAgents() ([]daemon.AgentInfo, error) {
-	msg, err := c.sendAndWait(daemon.MsgListAgents, nil)
+	msg, err := c.request(daemon.MsgListAgents, nil)
 	if err != nil {
 		return nil, err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return nil, fmt.Errorf("%s", errResp.Message)
 	}
 
 	var resp daemon.AgentListResponse
@@ -196,15 +210,9 @@ func (c *Client) ListTasksFiltered(projectID int64) ([]daemon.TaskInfo, error) {
 		payload = daemon.ListTasksRequest{ProjectID: projectID}
 	}
 
-	msg, err := c.sendAndWait(daemon.MsgListTasks, payload)
+	msg, err := c.request(daemon.MsgListTasks, payload)
 	if err != nil {
 		return nil, err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return nil, fmt.Errorf("%s", errResp.Message)
 	}
 
 	var resp daemon.TaskListResponse
@@ -216,33 +224,11 @@ func (c *Client) ListTasksFiltered(projectID int64) ([]daemon.TaskInfo, error) {
 }
 
 func (c *Client) StartAgent(taskID int64) error {
-	msg, err := c.sendAndWait(daemon.MsgStartAgent, daemon.StartAgentRequest{TaskID: taskID})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
+	return c.requestOK(daemon.MsgStartAgent, daemon.StartAgentRequest{TaskID: taskID})
 }
 
 func (c *Client) StopAgent(agentID string) error {
-	msg, err := c.sendAndWait(daemon.MsgStopAgent, daemon.StopAgentRequest{AgentID: agentID})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
+	return c.requestOK(daemon.MsgStopAgent, daemon.StopAgentRequest{AgentID: agentID})
 }
 
 func (c *Client) Subscribe() error {
@@ -255,18 +241,12 @@ func (c *Client) Unsubscribe() error {
 }
 
 func (c *Client) GetOutput(agentID string, fromLine int) ([]string, int, error) {
-	msg, err := c.sendAndWait(daemon.MsgGetOutput, daemon.GetOutputRequest{
+	msg, err := c.request(daemon.MsgGetOutput, daemon.GetOutputRequest{
 		AgentID:  agentID,
 		FromLine: fromLine,
 	})
 	if err != nil {
 		return nil, 0, err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return nil, 0, fmt.Errorf("%s", errResp.Message)
 	}
 
 	var resp daemon.OutputChunkResponse
@@ -278,33 +258,16 @@ func (c *Client) GetOutput(agentID string, fromLine int) ([]string, int, error) 
 }
 
 func (c *Client) SendInput(agentID, input string) error {
-	msg, err := c.sendAndWait(daemon.MsgSendInput, daemon.SendInputRequest{
+	return c.requestOK(daemon.MsgSendInput, daemon.SendInputRequest{
 		AgentID: agentID,
 		Input:   input,
 	})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
 }
 
 func (c *Client) GetTask(id int64) (*daemon.TaskInfo, error) {
-	msg, err := c.sendAndWait(daemon.MsgGetTask, daemon.GetTaskRequest{TaskID: id})
+	msg, err := c.request(daemon.MsgGetTask, daemon.GetTaskRequest{TaskID: id})
 	if err != nil {
 		return nil, err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return nil, fmt.Errorf("%s", errResp.Message)
 	}
 
 	var resp daemon.GetTaskResponse
@@ -316,22 +279,11 @@ func (c *Client) GetTask(id int64) (*daemon.TaskInfo, error) {
 }
 
 func (c *Client) RetryTask(id int64) error {
-	msg, err := c.sendAndWait(daemon.MsgRetryTask, daemon.RetryTaskRequest{TaskID: id})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
+	return c.requestOK(daemon.MsgRetryTask, daemon.RetryTaskRequest{TaskID: id})
 }
 
 func (c *Client) CreateTask(description, workflow, projectPath string, images []string) (*daemon.TaskInfo, error) {
-	msg, err := c.sendAndWait(daemon.MsgCreateTask, daemon.CreateTaskRequest{
+	msg, err := c.request(daemon.MsgCreateTask, daemon.CreateTaskRequest{
 		Description: description,
 		Workflow:    workflow,
 		ProjectPath: projectPath,
@@ -339,12 +291,6 @@ func (c *Client) CreateTask(description, workflow, projectPath string, images []
 	})
 	if err != nil {
 		return nil, err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return nil, fmt.Errorf("%s", errResp.Message)
 	}
 
 	var resp daemon.CreateTaskResponse
@@ -356,101 +302,40 @@ func (c *Client) CreateTask(description, workflow, projectPath string, images []
 }
 
 func (c *Client) ContinueTask(id int64) error {
-	msg, err := c.sendAndWait(daemon.MsgContinueTask, daemon.ContinueTaskRequest{TaskID: id})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
+	return c.requestOK(daemon.MsgContinueTask, daemon.ContinueTaskRequest{TaskID: id})
 }
 
 func (c *Client) FinalizeTask(id int64) error {
-	msg, err := c.sendAndWait(daemon.MsgFinalizeTask, daemon.FinalizeTaskRequest{TaskID: id})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
+	return c.requestOK(daemon.MsgFinalizeTask, daemon.FinalizeTaskRequest{TaskID: id})
 }
 
 func (c *Client) UpdateTaskPriority(id int64, priority string) error {
-	msg, err := c.sendAndWait(daemon.MsgUpdatePriority, daemon.UpdatePriorityRequest{
+	return c.requestOK(daemon.MsgUpdatePriority, daemon.UpdatePriorityRequest{
 		TaskID:   id,
 		Priority: priority,
 	})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
 }
 
 func (c *Client) UpdateTaskField(id int64, field, value string) error {
-	msg, err := c.sendAndWait(daemon.MsgUpdateField, daemon.UpdateFieldRequest{
+	return c.requestOK(daemon.MsgUpdateField, daemon.UpdateFieldRequest{
 		TaskID: id,
 		Field:  field,
 		Value:  value,
 	})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
 }
 
 func (c *Client) DeleteTask(id int64) error {
-	msg, err := c.sendAndWait(daemon.MsgDeleteTask, daemon.DeleteTaskRequest{TaskID: id})
-	if err != nil {
-		return err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return fmt.Errorf("%s", errResp.Message)
-	}
-
-	return nil
+	return c.requestOK(daemon.MsgDeleteTask, daemon.DeleteTaskRequest{TaskID: id})
 }
 
 func (c *Client) GetLogs(id int64, step string, tail int) ([]string, error) {
-	msg, err := c.sendAndWait(daemon.MsgGetLogs, daemon.GetLogsRequest{
+	msg, err := c.request(daemon.MsgGetLogs, daemon.GetLogsRequest{
 		TaskID: id,
 		Step:   step,
 		Tail:   tail,
 	})
 	if err != nil {
 		return nil, err
-	}
-
-	if msg.Type == daemon.MsgError {
-		var errResp daemon.ErrorResponse
-		msg.DecodePayload(&errResp)
-		return nil, fmt.Errorf("%s", errResp.Message)
 	}
 
 	var resp daemon.GetLogsResponse
