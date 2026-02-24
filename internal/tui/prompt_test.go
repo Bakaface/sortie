@@ -149,6 +149,34 @@ func TestPromptView_Update(t *testing.T) {
 	}
 }
 
+func TestPromptView_TextareaHeight(t *testing.T) {
+	p := newPromptView()
+
+	// Normal terminal size: textarea should be compact (5 lines)
+	p.SetSize(80, 40)
+	if h := p.textarea.Height(); h != 5 {
+		t.Errorf("expected textarea height 5 for large terminal, got %d", h)
+	}
+
+	// Small terminal: textarea should be clamped to minimum 3
+	p.SetSize(80, 8)
+	if h := p.textarea.Height(); h < 3 {
+		t.Errorf("expected textarea height >= 3 for small terminal, got %d", h)
+	}
+}
+
+func TestPromptView_ViewPadding(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(80, 24)
+
+	view := p.View()
+
+	// The view should contain the title and textarea — verify it renders
+	if view == "" {
+		t.Error("expected non-empty view")
+	}
+}
+
 func TestIsImagePath(t *testing.T) {
 	testCases := []struct {
 		input    string

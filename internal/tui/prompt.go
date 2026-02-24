@@ -46,12 +46,15 @@ func newPromptView() promptView {
 func (p *promptView) SetSize(width, height int) {
 	p.width = width
 	p.height = height
-	// Reserve lines for: title(2) + images(variable) + help(2)
-	imgLines := len(p.images)
-	if imgLines > 0 {
-		imgLines += 1 // header line "Attached images:"
+	// Use a compact textarea height to avoid rendering prompt characters
+	// on every empty line of the screen. The textarea scrolls internally
+	// when content exceeds this height.
+	const defaultTextareaHeight = 5
+	taHeight := defaultTextareaHeight
+	maxHeight := height - 6
+	if taHeight > maxHeight {
+		taHeight = maxHeight
 	}
-	taHeight := height - 4 - imgLines
 	if taHeight < 3 {
 		taHeight = 3
 	}
@@ -172,9 +175,9 @@ func (p *promptView) View() string {
 	b.WriteString(titleStyle.Render(" New Task "))
 	b.WriteString("\n\n")
 
-	// Textarea
-	b.WriteString("  ")
-	b.WriteString(p.textarea.View())
+	// Textarea (use lipgloss padding for consistent left margin on all lines)
+	taStyle := lipgloss.NewStyle().PaddingLeft(2)
+	b.WriteString(taStyle.Render(p.textarea.View()))
 	b.WriteString("\n")
 
 	// Attached images
