@@ -15,10 +15,12 @@ import (
 type listView struct {
 	table           table.Model
 	tasks           []daemon.TaskInfo
+	allTasks        []daemon.TaskInfo // unfiltered tasks (used when showFinished is false)
 	width           int
 	height          int
 	showHelp        bool
 	showLineNumbers bool
+	showFinished    bool
 	globalMode      bool
 	tmuxSessions    map[int64]bool
 	pendingG        bool
@@ -59,7 +61,9 @@ func newListView(globalMode bool) listView {
 	return listView{
 		table:           t,
 		tasks:           make([]daemon.TaskInfo, 0),
+		allTasks:        make([]daemon.TaskInfo, 0),
 		showLineNumbers: true,
+		showFinished:    true,
 		globalMode:      globalMode,
 	}
 }
@@ -117,11 +121,39 @@ func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].ID > tasks[j].ID
 	})
-	l.tasks = tasks
+	l.allTasks = tasks
+	l.tasks = l.filterTasks(tasks)
 	l.table.SetRows(l.toRows())
-	if l.table.Cursor() >= len(tasks) && len(tasks) > 0 {
-		l.table.SetCursor(len(tasks) - 1)
-	} else if len(tasks) == 0 {
+	if l.table.Cursor() >= len(l.tasks) && len(l.tasks) > 0 {
+		l.table.SetCursor(len(l.tasks) - 1)
+	} else if len(l.tasks) == 0 {
+		l.table.SetCursor(0)
+	}
+	l.recomputeColumns()
+	l.ensureVisible()
+}
+
+// filterTasks returns tasks filtered according to display settings.
+func (l *listView) filterTasks(tasks []daemon.TaskInfo) []daemon.TaskInfo {
+	if l.showFinished {
+		return tasks
+	}
+	filtered := make([]daemon.TaskInfo, 0, len(tasks))
+	for _, t := range tasks {
+		if t.Status != "completed" && t.Status != "failed" {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// applyFilter re-filters allTasks into tasks and adjusts cursor.
+func (l *listView) applyFilter() {
+	l.tasks = l.filterTasks(l.allTasks)
+	l.table.SetRows(l.toRows())
+	if l.table.Cursor() >= len(l.tasks) && len(l.tasks) > 0 {
+		l.table.SetCursor(len(l.tasks) - 1)
+	} else if len(l.tasks) == 0 {
 		l.table.SetCursor(0)
 	}
 	l.recomputeColumns()
@@ -129,28 +161,29 @@ func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
 }
 
 func (l *listView) UpdateTask(task daemon.TaskInfo) {
-	for i, t := range l.tasks {
+	// Update in allTasks
+	found := false
+	for i, t := range l.allTasks {
 		if t.ID == task.ID {
-			l.tasks[i] = task
-			l.table.SetRows(l.toRows())
-			return
+			l.allTasks[i] = task
+			found = true
+			break
 		}
 	}
-	l.tasks = append(l.tasks, task)
-	l.table.SetRows(l.toRows())
+	if !found {
+		l.allTasks = append(l.allTasks, task)
+	}
+	l.applyFilter()
 }
 
 func (l *listView) RemoveTask(id int64) {
-	for i, t := range l.tasks {
+	for i, t := range l.allTasks {
 		if t.ID == id {
-			l.tasks = append(l.tasks[:i], l.tasks[i+1:]...)
-			l.table.SetRows(l.toRows())
-			if l.table.Cursor() >= len(l.tasks) && len(l.tasks) > 0 {
-				l.table.SetCursor(len(l.tasks) - 1)
-			}
-			return
+			l.allTasks = append(l.allTasks[:i], l.allTasks[i+1:]...)
+			break
 		}
 	}
+	l.applyFilter()
 }
 
 func (l *listView) Selected() *daemon.TaskInfo {

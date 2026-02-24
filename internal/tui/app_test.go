@@ -3270,6 +3270,179 @@ func TestMatchSetNumber(t *testing.T) {
 	}
 }
 
+func TestSetFinished_DefaultTrue(t *testing.T) {
+	l := newListView(false)
+	if !l.showFinished {
+		t.Error("expected showFinished to default to true")
+	}
+}
+
+func TestSetFinished_EnablesFinishedTasks(t *testing.T) {
+	m := newTestModelWithTasks(5)
+	m.list.showFinished = false
+
+	result, _ := executeCommand(m, "set finished")
+	updated := result.(Model)
+	if !updated.list.showFinished {
+		t.Error("expected showFinished to be true after ':set finished'")
+	}
+}
+
+func TestSetFinished_DisablesFinishedTasks(t *testing.T) {
+	m := newTestModelWithTasks(5)
+	m.list.showFinished = true
+
+	result, _ := executeCommand(m, "set nofinished")
+	updated := result.(Model)
+	if updated.list.showFinished {
+		t.Error("expected showFinished to be false after ':set nofinished'")
+	}
+}
+
+func TestSetFinished_TogglesFinishedTasks(t *testing.T) {
+	m := newTestModelWithTasks(5)
+	m.list.showFinished = true
+
+	result, _ := executeCommand(m, "set finished!")
+	updated := result.(Model)
+	if updated.list.showFinished {
+		t.Error("expected showFinished to be false after ':set finished!' (was true)")
+	}
+
+	result, _ = executeCommand(updated, "set finished!")
+	updated = result.(Model)
+	if !updated.list.showFinished {
+		t.Error("expected showFinished to be true after ':set finished!' (was false)")
+	}
+}
+
+func TestSetFinished_CommandModeIntegration(t *testing.T) {
+	m := newTestModelWithTasks(5)
+
+	// Enter command mode with ":"
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Type "set nofinished"
+	for _, ch := range "set nofinished" {
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}}
+		result, _ = updated.handleListKey(msg)
+		updated = result.(Model)
+	}
+
+	// Press enter to execute
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+
+	if updated.commandMode {
+		t.Error("expected command mode to exit after executing command")
+	}
+	if updated.list.showFinished {
+		t.Error("expected showFinished to be false after ':set nofinished<enter>'")
+	}
+}
+
+func TestSetFinished_HidesFinishedTasksInView(t *testing.T) {
+	l := newListView(false)
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Active Task", Status: "pending"},
+		{ID: 2, Title: "Running Task", Status: "running"},
+		{ID: 3, Title: "Done Task", Status: "completed"},
+		{ID: 4, Title: "Failed Task", Status: "failed"},
+	})
+	l.SetSize(100, 24)
+
+	// With showFinished=true (default), all tasks should be visible
+	output := l.View()
+	if !strings.Contains(output, "Active Task") {
+		t.Error("expected 'Active Task' in view when showFinished is true")
+	}
+	if !strings.Contains(output, "Done Task") {
+		t.Error("expected 'Done Task' in view when showFinished is true")
+	}
+	if !strings.Contains(output, "Failed Task") {
+		t.Error("expected 'Failed Task' in view when showFinished is true")
+	}
+
+	// Hide finished tasks
+	l.showFinished = false
+	l.applyFilter()
+	output = l.View()
+	if !strings.Contains(output, "Active Task") {
+		t.Error("expected 'Active Task' in view when showFinished is false")
+	}
+	if !strings.Contains(output, "Running Task") {
+		t.Error("expected 'Running Task' in view when showFinished is false")
+	}
+	if strings.Contains(output, "Done Task") {
+		t.Error("expected 'Done Task' to be hidden when showFinished is false")
+	}
+	if strings.Contains(output, "Failed Task") {
+		t.Error("expected 'Failed Task' to be hidden when showFinished is false")
+	}
+
+	// Show finished tasks again
+	l.showFinished = true
+	l.applyFilter()
+	output = l.View()
+	if !strings.Contains(output, "Done Task") {
+		t.Error("expected 'Done Task' in view after re-enabling showFinished")
+	}
+	if !strings.Contains(output, "Failed Task") {
+		t.Error("expected 'Failed Task' in view after re-enabling showFinished")
+	}
+}
+
+func TestMatchSetFinished(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"set finished", true},
+		{"set nofinished", true},
+		{"set finished!", true},
+		{"set fin", false},
+		{"setfinished", false},
+		{"set", false},
+		{"finished", false},
+		{"  set finished  ", true},
+		{"set finished ", true},
+	}
+	for _, tt := range tests {
+		_, ok := matchSetFinished(tt.input)
+		if ok != tt.want {
+			t.Errorf("matchSetFinished(%q) = %v, want %v", tt.input, ok, tt.want)
+		}
+	}
+}
+
+func TestSetFinished_PreservesAllTasksOnRefresh(t *testing.T) {
+	l := newListView(false)
+	l.showFinished = false
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Active", Status: "pending"},
+		{ID: 2, Title: "Done", Status: "completed"},
+	})
+
+	// Only active tasks should be in the display list
+	if len(l.tasks) != 1 {
+		t.Errorf("expected 1 visible task, got %d", len(l.tasks))
+	}
+	// All tasks should be preserved
+	if len(l.allTasks) != 2 {
+		t.Errorf("expected 2 allTasks, got %d", len(l.allTasks))
+	}
+
+	// Re-enable showFinished and verify all tasks come back
+	l.showFinished = true
+	l.applyFilter()
+	if len(l.tasks) != 2 {
+		t.Errorf("expected 2 visible tasks after re-enabling showFinished, got %d", len(l.tasks))
+	}
+}
+
 func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
 	l := newListView(true)
 	l.SetTasks([]daemon.TaskInfo{

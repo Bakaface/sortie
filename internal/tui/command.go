@@ -31,6 +31,11 @@ var commands = []command{
 		help:  "toggle line numbers",
 	},
 	{
+		match: matchSetFinished,
+		exec:  execSetFinished,
+		help:  "toggle finished tasks",
+	},
+	{
 		match: matchNoh,
 		exec:  execNoh,
 		help:  "clear search highlights",
@@ -77,6 +82,30 @@ func execSetNumber(m Model, args string) (tea.Model, tea.Cmd) {
 	case "set number!":
 		m.list.showLineNumbers = !m.list.showLineNumbers
 	}
+	return m, nil
+}
+
+// matchSetFinished matches "set finished", "set nofinished", and "set finished!" commands.
+func matchSetFinished(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	switch input {
+	case "set finished", "set nofinished", "set finished!":
+		return input, true
+	}
+	return "", false
+}
+
+// execSetFinished enables, disables, or toggles display of finished tasks in the list view.
+func execSetFinished(m Model, args string) (tea.Model, tea.Cmd) {
+	switch args {
+	case "set finished":
+		m.list.showFinished = true
+	case "set nofinished":
+		m.list.showFinished = false
+	case "set finished!":
+		m.list.showFinished = !m.list.showFinished
+	}
+	m.list.applyFilter()
 	return m, nil
 }
 
