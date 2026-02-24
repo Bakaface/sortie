@@ -4002,6 +4002,172 @@ func TestListView_ExtraLinesReduceVisibleRows(t *testing.T) {
 	}
 }
 
+func TestListView_ScrollIndicatorInHelpBar(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 20)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	l.SetSize(100, 15) // visibleRows = 10, 20 tasks → needs scrolling
+
+	output := l.View()
+
+	// When more tasks exist than visible, should show scroll position
+	if !strings.Contains(output, "1-10/20") {
+		t.Errorf("expected scroll position '1-10/20' in help bar, got:\n%s", output)
+	}
+
+	// Scroll down past the visible window
+	for i := 0; i < 12; i++ {
+		l.MoveDown()
+	}
+	output = l.View()
+
+	// Should show updated scroll position
+	if !strings.Contains(output, "/20") {
+		t.Error("expected scroll position with /20 in help bar after scrolling")
+	}
+}
+
+func TestListView_NoScrollIndicatorWhenAllVisible(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 5)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	l.SetSize(100, 15) // visibleRows = 10, only 5 tasks → no scrolling needed
+
+	output := l.View()
+
+	// Should NOT show scroll position when all tasks fit
+	if strings.Contains(output, "/5") {
+		t.Error("should not show scroll indicator when all tasks are visible")
+	}
+}
+
+func TestListView_TitleAlwaysVisible(t *testing.T) {
+	l := newListView(false)
+	tasks := make([]daemon.TaskInfo, 50)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	l.SetTasks(tasks)
+	l.SetSize(100, 20) // visibleRows = 15
+
+	// Title should always be the first content
+	output := l.View()
+	if !strings.Contains(output, AppTitle) {
+		t.Error("expected title to be present in output")
+	}
+
+	lines := strings.Split(output, "\n")
+	if len(lines) == 0 || !strings.Contains(lines[0], "Sortie") {
+		t.Error("expected title to be on the first line")
+	}
+
+	// After scrolling down, title should still be first
+	for i := 0; i < 30; i++ {
+		l.MoveDown()
+	}
+	output = l.View()
+	lines = strings.Split(output, "\n")
+	if len(lines) == 0 || !strings.Contains(lines[0], "Sortie") {
+		t.Error("expected title to remain on first line after scrolling")
+	}
+}
+
+func TestStatusMessage_CountedInExtraLines(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false),
+		view: viewList,
+	}
+	tasks := make([]daemon.TaskInfo, 20)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	m.list.SetTasks(tasks)
+	m.list.SetSize(100, 15) // height=15, visibleRows=10 without extras
+
+	// Without status message: count task lines
+	output := m.View()
+	baseTaskLines := countTaskLines(output)
+
+	// With status message: should have one fewer task line to make room
+	m.statusMessage = "Copied!"
+	output = m.View()
+	withMsgTaskLines := countTaskLines(output)
+	if withMsgTaskLines >= baseTaskLines {
+		t.Errorf("expected fewer task lines with status message: base=%d, withMsg=%d", baseTaskLines, withMsgTaskLines)
+	}
+	if !strings.Contains(output, "Copied!") {
+		t.Error("expected status message in output")
+	}
+
+	// With status message + search mode: should have two fewer task lines
+	m.searchMode = true
+	m.searchQuery = "test"
+	output = m.View()
+	withBothTaskLines := countTaskLines(output)
+	if withBothTaskLines >= withMsgTaskLines {
+		t.Errorf("expected fewer task lines with search+status: withMsg=%d, withBoth=%d", withMsgTaskLines, withBothTaskLines)
+	}
+}
+
+// countTaskLines counts lines containing "Task " in the output (rendered task rows).
+func countTaskLines(output string) int {
+	count := 0
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, "Task ") {
+			count++
+		}
+	}
+	return count
+}
+
+func TestListView_OutputFitsTerminalHeight(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false),
+		view: viewList,
+	}
+	tasks := make([]daemon.TaskInfo, 30)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	m.list.SetTasks(tasks)
+
+	for _, height := range []int{10, 15, 20, 30, 40} {
+		m.list.SetSize(100, height)
+		m.width = 100
+		m.height = height
+
+		output := m.View()
+		lines := strings.Split(output, "\n")
+		// The output should not exceed terminal height
+		// (last line may be empty from trailing newline, so allow height or height+1)
+		if len(lines) > height+1 {
+			t.Errorf("height=%d: output has %d lines, expected <= %d", height, len(lines), height+1)
+		}
+	}
+
+	// Also test with status message (the bug case)
+	m.statusMessage = "Task updated"
+	for _, height := range []int{10, 15, 20} {
+		m.list.SetSize(100, height)
+		m.width = 100
+		m.height = height
+
+		output := m.View()
+		lines := strings.Split(output, "\n")
+		if len(lines) > height+1 {
+			t.Errorf("height=%d with statusMessage: output has %d lines, expected <= %d", height, len(lines), height+1)
+		}
+	}
+}
+
 // --- Selection menu vim navigation tests ---
 
 func newTestModelWithWorkflows(n int) Model {

@@ -26,8 +26,9 @@ type listView struct {
 	pendingG        bool
 	matchedIndices  []int // indices of tasks matching current search
 	currentMatchIdx int   // index within matchedIndices
-	scrollOffset    int   // index of first visible task row
-	extraLines      int   // extra lines reserved below the list (search bar, command bar, etc.)
+	scrollOffset       int  // index of first visible task row
+	extraLines         int  // extra lines reserved below the list (search bar, command bar, etc.)
+	hasScrollIndicator bool // true when not all tasks fit in the visible window
 }
 
 // safeKeyMap returns a table.KeyMap that only handles basic navigation.
@@ -245,6 +246,8 @@ func (l *listView) lineNumWidth() int {
 // visibleRows returns the number of task rows visible in the list.
 // Layout: title(1) + blank(1) + header(1) + tasks + blank(1) + help(1) = 5 lines overhead.
 // extraLines accounts for overlays appended below (search bar, command bar, etc.).
+// When scroll indicators are shown (tasks above or below), they replace task rows
+// rather than adding extra lines, so the total height stays constant.
 func (l *listView) visibleRows() int {
 	return max(1, l.height-5-l.extraLines)
 }
@@ -334,11 +337,15 @@ func (l *listView) View() string {
 		visible := l.visibleRows()
 		l.ensureVisible()
 		end := min(l.scrollOffset+visible, len(l.tasks))
+
 		for i := l.scrollOffset; i < end; i++ {
 			line := l.renderTask(l.tasks[i], i, i == cursor)
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
+
+		// Show scroll position indicator in the help bar when not all tasks visible
+		l.hasScrollIndicator = l.scrollOffset > 0 || end < len(l.tasks)
 	}
 
 	b.WriteString("\n")
@@ -489,6 +496,14 @@ func (l *listView) renderHelp() string {
 		help.WriteString(dimStyle.Render(binding.Help().Key))
 		help.WriteString(helpStyle.Render(" "))
 		help.WriteString(helpStyle.Render(binding.Help().Desc))
+	}
+
+	// Show scroll position indicator when task list is scrollable
+	if l.hasScrollIndicator && len(l.tasks) > 0 {
+		visible := l.visibleRows()
+		end := min(l.scrollOffset+visible, len(l.tasks))
+		help.WriteString(helpStyle.Render(" | "))
+		help.WriteString(dimStyle.Render(fmt.Sprintf("%d-%d/%d", l.scrollOffset+1, end, len(l.tasks))))
 	}
 
 	return help.String()

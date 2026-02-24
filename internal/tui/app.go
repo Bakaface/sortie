@@ -390,6 +390,9 @@ func (m Model) View() string {
 	if m.searchMode {
 		extra++
 	}
+	if m.statusMessage != "" {
+		extra++
+	}
 	m.list.extraLines = extra
 
 	var content string
