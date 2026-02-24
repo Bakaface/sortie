@@ -664,6 +664,15 @@ func cleanupTask(database *db.DB, taskID int64) error {
 		cleaned = true
 	}
 
+	// Delete the task branch
+	if t.Branch != "" && repoRoot != "" {
+		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to delete branch %s for task #%d: %v\n", t.Branch, taskID, err)
+		} else {
+			cleaned = true
+		}
+	}
+
 	// Remove log directory
 	if repoRoot != "" {
 		dataDir := filepath.Join(repoRoot, ".sortie")

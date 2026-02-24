@@ -392,6 +392,11 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 		if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
 			log.Printf("Warning: failed to remove worktree: %v", err)
 		}
+		// Prune stale worktree references so git doesn't think the branch
+		// is still checked out in a (now-removed) worktree.
+		if err := gitpkg.CleanupWorktrees(e.repoRoot); err != nil {
+			log.Printf("Warning: failed to prune worktrees: %v", err)
+		}
 		if err := gitpkg.ForceDeleteBranch(e.repoRoot, t.Branch); err != nil {
 			log.Printf("Warning: failed to delete branch: %v", err)
 		}

@@ -688,9 +688,25 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 	}
 	s.broadcastTaskUpdate(t.ID)
 
+	repoRoot := s.getProjectRepoRoot(t)
 	if err := pc.engine.FinalizeTask(s.ctx, t); err != nil {
 		log.Printf("Warning: finalize failed for task #%d: %v", t.ID, err)
-		// Don't fail the whole operation — still mark as completed
+		// Don't fail the whole operation — still mark as completed.
+		// Best-effort cleanup of worktree and branch so they don't linger.
+		if t.WorktreePath != "" && repoRoot != "" {
+			if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
+				log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, rmErr)
+			}
+			gitpkg.CleanupWorktrees(repoRoot)
+			if err := s.database.ClearWorktreePath(t.ID); err != nil {
+				log.Printf("Warning: failed to clear worktree path for task #%d: %v", t.ID, err)
+			}
+		}
+		if t.Branch != "" && repoRoot != "" {
+			if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
+				log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, rmErr)
+			}
+		}
 	}
 
 	// Mark task as completed
