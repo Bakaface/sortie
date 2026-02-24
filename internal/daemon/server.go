@@ -836,7 +836,13 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, description string) {
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	title, err := s.generateTitle(ctx, description)
+	// Use per-project config for Claude command and branch resolution
+	projCfg := s.cfg
+	if pc, err := s.getProjectContext(projectID); err == nil {
+		projCfg = pc.cfg
+	}
+
+	title, err := s.generateTitle(ctx, description, &projCfg.Claude)
 	if err != nil {
 		log.Printf("Failed to generate AI title for task #%d: %v", taskID, err)
 		// Transition to pending even on failure so the task can still be claimed
@@ -847,14 +853,8 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, description string) {
 		return
 	}
 
-	// Use per-project config for branch name resolution
-	branchCfg := s.cfg
-	if pc, err := s.getProjectContext(projectID); err == nil {
-		branchCfg = pc.cfg
-	}
-
 	slug := task.Slugify(title)
-	branch := branchCfg.ResolveBranchName(taskID, slug)
+	branch := projCfg.ResolveBranchName(taskID, slug)
 
 	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {
 		log.Printf("Failed to update title for task #%d: %v", taskID, err)
@@ -886,16 +886,16 @@ func (s *Server) broadcastTaskUpdate(taskID int64) {
 }
 
 // generateTitle invokes Claude CLI to produce a concise title from a task description.
-func (s *Server) generateTitle(ctx context.Context, description string) (string, error) {
+func (s *Server) generateTitle(ctx context.Context, description string, claude *config.ClaudeConfig) (string, error) {
 	prompt := fmt.Sprintf(
 		"Generate a concise task title (one short sentence, max 80 characters, no quotes, no prefix like 'Title:') for the following task description:\n\n%s",
 		description,
 	)
 
 	args := []string{"-p", prompt, "--output-format", "text"}
-	args = append(args, s.cfg.Claude.DefaultArgs...)
+	args = append(args, claude.DefaultArgs...)
 
-	cmd := exec.CommandContext(ctx, s.cfg.Claude.Command, args...)
+	cmd := exec.CommandContext(ctx, claude.Command, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
