@@ -80,7 +80,7 @@ func computeColumns(width int, globalMode, lineNumbers bool, taskCount int) []ta
 		fixed += projWidth
 	}
 	if lineNumbers {
-		fixed += lineNumWidthForCount(taskCount) + 2 // gutter + padding
+		fixed += lineNumWidthForCount(taskCount)
 	}
 
 	titleWidth := width - fixed
@@ -315,10 +315,10 @@ func (l *listView) View() string {
 }
 
 func (l *listView) renderHeader() string {
-	gutter := ""
+	gutter := " "
 	if l.showLineNumbers {
 		gutterWidth := l.lineNumWidth()
-		gutter = strings.Repeat(" ", gutterWidth+2)
+		gutter = strings.Repeat(" ", gutterWidth+1)
 	}
 	tw := l.titleWidth()
 	var header string
