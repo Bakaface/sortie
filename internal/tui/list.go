@@ -73,7 +73,7 @@ func computeColumns(width int, globalMode, lineNumbers bool, taskCount int) []ta
 	const (
 		idWidth      = 5
 		priWidth     = 2
-		statusWidth  = 22
+		statusWidth  = 18
 		projWidth    = 14
 		spacing      = 5 // gaps between columns
 		minTitleWidth = 15
@@ -356,10 +356,10 @@ func (l *listView) renderHeader() string {
 	tw := l.titleWidth()
 	var header string
 	if l.globalMode {
-		header = fmt.Sprintf("%s %-5s %-2s %-14s %-22s %-*s",
+		header = fmt.Sprintf("%s %-5s %-2s %-14s %-18s %-*s",
 			gutter, "ID", "P", "PROJECT", "STATUS", tw, "TITLE")
 	} else {
-		header = fmt.Sprintf("%s %-5s %-2s %-22s %-*s",
+		header = fmt.Sprintf("%s %-5s %-2s %-18s %-*s",
 			gutter, "ID", "P", "STATUS", tw, "TITLE")
 	}
 	return headerStyle.Render(header)
@@ -417,7 +417,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		}
 		idCol := truncateOrPad(taskID, 5)
 		priCol := truncateOrPad(priBadge, 2)
-		statusCol := truncateOrPad(status, 22)
+		statusCol := truncateOrPad(status, 18)
 
 		var line string
 		if l.showLineNumbers {
@@ -452,7 +452,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	if strings.Contains(status, "(deadlocked)") {
 		statusSt = stateStyle("failed")
 	}
-	statusCol := statusSt.Width(22).Render(status)
+	statusCol := statusSt.Width(18).Render(status)
 	var line string
 	if l.showLineNumbers {
 		gutterWidth := l.lineNumWidth()
