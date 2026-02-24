@@ -306,6 +306,9 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 		return gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title))
 
 	case "merge":
+		if t.Branch == "" {
+			return fmt.Errorf("cannot merge: task branch name is empty")
+		}
 		// Commit any uncommitted changes first (operates on the worktree, safe to do concurrently)
 		if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
 			return fmt.Errorf("commit failed: %w", err)
@@ -407,6 +410,10 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 // FinalizeTask runs the on_complete action (commit/merge/cleanup) for a task.
 // Used when finalizing a tmux-continued task.
 func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
+	// Resolve branch name if not set (may not have been persisted to DB)
+	if t.Branch == "" {
+		t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
+	}
 	return e.executeOnComplete(ctx, t, nil)
 }
 
