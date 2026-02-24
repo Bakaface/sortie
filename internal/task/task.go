@@ -14,6 +14,7 @@ const (
 	StatusRunning          Status = "running"
 	StatusAwaitingApproval Status = "awaiting-approval"
 	StatusTmux             Status = "tmux"
+	StatusFinalizing       Status = "finalizing"
 	StatusSummarizing      Status = "summarizing"
 	StatusCompleted        Status = "completed"
 	StatusFailed           Status = "failed"
@@ -29,7 +30,7 @@ func (s Status) IsTerminal() bool {
 }
 
 func (s Status) IsActive() bool {
-	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux || s == StatusSummarizing || s == StatusArtifactMissing
+	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux || s == StatusFinalizing || s == StatusSummarizing || s == StatusArtifactMissing
 }
 
 type Priority string

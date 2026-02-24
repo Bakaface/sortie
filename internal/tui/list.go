@@ -542,6 +542,8 @@ func statusIconFor(status string) string {
 		return "○"
 	case "failed":
 		return "✗"
+	case "finalizing":
+		return "◉"
 	case "summarizing":
 		return "◉"
 	case "stopped":

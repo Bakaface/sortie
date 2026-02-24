@@ -682,9 +682,9 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 		return
 	}
 
-	// Run summarizer + on_complete action (commit/merge/cleanup)
-	if err := s.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
-		log.Printf("Warning: failed to set summarizing status for task #%d: %v", t.ID, err)
+	// Set finalizing status while we run summarizer + on_complete
+	if err := s.database.UpdateTaskStatus(t.ID, task.StatusFinalizing); err != nil {
+		log.Printf("Warning: failed to set finalizing status for task #%d: %v", t.ID, err)
 	}
 	s.broadcastTaskUpdate(t.ID)
 
@@ -1080,7 +1080,7 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 	}
 	for _, t := range tasks {
 		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusSummarizing, task.StatusInit, task.StatusArtifactMissing:
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusFinalizing, task.StatusSummarizing, task.StatusInit, task.StatusArtifactMissing:
 			return // Still active work
 		}
 	}
@@ -1228,6 +1228,12 @@ func (s *Server) recoverOrphanedTasks() error {
 		if t.Status == task.StatusInit {
 			log.Printf("Recovering task #%d stuck in init, resetting to pending", t.ID)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
+				log.Printf("Failed to reset task #%d: %v", t.ID, err)
+			}
+		}
+		if t.Status == task.StatusFinalizing {
+			log.Printf("Recovering task #%d stuck in finalizing, resetting to tmux", t.ID)
+			if err := s.database.UpdateTaskStatus(t.ID, task.StatusTmux); err != nil {
 				log.Printf("Failed to reset task #%d: %v", t.ID, err)
 			}
 		}
