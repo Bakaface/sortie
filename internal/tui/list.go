@@ -244,12 +244,12 @@ func (l *listView) lineNumWidth() int {
 }
 
 // visibleRows returns the number of task rows visible in the list.
-// Layout: title(1) + blank(1) + header(1) + tasks + blank(1) + help(1) = 5 lines overhead.
+// Layout: title(1) + blank(1) + header(2, includes border) + tasks + blank(1) + help(1) = 6 lines overhead.
 // extraLines accounts for overlays appended below (search bar, command bar, etc.).
 // When scroll indicators are shown (tasks above or below), they replace task rows
 // rather than adding extra lines, so the total height stays constant.
 func (l *listView) visibleRows() int {
-	return max(1, l.height-5-l.extraLines)
+	return max(1, l.height-6-l.extraLines)
 }
 
 func (l *listView) PageDown() {

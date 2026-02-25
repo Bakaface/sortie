@@ -860,7 +860,7 @@ func newTestModelWithTasks(n int) Model {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	m.list.SetTasks(tasks)
-	m.list.SetSize(100, 30) // 30 lines tall → visibleRows = 25, half = 12
+	m.list.SetSize(100, 30) // 30 lines tall → visibleRows = 24, half = 12
 	return m
 }
 
@@ -934,7 +934,7 @@ func TestHandleListKey_CtrlDPageDown(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// height=30, visibleRows=25, half=12
+	// height=30, visibleRows=24, half=12
 	if updated.list.table.Cursor() != 12 {
 		t.Errorf("expected cursor at 12 after ctrl+d, got %d", updated.list.table.Cursor())
 	}
@@ -948,7 +948,7 @@ func TestHandleListKey_CtrlUPageUp(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// height=30, visibleRows=25, half=12
+	// height=30, visibleRows=24, half=12
 	if updated.list.table.Cursor() != 8 {
 		t.Errorf("expected cursor at 8 after ctrl+u, got %d", updated.list.table.Cursor())
 	}
@@ -988,7 +988,7 @@ func TestHandleListKey_PgDownPageDown(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// height=30, visibleRows=25, half=12
+	// height=30, visibleRows=24, half=12
 	if updated.list.table.Cursor() != 12 {
 		t.Errorf("expected cursor at 12 after pgdown, got %d", updated.list.table.Cursor())
 	}
@@ -1002,7 +1002,7 @@ func TestHandleListKey_PgUpPageUp(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// height=30, visibleRows=25, half=12
+	// height=30, visibleRows=24, half=12
 	if updated.list.table.Cursor() != 8 {
 		t.Errorf("expected cursor at 8 after pgup, got %d", updated.list.table.Cursor())
 	}
@@ -1034,7 +1034,7 @@ func TestListView_PageDownPageUp(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 30) // visibleRows=25, half=12
+	l.SetSize(100, 30) // visibleRows=24, half=12
 
 	l.PageDown()
 	if l.table.Cursor() != 12 {
@@ -3885,7 +3885,7 @@ func TestListView_WindowedRendering(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 15) // visibleRows = 15 - 5 = 10
+	l.SetSize(100, 15) // visibleRows = 15 - 6 = 9
 
 	output := l.View()
 	lines := strings.Split(output, "\n")
@@ -3897,8 +3897,8 @@ func TestListView_WindowedRendering(t *testing.T) {
 			taskLines++
 		}
 	}
-	if taskLines != 10 {
-		t.Errorf("expected 10 visible task rows, got %d", taskLines)
+	if taskLines != 9 {
+		t.Errorf("expected 9 visible task rows, got %d", taskLines)
 	}
 
 	// Helper row should always be present
@@ -3957,7 +3957,7 @@ func TestListView_ScrollOffsetFollowsCursor(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 15) // visibleRows = 10
+	l.SetSize(100, 15) // visibleRows = 9
 
 	// Cursor starts at 0, scroll offset at 0
 	if l.scrollOffset != 0 {
@@ -3985,20 +3985,20 @@ func TestListView_ScrollOffsetFollowsCursor(t *testing.T) {
 
 func TestListView_ExtraLinesReduceVisibleRows(t *testing.T) {
 	l := newListView(false)
-	l.SetSize(100, 15) // visibleRows = 15 - 5 = 10
+	l.SetSize(100, 15) // visibleRows = 15 - 6 = 9
 
-	if l.visibleRows() != 10 {
-		t.Errorf("expected 10 visible rows without extra lines, got %d", l.visibleRows())
+	if l.visibleRows() != 9 {
+		t.Errorf("expected 9 visible rows without extra lines, got %d", l.visibleRows())
 	}
 
 	l.extraLines = 1 // e.g., search bar
-	if l.visibleRows() != 9 {
-		t.Errorf("expected 9 visible rows with 1 extra line, got %d", l.visibleRows())
+	if l.visibleRows() != 8 {
+		t.Errorf("expected 8 visible rows with 1 extra line, got %d", l.visibleRows())
 	}
 
 	l.extraLines = 2 // e.g., search bar + command bar
-	if l.visibleRows() != 8 {
-		t.Errorf("expected 8 visible rows with 2 extra lines, got %d", l.visibleRows())
+	if l.visibleRows() != 7 {
+		t.Errorf("expected 7 visible rows with 2 extra lines, got %d", l.visibleRows())
 	}
 }
 
@@ -4009,13 +4009,13 @@ func TestListView_ScrollIndicatorInHelpBar(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 15) // visibleRows = 10, 20 tasks → needs scrolling
+	l.SetSize(100, 15) // visibleRows = 9, 20 tasks → needs scrolling
 
 	output := l.View()
 
 	// When more tasks exist than visible, should show scroll position
-	if !strings.Contains(output, "1-10/20") {
-		t.Errorf("expected scroll position '1-10/20' in help bar, got:\n%s", output)
+	if !strings.Contains(output, "1-9/20") {
+		t.Errorf("expected scroll position '1-9/20' in help bar, got:\n%s", output)
 	}
 
 	// Scroll down past the visible window
@@ -4037,7 +4037,7 @@ func TestListView_NoScrollIndicatorWhenAllVisible(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 15) // visibleRows = 10, only 5 tasks → no scrolling needed
+	l.SetSize(100, 15) // visibleRows = 9, only 5 tasks → no scrolling needed
 
 	output := l.View()
 
@@ -4054,7 +4054,7 @@ func TestListView_TitleAlwaysVisible(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 20) // visibleRows = 15
+	l.SetSize(100, 20) // visibleRows = 14
 
 	// Title should always be the first content
 	output := l.View()
@@ -4089,7 +4089,7 @@ func TestStatusMessage_CountedInExtraLines(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	m.list.SetTasks(tasks)
-	m.list.SetSize(100, 15) // height=15, visibleRows=10 without extras
+	m.list.SetSize(100, 15) // height=15, visibleRows=9 without extras
 
 	// Without status message: count task lines
 	output := m.View()
@@ -4147,7 +4147,7 @@ func TestListView_OutputFitsTerminalHeight(t *testing.T) {
 		output := m.View()
 		lines := strings.Split(output, "\n")
 		// The output should not exceed terminal height
-		// (last line may be empty from trailing newline, so allow height or height+1)
+		// (last line may be empty from trailing newline, so allow height+1)
 		if len(lines) > height+1 {
 			t.Errorf("height=%d: output has %d lines, expected <= %d", height, len(lines), height+1)
 		}
