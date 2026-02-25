@@ -152,16 +152,97 @@ func TestPromptView_Update(t *testing.T) {
 func TestPromptView_TextareaHeight(t *testing.T) {
 	p := newPromptView()
 
-	// Normal terminal size: textarea should be compact (5 lines)
+	// Empty textarea should start at 1 line
 	p.SetSize(80, 40)
-	if h := p.textarea.Height(); h != 5 {
-		t.Errorf("expected textarea height 5 for large terminal, got %d", h)
+	if h := p.textarea.Height(); h != 1 {
+		t.Errorf("expected textarea height 1 for empty content, got %d", h)
 	}
 
-	// Small terminal: textarea should be clamped to minimum 3
+	// With content, height should grow
+	p.textarea.SetValue("line 1\nline 2\nline 3")
+	p.recalcHeight()
+	if h := p.textarea.Height(); h != 3 {
+		t.Errorf("expected textarea height 3 for 3 lines, got %d", h)
+	}
+
+	// Small terminal: textarea should be clamped to max available
 	p.SetSize(80, 8)
-	if h := p.textarea.Height(); h < 3 {
-		t.Errorf("expected textarea height >= 3 for small terminal, got %d", h)
+	p.textarea.SetValue("line 1\nline 2\nline 3\nline 4\nline 5")
+	p.recalcHeight()
+	maxHeight := 8 - 6 // height - chrome
+	if h := p.textarea.Height(); h > maxHeight {
+		t.Errorf("expected textarea height <= %d for small terminal, got %d", maxHeight, h)
+	}
+}
+
+func TestPromptView_AutoGrow(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(80, 40)
+
+	// Starts at 1 line
+	if h := p.textarea.Height(); h != 1 {
+		t.Errorf("expected initial height 1, got %d", h)
+	}
+
+	// Grows with newlines
+	p.textarea.SetValue("line 1\nline 2")
+	p.recalcHeight()
+	if h := p.textarea.Height(); h != 2 {
+		t.Errorf("expected height 2 for 2 lines, got %d", h)
+	}
+
+	// Grows with more lines
+	p.textarea.SetValue("line 1\nline 2\nline 3\nline 4\nline 5")
+	p.recalcHeight()
+	if h := p.textarea.Height(); h != 5 {
+		t.Errorf("expected height 5 for 5 lines, got %d", h)
+	}
+
+	// Shrinks back after reset
+	p.Reset()
+	if h := p.textarea.Height(); h != 1 {
+		t.Errorf("expected height 1 after reset, got %d", h)
+	}
+}
+
+func TestPromptView_AutoGrowWrapping(t *testing.T) {
+	p := newPromptView()
+	// Set narrow width: content width = 30 - 4 - promptWidth
+	p.SetSize(30, 40)
+
+	// Content width is 30 - 4 - 2 = 24 chars (assuming prompt "✈ " is 2 wide)
+	// A line of 48 chars should wrap to 2 visual lines
+	p.textarea.SetValue("abcdefghijklmnopqrstuvwxabcdefghijklmnopqrstuvwx")
+	p.recalcHeight()
+	if h := p.textarea.Height(); h < 2 {
+		t.Errorf("expected height >= 2 for long wrapped line, got %d", h)
+	}
+}
+
+func TestVisualLineCount(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(80, 40)
+
+	tests := []struct {
+		name     string
+		value    string
+		expected int
+	}{
+		{"empty", "", 1},
+		{"single line", "hello", 1},
+		{"two lines", "hello\nworld", 2},
+		{"trailing newline", "hello\n", 2},
+		{"empty lines", "\n\n\n", 4},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p.textarea.SetValue(tc.value)
+			got := p.visualLineCount()
+			if got != tc.expected {
+				t.Errorf("visualLineCount() = %d, want %d", got, tc.expected)
+			}
+		})
 	}
 }
 

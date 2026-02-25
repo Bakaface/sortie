@@ -46,26 +46,62 @@ func newPromptView() promptView {
 func (p *promptView) SetSize(width, height int) {
 	p.width = width
 	p.height = height
-	// Use a compact textarea height to avoid rendering prompt characters
-	// on every empty line of the screen. The textarea scrolls internally
-	// when content exceeds this height.
-	const defaultTextareaHeight = 5
-	taHeight := defaultTextareaHeight
-	maxHeight := height - 6
+	p.textarea.SetWidth(width - 4)
+	p.recalcHeight()
+}
+
+// recalcHeight adjusts the textarea height to fit the current content,
+// starting at 1 line and growing as the user types.
+func (p *promptView) recalcHeight() {
+	taHeight := p.visualLineCount()
+	maxHeight := p.height - 6
+	if maxHeight < 1 {
+		maxHeight = 1
+	}
 	if taHeight > maxHeight {
 		taHeight = maxHeight
 	}
-	if taHeight < 3 {
-		taHeight = 3
+	if taHeight < 1 {
+		taHeight = 1
 	}
-	p.textarea.SetWidth(width - 4)
 	p.textarea.SetHeight(taHeight)
+}
+
+// visualLineCount returns the number of visual lines the current textarea
+// content occupies, accounting for soft-wrapping at the content width.
+func (p *promptView) visualLineCount() int {
+	val := p.textarea.Value()
+	if val == "" {
+		return 1
+	}
+
+	// Content width is textarea width minus prompt characters.
+	// The textarea SetWidth(w) sets internal content width to w - promptWidth.
+	// We pass (width - 4), so content width = (width - 4) - promptWidth.
+	promptWidth := lipgloss.Width(p.textarea.Prompt)
+	contentWidth := (p.width - 4) - promptWidth
+	if contentWidth < 1 {
+		contentWidth = 1
+	}
+
+	lines := strings.Split(val, "\n")
+	visual := 0
+	for _, line := range lines {
+		lineWidth := lipgloss.Width(line)
+		if lineWidth == 0 {
+			visual++
+		} else {
+			visual += (lineWidth + contentWidth - 1) / contentWidth
+		}
+	}
+	return visual
 }
 
 func (p *promptView) Reset() {
 	p.textarea.Reset()
 	p.images = make([]string, 0)
 	p.textarea.Focus()
+	p.recalcHeight()
 }
 
 func (p *promptView) Value() string {
@@ -81,6 +117,7 @@ func (p *promptView) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	p.textarea, cmd = p.textarea.Update(msg)
 	p.detectImages()
+	p.recalcHeight()
 	return cmd
 }
 
