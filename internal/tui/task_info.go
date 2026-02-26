@@ -108,6 +108,13 @@ func (v *taskInfoView) renderMetadata() string {
 	if t.Branch != "" {
 		b.WriteString(labelStyle.Render("Branch:    "))
 		b.WriteString(valueStyle.Render(t.Branch))
+		if t.BranchName != "" && t.BranchName != t.Branch {
+			b.WriteString(dimStyle.Render(fmt.Sprintf(" (template: %s)", t.BranchName)))
+		}
+		b.WriteString("\n")
+	} else if t.BranchName != "" {
+		b.WriteString(labelStyle.Render("Branch:    "))
+		b.WriteString(dimStyle.Render(fmt.Sprintf("(template: %s)", t.BranchName)))
 		b.WriteString("\n")
 	}
 

@@ -88,7 +88,8 @@ type Task struct {
 	StepIndex     int
 	CurrentStep   string
 	LoopIteration int
-	Branch       string
+	BranchName   string // user-provided branch template (e.g. "feature/{{task.title}}")
+	Branch       string // resolved branch name
 	WorktreePath string
 	ExitCode     *int
 	ErrorMessage string

@@ -236,7 +236,11 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 
 	if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
 		if t.Branch == "" {
-			t.Branch = pc.cfg.ResolveBranchName(t.ID, t.Slug)
+			if t.BranchName != "" {
+				t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
+			} else {
+				t.Branch = pc.cfg.ResolveBranchName(t.ID, t.Slug)
+			}
 		}
 		worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, pc.cfg.Git.BaseBranch, t.Branch)
 		if err != nil {
@@ -479,7 +483,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		priority = proj.DefaultPriority
 	}
 
-	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, "", task.StatusInit, priority, req.Images)
+	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", task.StatusInit, priority, req.Images)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
 		return
@@ -489,10 +493,10 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
 
-	go s.refineTaskTitle(t.ID, t.ProjectID, description)
+	go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, description)
 }
 
-func (s *Server) refineTaskTitle(taskID, projectID int64, description string) {
+func (s *Server) refineTaskTitle(taskID, projectID int64, branchName, description string) {
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
@@ -512,7 +516,14 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, description string) {
 	}
 
 	slug := task.Slugify(title)
-	branch := projCfg.ResolveBranchName(taskID, slug)
+
+	// Use per-task branch template if provided, otherwise fall back to config default
+	var branch string
+	if branchName != "" {
+		branch = config.ResolveBranchTemplate(branchName, taskID, title, slug)
+	} else {
+		branch = projCfg.ResolveBranchName(taskID, slug)
+	}
 
 	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {
 		log.Printf("Failed to update title for task #%d: %v", taskID, err)
@@ -529,7 +540,7 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, description string) {
 	}
 
 	s.broadcastTaskUpdate(taskID)
-	log.Printf("AI title for task #%d: %s", taskID, title)
+	log.Printf("AI title for task #%d: %s (branch: %s)", taskID, title, branch)
 }
 
 func (s *Server) generateTitle(ctx context.Context, description string, claude *config.ClaudeConfig) (string, error) {

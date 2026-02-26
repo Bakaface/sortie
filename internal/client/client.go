@@ -282,10 +282,11 @@ func (c *Client) RetryTask(id int64) error {
 	return c.requestOK(daemon.MsgRetryTask, daemon.RetryTaskRequest{TaskID: id})
 }
 
-func (c *Client) CreateTask(description, workflow, projectPath string, images []string) (*daemon.TaskInfo, error) {
+func (c *Client) CreateTask(description, workflow, branchName, projectPath string, images []string) (*daemon.TaskInfo, error) {
 	msg, err := c.request(daemon.MsgCreateTask, daemon.CreateTaskRequest{
 		Description: description,
 		Workflow:    workflow,
+		BranchName:  branchName,
 		ProjectPath: projectPath,
 		Images:      images,
 	})

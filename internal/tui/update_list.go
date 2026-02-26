@@ -517,7 +517,7 @@ func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if description == "" {
 			description = taskCfg.Name
 		}
-		return m, m.createTaskWithPrompt(description, nil)
+		return m, m.createTaskWithPrompt(description, "", nil)
 	case "esc", "q":
 		m.selectingTask = false
 		return m, nil
@@ -538,7 +538,7 @@ func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if description == "" {
 				description = taskCfg.Name
 			}
-			return m, m.createTaskWithPrompt(description, nil)
+			return m, m.createTaskWithPrompt(description, "", nil)
 		}
 	}
 

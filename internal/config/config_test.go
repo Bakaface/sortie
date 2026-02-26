@@ -721,6 +721,67 @@ func TestValidateLoopsNoLoop(t *testing.T) {
 	}
 }
 
+func TestResolveBranchTemplate(t *testing.T) {
+	tests := []struct {
+		name     string
+		tmpl     string
+		taskID   int64
+		title    string
+		slug     string
+		expected string
+	}{
+		{
+			name:     "config-style placeholders",
+			tmpl:     "sortie/{{task_id}}-{{task_slug}}",
+			taskID:   42,
+			title:    "Add Login Page",
+			slug:     "add-login-page",
+			expected: "sortie/42-add-login-page",
+		},
+		{
+			name:     "workflow-style placeholders",
+			tmpl:     "feature/{{task.id}}-{{task.title}}",
+			taskID:   7,
+			title:    "Fix Bug",
+			slug:     "fix-bug",
+			expected: "feature/7-Fix Bug",
+		},
+		{
+			name:     "mixed placeholders",
+			tmpl:     "{{task_id}}/{{task.title}}/{{task.slug}}",
+			taskID:   99,
+			title:    "Refactor Auth",
+			slug:     "refactor-auth",
+			expected: "99/Refactor Auth/refactor-auth",
+		},
+		{
+			name:     "no placeholders",
+			tmpl:     "feature/my-branch",
+			taskID:   1,
+			title:    "Title",
+			slug:     "title",
+			expected: "feature/my-branch",
+		},
+		{
+			name:     "task.slug placeholder",
+			tmpl:     "feature/TASK-001-{{task.slug}}",
+			taskID:   1,
+			title:    "Add feature",
+			slug:     "add-feature",
+			expected: "feature/TASK-001-add-feature",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ResolveBranchTemplate(tt.tmpl, tt.taskID, tt.title, tt.slug)
+			if result != tt.expected {
+				t.Errorf("ResolveBranchTemplate(%q) = %q, want %q", tt.tmpl, result, tt.expected)
+			}
+		})
+	}
+}
+
 // Helper function to check if string contains substring
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && contains(s, substr))

@@ -109,7 +109,7 @@ func TestCreateTaskWithPriority(t *testing.T) {
 	}
 
 	// Create task with explicit priority
-	created, err := database.CreateTaskWithPriority(proj.ID, "Urgent task", "Do it now", "urgent-task", "", "", "pending", task.PriorityUrgent, nil)
+	created, err := database.CreateTaskWithPriority(proj.ID, "Urgent task", "Do it now", "urgent-task", "", "", "", "pending", task.PriorityUrgent, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,19 +180,19 @@ func TestGetClaimableTasks_SortedByPriority(t *testing.T) {
 	}
 
 	// Create tasks with different priorities
-	_, err = database.CreateTaskWithPriority(proj.ID, "Low task", "Low", "low-task", "", "", "pending", task.PriorityLow, nil)
+	_, err = database.CreateTaskWithPriority(proj.ID, "Low task", "Low", "low-task", "", "", "", "pending", task.PriorityLow, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTaskWithPriority(proj.ID, "High task", "High", "high-task", "", "", "pending", task.PriorityHigh, nil)
+	_, err = database.CreateTaskWithPriority(proj.ID, "High task", "High", "high-task", "", "", "", "pending", task.PriorityHigh, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTaskWithPriority(proj.ID, "Urgent task", "Urgent", "urgent-task", "", "", "pending", task.PriorityUrgent, nil)
+	_, err = database.CreateTaskWithPriority(proj.ID, "Urgent task", "Urgent", "urgent-task", "", "", "", "pending", task.PriorityUrgent, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = database.CreateTaskWithPriority(proj.ID, "Medium task", "Medium", "medium-task", "", "", "pending", task.PriorityMedium, nil)
+	_, err = database.CreateTaskWithPriority(proj.ID, "Medium task", "Medium", "medium-task", "", "", "", "pending", task.PriorityMedium, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +212,53 @@ func TestGetClaimableTasks_SortedByPriority(t *testing.T) {
 		if tasks[i].Priority != expected {
 			t.Errorf("task[%d]: expected priority %q, got %q (title: %s)", i, expected, tasks[i].Priority, tasks[i].Title)
 		}
+	}
+}
+
+func TestCreateTaskWithBranchName(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create task with a branch name template
+	created, err := database.CreateTaskWithPriority(
+		proj.ID, "Task with branch", "Description", "task-slug", "", "feature/{{task.title}}", "",
+		task.StatusPending, task.PriorityMedium, nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if created.BranchName != "feature/{{task.title}}" {
+		t.Errorf("expected branch_name 'feature/{{task.title}}', got %q", created.BranchName)
+	}
+
+	// Verify round-trip via GetTask
+	fetched, err := database.GetTask(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if fetched.BranchName != "feature/{{task.title}}" {
+		t.Errorf("expected branch_name 'feature/{{task.title}}' after fetch, got %q", fetched.BranchName)
+	}
+
+	// Create task without branch name
+	defaultTask, err := database.CreateTask(proj.ID, "Default", "Desc", "default", "", "", task.StatusPending, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if defaultTask.BranchName != "" {
+		t.Errorf("expected empty branch_name for default task, got %q", defaultTask.BranchName)
 	}
 }
 

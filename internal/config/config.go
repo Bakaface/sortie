@@ -603,6 +603,22 @@ func (c *Config) ResolveBranchName(taskID int64, taskSlug string) string {
 	return tmpl
 }
 
+// ResolveBranchTemplate resolves a branch name template with task variables.
+// Supports both config-style ({{task_id}}, {{task_slug}}) and workflow-style
+// ({{task.title}}, {{task.id}}) placeholders.
+func ResolveBranchTemplate(tmpl string, taskID int64, taskTitle, taskSlug string) string {
+	// Config-style placeholders
+	tmpl = strings.ReplaceAll(tmpl, "{{task_id}}", fmt.Sprintf("%d", taskID))
+	tmpl = strings.ReplaceAll(tmpl, "{{task_slug}}", taskSlug)
+
+	// Workflow-style placeholders
+	tmpl = strings.ReplaceAll(tmpl, "{{task.id}}", fmt.Sprintf("%d", taskID))
+	tmpl = strings.ReplaceAll(tmpl, "{{task.title}}", taskTitle)
+	tmpl = strings.ReplaceAll(tmpl, "{{task.slug}}", taskSlug)
+
+	return tmpl
+}
+
 // WriteProjectConfig writes a .sortie.yml file.
 func WriteProjectConfig(path string, proj *ProjectConfig) error {
 	data, err := yaml.Marshal(proj)

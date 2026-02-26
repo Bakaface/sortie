@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -20,11 +21,20 @@ var imageExtensions = map[string]bool{
 	".webp": true,
 }
 
+type promptField int
+
+const (
+	promptFieldDescription promptField = iota
+	promptFieldBranch
+)
+
 type promptView struct {
-	textarea textarea.Model
-	images   []string
-	width    int
-	height   int
+	textarea   textarea.Model
+	branchInput textinput.Model
+	focusField promptField
+	images     []string
+	width      int
+	height     int
 }
 
 func newPromptView() promptView {
@@ -37,9 +47,16 @@ func newPromptView() promptView {
 	ta.KeyMap.InsertNewline = key.NewBinding(key.WithKeys("ctrl+j"), key.WithHelp("ctrl+j", "new line"))
 	ta.KeyMap.WordForward = key.NewBinding(key.WithKeys("alt+right", "ctrl+right", "alt+f"), key.WithHelp("ctrl+right", "word forward"))
 	ta.KeyMap.WordBackward = key.NewBinding(key.WithKeys("alt+left", "ctrl+left", "alt+b"), key.WithHelp("ctrl+left", "word backward"))
+
+	bi := textinput.New()
+	bi.Placeholder = "optional, e.g. feature/{{task.title}}"
+	bi.CharLimit = 200
+
 	return promptView{
-		textarea: ta,
-		images:   make([]string, 0),
+		textarea:    ta,
+		branchInput: bi,
+		focusField:  promptFieldDescription,
+		images:      make([]string, 0),
 	}
 }
 
@@ -47,6 +64,7 @@ func (p *promptView) SetSize(width, height int) {
 	p.width = width
 	p.height = height
 	p.textarea.SetWidth(width - 4)
+	p.branchInput.Width = width - 4 - lipgloss.Width("Branch: ")
 	p.recalcHeight()
 }
 
@@ -54,7 +72,8 @@ func (p *promptView) SetSize(width, height int) {
 // starting at 1 line and growing as the user types.
 func (p *promptView) recalcHeight() {
 	taHeight := p.visualLineCount()
-	maxHeight := p.height - 6
+	// Reserve extra lines for: title(2) + branch label+input(2) + images + help(2) + padding
+	maxHeight := p.height - 8
 	if maxHeight < 1 {
 		maxHeight = 1
 	}
@@ -99,8 +118,11 @@ func (p *promptView) visualLineCount() int {
 
 func (p *promptView) Reset() {
 	p.textarea.Reset()
+	p.branchInput.Reset()
 	p.images = make([]string, 0)
+	p.focusField = promptFieldDescription
 	p.textarea.Focus()
+	p.branchInput.Blur()
 	p.recalcHeight()
 }
 
@@ -108,36 +130,61 @@ func (p *promptView) Value() string {
 	return strings.TrimSpace(p.textarea.Value())
 }
 
+func (p *promptView) BranchName() string {
+	return strings.TrimSpace(p.branchInput.Value())
+}
+
 func (p *promptView) Images() []string {
 	return p.images
 }
 
-// Update passes the message to the textarea and checks for image paths.
+// Update passes the message to the active input and checks for image paths.
 func (p *promptView) Update(msg tea.Msg) tea.Cmd {
-	// Pre-expand textarea to max height so the internal viewport doesn't
-	// scroll when content grows beyond the current height. Without this,
-	// growing from 1→2 lines causes the viewport to hide the first line.
-	maxHeight := p.height - 6
-	if maxHeight < 1 {
-		maxHeight = 1
-	}
-	p.textarea.SetHeight(maxHeight)
-
 	var cmd tea.Cmd
-	p.textarea, cmd = p.textarea.Update(msg)
-	p.detectImages()
-	p.recalcHeight()
+	if p.focusField == promptFieldDescription {
+		// Pre-expand textarea to max height so the internal viewport doesn't
+		// scroll when content grows beyond the current height.
+		maxHeight := p.height - 8
+		if maxHeight < 1 {
+			maxHeight = 1
+		}
+		p.textarea.SetHeight(maxHeight)
+
+		p.textarea, cmd = p.textarea.Update(msg)
+		p.detectImages()
+		p.recalcHeight()
+	} else {
+		p.branchInput, cmd = p.branchInput.Update(msg)
+	}
 	return cmd
 }
 
-// Focus focuses the textarea
-func (p *promptView) Focus() {
-	p.textarea.Focus()
+// SwitchFocus toggles focus between the description textarea and the branch input.
+func (p *promptView) SwitchFocus() {
+	if p.focusField == promptFieldDescription {
+		p.focusField = promptFieldBranch
+		p.textarea.Blur()
+		p.branchInput.Focus()
+	} else {
+		p.focusField = promptFieldDescription
+		p.branchInput.Blur()
+		p.textarea.Focus()
+	}
 }
 
-// Blur unfocuses the textarea
+// Focus focuses the currently active input
+func (p *promptView) Focus() {
+	if p.focusField == promptFieldDescription {
+		p.textarea.Focus()
+	} else {
+		p.branchInput.Focus()
+	}
+}
+
+// Blur unfocuses all inputs
 func (p *promptView) Blur() {
 	p.textarea.Blur()
+	p.branchInput.Blur()
 }
 
 // RemoveLastImage removes the most recently attached image
@@ -226,10 +273,17 @@ func (p *promptView) View() string {
 	b.WriteString(taStyle.Render(p.textarea.View()))
 	b.WriteString("\n")
 
+	// Branch name input
+	b.WriteString("\n")
+	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
+	b.WriteString("  ")
+	b.WriteString(labelStyle.Render("Branch: "))
+	b.WriteString(p.branchInput.View())
+	b.WriteString("\n")
+
 	// Attached images
 	if len(p.images) > 0 {
 		b.WriteString("\n")
-		labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
 		b.WriteString("  ")
 		b.WriteString(labelStyle.Render("Attached images:"))
 		b.WriteString("\n")
@@ -250,6 +304,9 @@ func (p *promptView) View() string {
 	b.WriteString(dimStyle.Render("enter"))
 	b.WriteString(helpStyle.Render(" submit"))
 	b.WriteString(helpStyle.Render(" | "))
+	b.WriteString(dimStyle.Render("tab"))
+	b.WriteString(helpStyle.Render(" switch field"))
+	b.WriteString(helpStyle.Render(" | "))
 	b.WriteString(dimStyle.Render("ctrl+j"))
 	b.WriteString(helpStyle.Render(" newline"))
 	b.WriteString(helpStyle.Render(" | "))
@@ -263,9 +320,6 @@ func (p *promptView) View() string {
 	b.WriteString(helpStyle.Render(" | "))
 	b.WriteString(dimStyle.Render("ctrl+g"))
 	b.WriteString(helpStyle.Render(" editor"))
-	b.WriteString(helpStyle.Render(" | "))
-	b.WriteString(dimStyle.Render("paste image path"))
-	b.WriteString(helpStyle.Render(" to attach"))
 
 	return b.String()
 }

@@ -60,7 +60,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 	// Resolve branch name if not set
 	if t.Branch == "" {
-		t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
+		if t.BranchName != "" {
+			t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
+		} else {
+			t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
+		}
 	}
 
 	// Create worktree if not already set
@@ -417,7 +421,11 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	// Resolve branch name if not set (may not have been persisted to DB)
 	if t.Branch == "" {
-		t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
+		if t.BranchName != "" {
+			t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
+		} else {
+			t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
+		}
 	}
 
 	// Run summarizer to generate task context (same as normal completion)

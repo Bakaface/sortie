@@ -15,8 +15,14 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		images := m.prompt.Images()
+		branchName := m.prompt.BranchName()
 		m.view = viewList
-		return m, m.createTaskWithPrompt(description, images)
+		return m, m.createTaskWithPrompt(description, branchName, images)
+
+	case "tab":
+		// Switch focus between description and branch name
+		m.prompt.SwitchFocus()
+		return m, nil
 
 	case "esc":
 		// Cancel and return to list
@@ -24,8 +30,12 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "ctrl+g":
-		// Open $EDITOR for prompt editing
-		return m, m.openEditorForPrompt()
+		// Open $EDITOR for prompt editing (only from description field)
+		if m.prompt.focusField == promptFieldDescription {
+			return m, m.openEditorForPrompt()
+		}
+		cmd := m.prompt.Update(msg)
+		return m, cmd
 
 	case "ctrl+x":
 		// Remove last image

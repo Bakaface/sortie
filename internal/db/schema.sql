@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     step_index INTEGER NOT NULL DEFAULT 0,
     current_step TEXT,
     loop_iteration INTEGER NOT NULL DEFAULT 0,
+    branch_name TEXT NOT NULL DEFAULT '',
     branch TEXT NOT NULL DEFAULT '',
     worktree_path TEXT,
     exit_code INTEGER,

@@ -155,6 +155,7 @@ func showTaskDetailFromDB(taskID int64) error {
 		Status:       string(t.Status),
 		StepIndex:    t.StepIndex,
 		CurrentStep:  t.CurrentStep,
+		BranchName:   t.BranchName,
 		Branch:       t.Branch,
 		WorktreePath: t.WorktreePath,
 		ErrorMessage: t.ErrorMessage,
@@ -181,6 +182,9 @@ func printTaskDetail(t *daemon.TaskInfo) {
 	}
 	if t.Branch != "" {
 		fmt.Printf("  Branch:      %s\n", t.Branch)
+	}
+	if t.BranchName != "" {
+		fmt.Printf("  Branch tmpl: %s\n", t.BranchName)
 	}
 	if t.CurrentStep != "" {
 		fmt.Printf("  Step:        %s (index %d)\n", t.CurrentStep, t.StepIndex)
