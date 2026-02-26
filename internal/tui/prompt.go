@@ -114,6 +114,15 @@ func (p *promptView) Images() []string {
 
 // Update passes the message to the textarea and checks for image paths.
 func (p *promptView) Update(msg tea.Msg) tea.Cmd {
+	// Pre-expand textarea to max height so the internal viewport doesn't
+	// scroll when content grows beyond the current height. Without this,
+	// growing from 1→2 lines causes the viewport to hide the first line.
+	maxHeight := p.height - 6
+	if maxHeight < 1 {
+		maxHeight = 1
+	}
+	p.textarea.SetHeight(maxHeight)
+
 	var cmd tea.Cmd
 	p.textarea, cmd = p.textarea.Update(msg)
 	p.detectImages()
