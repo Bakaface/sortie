@@ -68,20 +68,22 @@ func (p *promptView) SetSize(width, height int) {
 	p.recalcHeight()
 }
 
+// maxHeight returns the maximum textarea height available within the terminal.
+func (p *promptView) maxHeight() int {
+	h := p.height - 8 // reserve space for title(2) + branch(2) + images + help(2) + padding
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 // recalcHeight adjusts the textarea height to fit the current content,
 // starting at 1 line and growing as the user types.
 func (p *promptView) recalcHeight() {
 	taHeight := p.visualLineCount()
-	// Reserve extra lines for: title(2) + branch label+input(2) + images + help(2) + padding
-	maxHeight := p.height - 8
-	if maxHeight < 1 {
-		maxHeight = 1
-	}
+	maxHeight := p.maxHeight()
 	if taHeight > maxHeight {
 		taHeight = maxHeight
-	}
-	if taHeight < 1 {
-		taHeight = 1
 	}
 	p.textarea.SetHeight(taHeight)
 }
@@ -144,10 +146,7 @@ func (p *promptView) Update(msg tea.Msg) tea.Cmd {
 	if p.focusField == promptFieldDescription {
 		// Pre-expand textarea to max height so the internal viewport doesn't
 		// scroll when content grows beyond the current height.
-		maxHeight := p.height - 8
-		if maxHeight < 1 {
-			maxHeight = 1
-		}
+		maxHeight := p.maxHeight()
 		p.textarea.SetHeight(maxHeight)
 
 		p.textarea, cmd = p.textarea.Update(msg)
@@ -268,9 +267,24 @@ func (p *promptView) View() string {
 	b.WriteString(titleStyle.Render(" New Task "))
 	b.WriteString("\n\n")
 
-	// Textarea (use lipgloss padding for consistent left margin on all lines)
+	// Pre-expand textarea to max height so its internal viewport doesn't
+	// scroll, then truncate the rendered output to show only the lines
+	// that contain actual content, achieving the auto-grow visual effect.
+	maxH := p.maxHeight()
+	p.textarea.SetHeight(maxH)
+	taView := p.textarea.View()
+	p.recalcHeight() // restore to content-fitting height
+	visLines := p.visualLineCount()
+	if visLines > maxH {
+		visLines = maxH
+	}
+	lines := strings.Split(taView, "\n")
+	if visLines < len(lines) {
+		lines = lines[:visLines]
+	}
+
 	taStyle := lipgloss.NewStyle().PaddingLeft(2)
-	b.WriteString(taStyle.Render(p.textarea.View()))
+	b.WriteString(taStyle.Render(strings.Join(lines, "\n")))
 	b.WriteString("\n")
 
 	// Branch name input

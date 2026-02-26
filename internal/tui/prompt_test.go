@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -149,29 +151,19 @@ func TestPromptView_Update(t *testing.T) {
 	}
 }
 
-func TestPromptView_TextareaHeight(t *testing.T) {
+func TestPromptView_VisualLineCount(t *testing.T) {
 	p := newPromptView()
-
-	// Empty textarea should start at 1 line
 	p.SetSize(80, 40)
-	if h := p.textarea.Height(); h != 1 {
-		t.Errorf("expected textarea height 1 for empty content, got %d", h)
+
+	// Empty textarea should show 1 visual line
+	if n := p.visualLineCount(); n != 1 {
+		t.Errorf("expected 1 visual line for empty content, got %d", n)
 	}
 
-	// With content, height should grow
+	// With content, visual lines should grow
 	p.textarea.SetValue("line 1\nline 2\nline 3")
-	p.recalcHeight()
-	if h := p.textarea.Height(); h != 3 {
-		t.Errorf("expected textarea height 3 for 3 lines, got %d", h)
-	}
-
-	// Small terminal: textarea should be clamped to max available
-	p.SetSize(80, 8)
-	p.textarea.SetValue("line 1\nline 2\nline 3\nline 4\nline 5")
-	p.recalcHeight()
-	maxHeight := 8 - 6 // height - chrome
-	if h := p.textarea.Height(); h > maxHeight {
-		t.Errorf("expected textarea height <= %d for small terminal, got %d", maxHeight, h)
+	if n := p.visualLineCount(); n != 3 {
+		t.Errorf("expected 3 visual lines for 3 lines, got %d", n)
 	}
 }
 
@@ -179,29 +171,35 @@ func TestPromptView_AutoGrow(t *testing.T) {
 	p := newPromptView()
 	p.SetSize(80, 40)
 
-	// Starts at 1 line
-	if h := p.textarea.Height(); h != 1 {
-		t.Errorf("expected initial height 1, got %d", h)
+	// Empty: view shows 1 line of textarea content
+	view := p.View()
+	taLines := countTextareaLines(view)
+	if taLines != 1 {
+		t.Errorf("expected 1 visible textarea line for empty content, got %d", taLines)
 	}
 
-	// Grows with newlines
+	// 2 lines of content
 	p.textarea.SetValue("line 1\nline 2")
-	p.recalcHeight()
-	if h := p.textarea.Height(); h != 2 {
-		t.Errorf("expected height 2 for 2 lines, got %d", h)
+	view = p.View()
+	taLines = countTextareaLines(view)
+	if taLines != 2 {
+		t.Errorf("expected 2 visible textarea lines, got %d", taLines)
 	}
 
-	// Grows with more lines
+	// 5 lines of content
 	p.textarea.SetValue("line 1\nline 2\nline 3\nline 4\nline 5")
-	p.recalcHeight()
-	if h := p.textarea.Height(); h != 5 {
-		t.Errorf("expected height 5 for 5 lines, got %d", h)
+	view = p.View()
+	taLines = countTextareaLines(view)
+	if taLines != 5 {
+		t.Errorf("expected 5 visible textarea lines, got %d", taLines)
 	}
 
 	// Shrinks back after reset
 	p.Reset()
-	if h := p.textarea.Height(); h != 1 {
-		t.Errorf("expected height 1 after reset, got %d", h)
+	view = p.View()
+	taLines = countTextareaLines(view)
+	if taLines != 1 {
+		t.Errorf("expected 1 visible textarea line after reset, got %d", taLines)
 	}
 }
 
@@ -213,10 +211,22 @@ func TestPromptView_AutoGrowWrapping(t *testing.T) {
 	// Content width is 30 - 4 - 2 = 24 chars (assuming prompt "✈ " is 2 wide)
 	// A line of 48 chars should wrap to 2 visual lines
 	p.textarea.SetValue("abcdefghijklmnopqrstuvwxabcdefghijklmnopqrstuvwx")
-	p.recalcHeight()
-	if h := p.textarea.Height(); h < 2 {
-		t.Errorf("expected height >= 2 for long wrapped line, got %d", h)
+	if n := p.visualLineCount(); n < 2 {
+		t.Errorf("expected visual line count >= 2 for long wrapped line, got %d", n)
 	}
+}
+
+// countTextareaLines counts the number of textarea lines in the prompt view output.
+// It counts lines between the title and the help text that contain the prompt character.
+func countTextareaLines(view string) int {
+	lines := strings.Split(view, "\n")
+	count := 0
+	for _, line := range lines {
+		if strings.Contains(line, PromptPrefix) || strings.Contains(line, "✈") {
+			count++
+		}
+	}
+	return count
 }
 
 func TestVisualLineCount(t *testing.T) {
@@ -243,6 +253,186 @@ func TestVisualLineCount(t *testing.T) {
 				t.Errorf("visualLineCount() = %d, want %d", got, tc.expected)
 			}
 		})
+	}
+}
+
+func TestPromptView_NewlinePreservesFirstLine(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(80, 40)
+
+	// Type "hello" one character at a time via Update, calling View after each
+	// (like bubbletea does: Update → View → Update → View → ...)
+	for _, ch := range "hello" {
+		p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		p.View() // side-effect: sets viewport content
+	}
+
+	// Verify "hello" is visible before the newline
+	view := p.View()
+	if !strings.Contains(view, "hello") {
+		t.Fatalf("expected 'hello' in view before newline, got:\n%s", view)
+	}
+
+	// Press ctrl+j to insert a newline
+	p.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+
+	// After the newline, the first line ("hello") must still be visible
+	view = p.View()
+	if !strings.Contains(view, "hello") {
+		t.Fatalf("first line disappeared after newline! view:\n%s", view)
+	}
+}
+
+// TestPromptView_NewlineViaParentModel tests the exact flow through the parent
+// Model, mimicking how bubbletea routes messages.
+func TestPromptView_NewlineViaParentModel(t *testing.T) {
+	m := NewModel(nil, 0, "/tmp/test", false)
+	// Simulate window size
+	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	m = result.(Model)
+
+	// Switch to prompt view
+	m.view = viewPrompt
+	m.prompt.Focus()
+
+	// Type "hello" through the parent model, calling View after each
+	for _, ch := range "hello" {
+		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = result.(Model)
+		m.View()
+	}
+
+	// Verify "hello" is in the view
+	view := m.View()
+	if !strings.Contains(view, "hello") {
+		t.Fatalf("expected 'hello' in view, got:\n%s", view)
+	}
+
+	// Press ctrl+j to insert newline
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = result.(Model)
+
+	view = m.View()
+	if !strings.Contains(view, "hello") {
+		t.Fatalf("first line disappeared after newline via parent model! view:\n%s", view)
+	}
+}
+
+func TestPromptView_NewlinePreservesFirstLine_SmallTerminal(t *testing.T) {
+	for _, termHeight := range []int{8, 10, 12, 20, 40} {
+		t.Run(fmt.Sprintf("height=%d", termHeight), func(t *testing.T) {
+			p := newPromptView()
+			p.SetSize(80, termHeight)
+
+			for _, ch := range "hello world" {
+				p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+				p.View()
+			}
+
+			p.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+			view := p.View()
+
+			maxH := termHeight - 8 // must match promptView.maxHeight() reserved space
+			if maxH >= 2 {         // Only check if terminal is big enough for 2 lines
+				if !strings.Contains(view, "hello") {
+					t.Errorf("first line disappeared at terminal height %d! view:\n%s", termHeight, view)
+				}
+			}
+		})
+	}
+}
+
+// TestPromptView_NewlineWithInterleaved tests with non-key messages between
+// keystrokes, simulating cursor blink and tick messages in the real runtime.
+func TestPromptView_NewlineWithInterleaved(t *testing.T) {
+	m := NewModel(nil, 0, "/tmp/test", false)
+	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
+	m = result.(Model)
+
+	m.view = viewPrompt
+	m.prompt.Focus()
+
+	// Type "hello" with interleaved non-key messages and View calls
+	for _, ch := range "hello" {
+		result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = result.(Model)
+		m.View()
+
+		// Simulate a tick message (happens between keystrokes)
+		result, _ = m.Update(tickMsg{})
+		m = result.(Model)
+		m.View()
+	}
+
+	// Press ctrl+j with an interleaved tick before checking view
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	m = result.(Model)
+	m.View() // First view after newline
+
+	// A tick fires
+	result, _ = m.Update(tickMsg{})
+	m = result.(Model)
+	view := m.View() // Second view, after tick
+
+	if !strings.Contains(view, "hello") {
+		t.Fatalf("first line disappeared after newline + tick! view:\n%s", view)
+	}
+}
+
+func TestPromptView_NewlineAfterLongLine(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(40, 20) // Narrow terminal to force wrapping
+
+	// Type a long line that will wrap
+	longText := "this is a long line that should wrap in a narrow terminal"
+	for _, ch := range longText {
+		p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		p.View()
+	}
+
+	viewBefore := p.View()
+	if !strings.Contains(viewBefore, "this") {
+		t.Fatalf("expected start of text in view, got:\n%s", viewBefore)
+	}
+
+	// Press ctrl+j
+	p.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	view := p.View()
+
+	if !strings.Contains(view, "this") {
+		t.Fatalf("first line start disappeared after newline! view:\n%s", view)
+	}
+}
+
+func TestPromptView_MultipleNewlines(t *testing.T) {
+	p := newPromptView()
+	p.SetSize(80, 40)
+
+	// Type first line
+	for _, ch := range "line one" {
+		p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		p.View()
+	}
+
+	// Insert first newline
+	p.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	p.View()
+
+	// Type second line
+	for _, ch := range "line two" {
+		p.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		p.View()
+	}
+
+	// Insert second newline
+	p.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	view := p.View()
+
+	if !strings.Contains(view, "line one") {
+		t.Fatalf("first line disappeared after multiple newlines! view:\n%s", view)
+	}
+	if !strings.Contains(view, "line two") {
+		t.Fatalf("second line disappeared after multiple newlines! view:\n%s", view)
 	}
 }
 
