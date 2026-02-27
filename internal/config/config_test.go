@@ -782,6 +782,258 @@ func TestResolveBranchTemplate(t *testing.T) {
 	}
 }
 
+// TestHierarchicalConfigMerging tests the 3-layer config loading:
+// defaults -> global .sortie.yml -> project .sortie.yml
+func TestHierarchicalConfigMerging(t *testing.T) {
+	globalDir := t.TempDir()
+	globalSortieYml := filepath.Join(globalDir, ".sortie.yml")
+	os.WriteFile(globalSortieYml, []byte(`
+max_workers: 5
+notifications:
+  enabled: true
+  on_complete: true
+  on_failed: false
+git:
+  base_branch: develop
+  on_complete: merge
+workflow:
+  steps:
+    - name: global-step
+      prompt: "Global default step"
+`), 0644)
+
+	projectDir := t.TempDir()
+	projectSortieYml := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectSortieYml, []byte(`
+max_workers: 2
+workflow:
+  steps:
+    - name: implement
+      prompt: "Implement {{task.description}}"
+`), 0644)
+
+	// Simulate the 3-layer loading: defaults -> global .sortie.yml -> project .sortie.yml
+	cfg := defaultConfig()
+
+	// Layer 2: global .sortie.yml
+	if err := loadProjectConfig(globalSortieYml, cfg); err != nil {
+		t.Fatalf("failed to load global .sortie.yml: %v", err)
+	}
+
+	// After global .sortie.yml: max_workers=5, notifications set, git set, workflow set
+	if cfg.MaxWorkers != 5 {
+		t.Errorf("after global .sortie.yml: expected max_workers=5, got %d", cfg.MaxWorkers)
+	}
+	if !cfg.Notifications.Enabled {
+		t.Error("after global .sortie.yml: expected notifications.enabled=true")
+	}
+	if !cfg.Notifications.OnComplete {
+		t.Error("after global .sortie.yml: expected notifications.on_complete=true")
+	}
+	if cfg.Notifications.OnFailed {
+		t.Error("after global .sortie.yml: expected notifications.on_failed=false")
+	}
+	if cfg.Git.BaseBranch != "develop" {
+		t.Errorf("after global .sortie.yml: expected git.base_branch=develop, got %q", cfg.Git.BaseBranch)
+	}
+	if cfg.Git.OnComplete != "merge" {
+		t.Errorf("after global .sortie.yml: expected git.on_complete=merge, got %q", cfg.Git.OnComplete)
+	}
+	if len(cfg.Workflows) != 1 || cfg.Workflows[0].Steps[0].Name != "global-step" {
+		t.Error("after global .sortie.yml: expected global-step workflow")
+	}
+
+	// Layer 3: project .sortie.yml overrides
+	if err := loadProjectConfig(projectSortieYml, cfg); err != nil {
+		t.Fatalf("failed to load project .sortie.yml: %v", err)
+	}
+
+	// max_workers overridden by project
+	if cfg.MaxWorkers != 2 {
+		t.Errorf("after project override: expected max_workers=2, got %d", cfg.MaxWorkers)
+	}
+	// notifications should remain from global (project didn't set them)
+	if !cfg.Notifications.Enabled {
+		t.Error("after project override: expected notifications.enabled=true (from global)")
+	}
+	if !cfg.Notifications.OnComplete {
+		t.Error("after project override: expected notifications.on_complete=true (from global)")
+	}
+	// git.base_branch should remain from global (project didn't set it)
+	if cfg.Git.BaseBranch != "develop" {
+		t.Errorf("after project override: expected git.base_branch=develop (from global), got %q", cfg.Git.BaseBranch)
+	}
+	// workflow should be overridden by project
+	if len(cfg.Workflows) != 1 || cfg.Workflows[0].Steps[0].Name != "implement" {
+		t.Error("after project override: expected implement workflow from project")
+	}
+}
+
+func TestHierarchicalConfigProjectOverridesNotifications(t *testing.T) {
+	globalDir := t.TempDir()
+	globalSortieYml := filepath.Join(globalDir, ".sortie.yml")
+	os.WriteFile(globalSortieYml, []byte(`
+notifications:
+  enabled: true
+  on_complete: true
+`), 0644)
+
+	projectDir := t.TempDir()
+	projectSortieYml := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectSortieYml, []byte(`
+notifications:
+  enabled: false
+`), 0644)
+
+	cfg := defaultConfig()
+
+	if err := loadProjectConfig(globalSortieYml, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Notifications.Enabled {
+		t.Error("expected notifications.enabled=true from global")
+	}
+
+	if err := loadProjectConfig(projectSortieYml, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notifications.Enabled {
+		t.Error("expected notifications.enabled=false after project override")
+	}
+}
+
+func TestHierarchicalConfigGlobalOnlyNoProject(t *testing.T) {
+	globalDir := t.TempDir()
+	globalSortieYml := filepath.Join(globalDir, ".sortie.yml")
+	os.WriteFile(globalSortieYml, []byte(`
+max_workers: 7
+git:
+  base_branch: develop
+  branch_template: "feature/{{task_id}}"
+workflow:
+  steps:
+    - name: plan
+      prompt: "Plan the task"
+`), 0644)
+
+	cfg := defaultConfig()
+
+	if err := loadProjectConfig(globalSortieYml, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// All values from global .sortie.yml
+	if cfg.MaxWorkers != 7 {
+		t.Errorf("expected max_workers=7, got %d", cfg.MaxWorkers)
+	}
+	if cfg.Git.BaseBranch != "develop" {
+		t.Errorf("expected git.base_branch=develop, got %q", cfg.Git.BaseBranch)
+	}
+	if cfg.Git.BranchTemplate != "feature/{{task_id}}" {
+		t.Errorf("expected branch_template=feature/{{task_id}}, got %q", cfg.Git.BranchTemplate)
+	}
+	if len(cfg.Workflows) != 1 || cfg.Workflows[0].Steps[0].Name != "plan" {
+		t.Error("expected plan workflow")
+	}
+}
+
+func TestHierarchicalConfigTmuxNestedAttachBehavior(t *testing.T) {
+	globalDir := t.TempDir()
+	globalSortieYml := filepath.Join(globalDir, ".sortie.yml")
+	os.WriteFile(globalSortieYml, []byte(`
+tmux_nested_attach_behavior: nest
+`), 0644)
+
+	cfg := defaultConfig()
+
+	if err := loadProjectConfig(globalSortieYml, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.TmuxNestedAttachBehavior != "nest" {
+		t.Errorf("expected tmux_nested_attach_behavior=nest, got %q", cfg.TmuxNestedAttachBehavior)
+	}
+}
+
+func TestHierarchicalConfigAllThreeLayers(t *testing.T) {
+	// Layer 1: global config.yaml (sets notifications)
+	globalConfigDir := t.TempDir()
+	globalConfigPath := filepath.Join(globalConfigDir, "config.yaml")
+	os.WriteFile(globalConfigPath, []byte(`
+max_workers: 10
+notifications:
+  enabled: true
+  on_complete: true
+  on_failed: true
+  on_waiting_input: true
+tmux_nested_attach_behavior: switch
+`), 0644)
+
+	// Layer 2: global .sortie.yml (sets workflow defaults, overrides max_workers)
+	globalSortieDir := t.TempDir()
+	globalSortieYml := filepath.Join(globalSortieDir, ".sortie.yml")
+	os.WriteFile(globalSortieYml, []byte(`
+max_workers: 5
+git:
+  base_branch: develop
+notifications:
+  enabled: true
+  on_complete: false
+workflow:
+  steps:
+    - name: default-step
+      prompt: "Default implementation"
+`), 0644)
+
+	// Layer 3: project .sortie.yml (overrides max_workers, adds project workflow)
+	projectDir := t.TempDir()
+	projectSortieYml := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectSortieYml, []byte(`
+max_workers: 2
+workflow:
+  steps:
+    - name: implement
+      prompt: "Implement the task"
+`), 0644)
+
+	cfg := defaultConfig()
+
+	// Apply all 3 layers in order
+	if err := loadGlobalConfig(globalConfigPath, cfg); err != nil {
+		t.Fatalf("layer 1: %v", err)
+	}
+	if err := loadProjectConfig(globalSortieYml, cfg); err != nil {
+		t.Fatalf("layer 2: %v", err)
+	}
+	if err := loadProjectConfig(projectSortieYml, cfg); err != nil {
+		t.Fatalf("layer 3: %v", err)
+	}
+
+	// max_workers: project (2) overrides global .sortie.yml (5) overrides config.yaml (10)
+	if cfg.MaxWorkers != 2 {
+		t.Errorf("expected max_workers=2, got %d", cfg.MaxWorkers)
+	}
+	// notifications: global .sortie.yml overrides config.yaml
+	if !cfg.Notifications.Enabled {
+		t.Error("expected notifications.enabled=true")
+	}
+	if cfg.Notifications.OnComplete {
+		t.Error("expected notifications.on_complete=false (from global .sortie.yml)")
+	}
+	// tmux_nested_attach_behavior: from config.yaml (not overridden)
+	if cfg.TmuxNestedAttachBehavior != "switch" {
+		t.Errorf("expected tmux_nested_attach_behavior=switch, got %q", cfg.TmuxNestedAttachBehavior)
+	}
+	// git.base_branch: from global .sortie.yml (not overridden by project)
+	if cfg.Git.BaseBranch != "develop" {
+		t.Errorf("expected git.base_branch=develop, got %q", cfg.Git.BaseBranch)
+	}
+	// workflow: from project (overrides global .sortie.yml)
+	if len(cfg.Workflows) != 1 || cfg.Workflows[0].Steps[0].Name != "implement" {
+		t.Error("expected implement workflow from project")
+	}
+}
+
 // Helper function to check if string contains substring
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && contains(s, substr))

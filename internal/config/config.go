@@ -10,16 +10,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ProjectConfig is loaded from .sortie.yml at repo root
+// ProjectConfig is loaded from .sortie.yml (both global ~/.sortie.yml and project-local)
 type ProjectConfig struct {
-	MaxWorkers      int              `yaml:"max_workers"`
-	DefaultPriority string           `yaml:"default_priority"`
-	Yolo            *bool            `yaml:"yolo,omitempty"`
-	ValidateArtifact *bool           `yaml:"validate_artifact,omitempty"`
-	Git             GitConfig        `yaml:"git"`
-	Workflows       []WorkflowConfig `yaml:"workflows"`
-	Workflow        WorkflowConfig   `yaml:"workflow"` // deprecated, backward compat
-	Tasks           []TaskConfig     `yaml:"tasks"`
+	MaxWorkers               int                 `yaml:"max_workers"`
+	DefaultPriority          string              `yaml:"default_priority"`
+	Yolo                     *bool               `yaml:"yolo,omitempty"`
+	ValidateArtifact         *bool               `yaml:"validate_artifact,omitempty"`
+	Git                      GitConfig           `yaml:"git"`
+	Workflows                []WorkflowConfig    `yaml:"workflows"`
+	Workflow                 WorkflowConfig      `yaml:"workflow"` // deprecated, backward compat
+	Tasks                    []TaskConfig        `yaml:"tasks"`
+	Notifications            *NotificationsConfig `yaml:"notifications,omitempty"`
+	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
 }
 
 // TaskConfig defines a predefined task with a built-in description and workflow steps.
@@ -302,14 +304,27 @@ func DefaultWorkflowSteps() []StepConfig {
 	return DefaultWorkflow().Steps
 }
 
-// Load loads config from global + project .sortie.yml, returning a merged Config.
+// Load loads config from global config, global .sortie.yml, and project .sortie.yml,
+// returning a merged Config. Loading order (later overrides earlier):
+//  1. Built-in defaults
+//  2. ~/.config/sortie/config.yaml (global daemon config)
+//  3. ~/.sortie.yml (global sortie.yml defaults)
+//  4. ./.sortie.yml (project config)
 func Load() (*Config, error) {
 	cfg := defaultConfig()
 
-	// Load global config
+	// Load global config (~/.config/sortie/config.yaml)
 	globalPath := getGlobalConfigPath()
 	if globalPath != "" {
 		if err := loadGlobalConfig(globalPath, cfg); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+
+	// Load global .sortie.yml (~/.sortie.yml)
+	globalSortieYml := getGlobalSortieYmlPath()
+	if globalSortieYml != "" {
+		if err := loadProjectConfig(globalSortieYml, cfg); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
 	}
@@ -334,6 +349,7 @@ func Load() (*Config, error) {
 func LoadForProject(projectDir string) (*Config, error) {
 	cfg := defaultConfig()
 
+	// Load global config (~/.config/sortie/config.yaml)
 	globalPath := getGlobalConfigPath()
 	if globalPath != "" {
 		if err := loadGlobalConfig(globalPath, cfg); err != nil && !os.IsNotExist(err) {
@@ -341,6 +357,15 @@ func LoadForProject(projectDir string) (*Config, error) {
 		}
 	}
 
+	// Load global .sortie.yml (~/.sortie.yml)
+	globalSortieYml := getGlobalSortieYmlPath()
+	if globalSortieYml != "" {
+		if err := loadProjectConfig(globalSortieYml, cfg); err != nil && !os.IsNotExist(err) {
+			return nil, err
+		}
+	}
+
+	// Load project config (.sortie.yml)
 	projectPath := filepath.Join(projectDir, ".sortie.yml")
 	if _, err := os.Stat(projectPath); err == nil {
 		if err := loadProjectConfig(projectPath, cfg); err != nil {
@@ -415,6 +440,12 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.ValidateArtifact != nil {
 		cfg.ValidateArtifact = *proj.ValidateArtifact
+	}
+	if proj.Notifications != nil {
+		cfg.Notifications = *proj.Notifications
+	}
+	if proj.TmuxNestedAttachBehavior != "" {
+		cfg.TmuxNestedAttachBehavior = proj.TmuxNestedAttachBehavior
 	}
 
 	// Handle workflows: prefer new plural form, fall back to old singular
@@ -665,6 +696,18 @@ func getGlobalConfigPath() string {
 	}
 
 	return filepath.Join(homeDir, ".config", "sortie", "config.yaml")
+}
+
+func getGlobalSortieYmlPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	path := filepath.Join(homeDir, ".sortie.yml")
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	return ""
 }
 
 func getProjectConfigPath() string {
