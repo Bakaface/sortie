@@ -346,6 +346,12 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.commandInput = ""
 		return executeCommand(m, input)
 
+	case "tab":
+		if completed, ok := completeRunTask(m, m.commandInput); ok {
+			m.commandInput = completed
+		}
+		return m, nil
+
 	case "backspace":
 		if len(m.commandInput) > 0 {
 			m.commandInput = m.commandInput[:len(m.commandInput)-1]

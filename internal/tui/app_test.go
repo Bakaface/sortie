@@ -4570,3 +4570,435 @@ func TestArtifactSelect_CtrlUPageUp(t *testing.T) {
 		t.Errorf("expected cursor at 2 after ctrl+u, got %d", updated.artifactCursor)
 	}
 }
+
+// --- RunTask command tests ---
+
+func TestMatchRunTask(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantArgs string
+		wantOK   bool
+	}{
+		{"RunTask", "", true},
+		{"RunTask Refactor", "Refactor", true},
+		{"RunTask  Security ", "Security", true},
+		{"runtask", "", false},
+		{"RunTas", "", false},
+		{"set number", "", false},
+		{"", "", false},
+	}
+
+	for _, tt := range tests {
+		args, ok := matchRunTask(tt.input)
+		if ok != tt.wantOK {
+			t.Errorf("matchRunTask(%q): ok = %v, want %v", tt.input, ok, tt.wantOK)
+		}
+		if args != tt.wantArgs {
+			t.Errorf("matchRunTask(%q): args = %q, want %q", tt.input, args, tt.wantArgs)
+		}
+	}
+}
+
+func TestExecRunTask_RunsTask(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor", Description: "Refactor the code"},
+			},
+		},
+	}
+
+	result, cmd := execRunTask(m, "Refactor")
+	updated := result.(Model)
+
+	if updated.selectedWorkflow != "task:Refactor" {
+		t.Errorf("expected selectedWorkflow 'task:Refactor', got %q", updated.selectedWorkflow)
+	}
+	if cmd == nil {
+		t.Error("expected command for task creation, got nil")
+	}
+}
+
+func TestExecRunTask_UnknownTask(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor", Description: "Refactor the code"},
+			},
+		},
+	}
+
+	result, cmd := execRunTask(m, "NonExistent")
+	updated := result.(Model)
+
+	if updated.err == nil {
+		t.Error("expected error for unknown task")
+	}
+	if !strings.Contains(updated.err.Error(), "unknown task") {
+		t.Errorf("expected 'unknown task' error, got %q", updated.err.Error())
+	}
+	if cmd != nil {
+		t.Error("expected nil command for unknown task")
+	}
+}
+
+func TestExecRunTask_EmptyArgs(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg:         &config.Config{},
+	}
+
+	result, _ := execRunTask(m, "")
+	updated := result.(Model)
+
+	if updated.err == nil {
+		t.Error("expected error for empty args")
+	}
+	if !strings.Contains(updated.err.Error(), "usage") {
+		t.Errorf("expected 'usage' error, got %q", updated.err.Error())
+	}
+}
+
+func TestExecRunTask_NoClient(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewList,
+		cfg:    &config.Config{},
+	}
+
+	result, _ := execRunTask(m, "Refactor")
+	updated := result.(Model)
+
+	if updated.err == nil {
+		t.Error("expected error when client is nil")
+	}
+}
+
+func TestExecRunTask_UsesNameWhenNoDescription(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor"},
+			},
+		},
+	}
+
+	result, cmd := execRunTask(m, "Refactor")
+	updated := result.(Model)
+
+	if updated.selectedWorkflow != "task:Refactor" {
+		t.Errorf("expected selectedWorkflow 'task:Refactor', got %q", updated.selectedWorkflow)
+	}
+	if cmd == nil {
+		t.Error("expected command for task creation, got nil")
+	}
+}
+
+func TestExecRunTask_RunsUnlistedTask(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Secret", Description: "Hidden task", Unlisted: true},
+			},
+		},
+	}
+
+	result, cmd := execRunTask(m, "Secret")
+	updated := result.(Model)
+
+	if updated.selectedWorkflow != "task:Secret" {
+		t.Errorf("expected selectedWorkflow 'task:Secret', got %q", updated.selectedWorkflow)
+	}
+	if cmd == nil {
+		t.Error("expected command for unlisted task creation, got nil")
+	}
+}
+
+func TestCommandMode_RunTaskIntegration(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor", Description: "Refactor code"},
+			},
+		},
+	}
+
+	// Enter command mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	m = result.(Model)
+
+	if !m.commandMode {
+		t.Fatal("expected command mode to be active")
+	}
+
+	// Type "RunTask Refactor"
+	for _, ch := range "RunTask Refactor" {
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}}
+		result, _ = m.handleCommandKey(msg)
+		m = result.(Model)
+	}
+
+	if m.commandInput != "RunTask Refactor" {
+		t.Errorf("expected commandInput 'RunTask Refactor', got %q", m.commandInput)
+	}
+
+	// Press enter
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
+	result, cmd := m.handleCommandKey(msg)
+	m = result.(Model)
+
+	if m.commandMode {
+		t.Error("expected command mode to be inactive after enter")
+	}
+	if m.selectedWorkflow != "task:Refactor" {
+		t.Errorf("expected selectedWorkflow 'task:Refactor', got %q", m.selectedWorkflow)
+	}
+	if cmd == nil {
+		t.Error("expected command for task creation, got nil")
+	}
+}
+
+func TestCompleteRunTask_SingleMatch(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor", Description: "Refactor code"},
+				{Name: "Security", Description: "Security scan"},
+			},
+		},
+	}
+
+	completed, ok := completeRunTask(m, "RunTask Ref")
+	if !ok {
+		t.Fatal("expected completion to succeed")
+	}
+	if completed != "RunTask Refactor" {
+		t.Errorf("expected 'RunTask Refactor', got %q", completed)
+	}
+}
+
+func TestCompleteRunTask_MultipleMatchesExtends(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor-code", Description: "Refactor code"},
+				{Name: "Refactor-tests", Description: "Refactor tests"},
+			},
+		},
+	}
+
+	completed, ok := completeRunTask(m, "RunTask Re")
+	if !ok {
+		t.Fatal("expected completion to succeed with common prefix extension")
+	}
+	if completed != "RunTask Refactor-" {
+		t.Errorf("expected 'RunTask Refactor-', got %q", completed)
+	}
+}
+
+func TestCompleteRunTask_MultipleMatchesNoExtension(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor", Description: "Refactor code"},
+				{Name: "Review", Description: "Review code"},
+			},
+		},
+	}
+
+	// Common prefix "Re" is same length as input "Re", so no extension possible
+	_, ok := completeRunTask(m, "RunTask Re")
+	if ok {
+		t.Error("expected no completion when common prefix matches input length")
+	}
+}
+
+func TestCompleteRunTask_NoMatch(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor"},
+			},
+		},
+	}
+
+	_, ok := completeRunTask(m, "RunTask Xyz")
+	if ok {
+		t.Error("expected no completion for non-matching prefix")
+	}
+}
+
+func TestCompleteRunTask_IncludesUnlisted(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor"},
+				{Name: "Secret", Unlisted: true},
+			},
+		},
+	}
+
+	completed, ok := completeRunTask(m, "RunTask S")
+	if !ok {
+		t.Fatal("expected completion to succeed for unlisted task")
+	}
+	if completed != "RunTask Secret" {
+		t.Errorf("expected 'RunTask Secret', got %q", completed)
+	}
+}
+
+func TestCompleteRunTask_ExactRunTask(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor"},
+			},
+		},
+	}
+
+	completed, ok := completeRunTask(m, "RunTask")
+	if !ok {
+		t.Fatal("expected completion to add space after RunTask")
+	}
+	if completed != "RunTask " {
+		t.Errorf("expected 'RunTask ', got %q", completed)
+	}
+}
+
+func TestCompleteRunTask_NilConfig(t *testing.T) {
+	m := Model{}
+
+	_, ok := completeRunTask(m, "RunTask R")
+	if ok {
+		t.Error("expected no completion with nil config")
+	}
+}
+
+func TestCommandMode_TabCompletion(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		commandMode: true,
+		commandInput: "RunTask Ref",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Refactor", Description: "Refactor code"},
+				{Name: "Security", Description: "Security scan"},
+			},
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyTab}
+	result, _ := m.handleCommandKey(msg)
+	updated := result.(Model)
+
+	if updated.commandInput != "RunTask Refactor" {
+		t.Errorf("expected commandInput 'RunTask Refactor' after tab, got %q", updated.commandInput)
+	}
+	if !updated.commandMode {
+		t.Error("expected to remain in command mode after tab")
+	}
+}
+
+func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Visible", Description: "A visible task"},
+				{Name: "Hidden", Description: "A hidden task", Unlisted: true},
+			},
+		},
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Running task", Status: "running"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if !updated.selectingTask {
+		t.Fatal("expected selectingTask to be true")
+	}
+
+	// The task selection view should only show listed tasks
+	tasks := updated.cfg.ListPredefinedTaskNames()
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 listed task, got %d", len(tasks))
+	}
+	if tasks[0] != "Visible" {
+		t.Errorf("expected listed task 'Visible', got %q", tasks[0])
+	}
+}
+
+func TestViewRendersTaskSelection_HidesUnlisted(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		list:        newListView(false),
+		detail:      newDetailView(),
+		view:        viewList,
+		selectingTask: true,
+		taskCursor:    0,
+		cfg: &config.Config{
+			Tasks: []config.TaskConfig{
+				{Name: "Visible", Description: "A visible task"},
+				{Name: "Hidden", Description: "A hidden task", Unlisted: true},
+			},
+		},
+	}
+
+	output := m.View()
+
+	if !strings.Contains(output, "Visible") {
+		t.Error("expected 'Visible' task in selection view")
+	}
+	if strings.Contains(output, "Hidden") {
+		t.Error("expected 'Hidden' (unlisted) task to be absent from selection view")
+	}
+}

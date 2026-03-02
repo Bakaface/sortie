@@ -26,6 +26,11 @@ var commands = []command{
 		help:  "go to line number",
 	},
 	{
+		match: matchRunTask,
+		exec:  execRunTask,
+		help:  "run a predefined task",
+	},
+	{
 		match: matchSetNumber,
 		exec:  execSetNumber,
 		help:  "toggle line numbers",
@@ -124,6 +129,101 @@ func execNoh(m Model, _ string) (tea.Model, tea.Cmd) {
 	m.list.currentMatchIdx = 0
 	m.searchQuery = ""
 	return m, nil
+}
+
+// matchRunTask matches "RunTask <name>" commands.
+func matchRunTask(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	if input == "RunTask" {
+		return "", true
+	}
+	if strings.HasPrefix(input, "RunTask ") {
+		return strings.TrimSpace(input[len("RunTask "):]), true
+	}
+	return "", false
+}
+
+// execRunTask runs a predefined task by name.
+func execRunTask(m Model, args string) (tea.Model, tea.Cmd) {
+	if m.client == nil || m.projectPath == "" {
+		m.err = fmt.Errorf("not connected to daemon")
+		return m, nil
+	}
+	if m.cfg == nil {
+		m.err = fmt.Errorf("no config loaded")
+		return m, nil
+	}
+	if args == "" {
+		m.err = fmt.Errorf("usage: RunTask <name>")
+		return m, nil
+	}
+	taskCfg := m.cfg.GetPredefinedTask(args)
+	if taskCfg == nil {
+		m.err = fmt.Errorf("unknown task: %s", args)
+		return m, nil
+	}
+	m.selectedWorkflow = "task:" + taskCfg.Name
+	description := taskCfg.Description
+	if description == "" {
+		description = taskCfg.Name
+	}
+	return m, m.createTaskWithPrompt(description, "", nil)
+}
+
+// completeRunTask returns tab-completed command input for RunTask.
+// It matches task names (including unlisted) against the partial input after "RunTask ".
+func completeRunTask(m Model, input string) (string, bool) {
+	if m.cfg == nil {
+		return "", false
+	}
+	if !strings.HasPrefix(input, "RunTask") {
+		return "", false
+	}
+	// Complete "RunTask" itself if user typed a prefix like "Run" or "RunT"
+	if len(input) < len("RunTask") {
+		return "", false
+	}
+	// If exactly "RunTask" with no space yet, add the space
+	if input == "RunTask" {
+		return "RunTask ", true
+	}
+	if !strings.HasPrefix(input, "RunTask ") {
+		return "", false
+	}
+	partial := input[len("RunTask "):]
+	partialLower := strings.ToLower(partial)
+	allTasks := m.cfg.ListAllPredefinedTaskNames()
+	var matches []string
+	for _, name := range allTasks {
+		if strings.HasPrefix(strings.ToLower(name), partialLower) {
+			matches = append(matches, name)
+		}
+	}
+	if len(matches) == 1 {
+		return "RunTask " + matches[0], true
+	}
+	if len(matches) > 1 {
+		// Find longest common prefix among matches
+		prefix := matches[0]
+		for _, m := range matches[1:] {
+			prefix = commonPrefix(prefix, m)
+		}
+		if len(prefix) > len(partial) {
+			return "RunTask " + prefix, true
+		}
+	}
+	return "", false
+}
+
+// commonPrefix returns the longest common prefix of two strings (case-preserving).
+func commonPrefix(a, b string) string {
+	minLen := min(len(a), len(b))
+	for i := 0; i < minLen; i++ {
+		if !strings.EqualFold(string(a[i]), string(b[i])) {
+			return a[:i]
+		}
+	}
+	return a[:minLen]
 }
 
 // executeCommand finds and runs the first matching command for the given input.

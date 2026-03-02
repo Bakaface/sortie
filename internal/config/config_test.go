@@ -236,6 +236,45 @@ func TestGetPredefinedTask(t *testing.T) {
 	}
 }
 
+func TestListPredefinedTaskNamesExcludesUnlisted(t *testing.T) {
+	cfg := &Config{
+		Tasks: []TaskConfig{
+			{Name: "task-a"},
+			{Name: "task-b", Unlisted: true},
+			{Name: "task-c"},
+		},
+	}
+
+	names := cfg.ListPredefinedTaskNames()
+	if len(names) != 2 {
+		t.Fatalf("expected 2 names (excluding unlisted), got %d: %v", len(names), names)
+	}
+	if names[0] != "task-a" {
+		t.Errorf("expected first name 'task-a', got %q", names[0])
+	}
+	if names[1] != "task-c" {
+		t.Errorf("expected second name 'task-c', got %q", names[1])
+	}
+}
+
+func TestListAllPredefinedTaskNamesIncludesUnlisted(t *testing.T) {
+	cfg := &Config{
+		Tasks: []TaskConfig{
+			{Name: "task-a"},
+			{Name: "task-b", Unlisted: true},
+			{Name: "task-c"},
+		},
+	}
+
+	names := cfg.ListAllPredefinedTaskNames()
+	if len(names) != 3 {
+		t.Fatalf("expected 3 names (including unlisted), got %d: %v", len(names), names)
+	}
+	if names[1] != "task-b" {
+		t.Errorf("expected second name 'task-b', got %q", names[1])
+	}
+}
+
 func TestYoloDefaultFalse(t *testing.T) {
 	cfg := defaultConfig()
 	if cfg.Claude.Yolo {

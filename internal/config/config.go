@@ -36,6 +36,7 @@ type VerificationConfig struct {
 type TaskConfig struct {
 	Name             string       `yaml:"name"`
 	Description      string       `yaml:"description"`
+	Unlisted         bool         `yaml:"unlisted"`
 	Steps            []StepConfig `yaml:"steps"`
 	SummarizerPrompt string       `yaml:"summarizer_prompt"`
 }
@@ -621,8 +622,19 @@ func (c *Config) ListWorkflowNames() []string {
 	return names
 }
 
-// ListPredefinedTaskNames returns the names of all configured predefined tasks.
+// ListPredefinedTaskNames returns the names of listed (non-unlisted) predefined tasks.
 func (c *Config) ListPredefinedTaskNames() []string {
+	var names []string
+	for _, t := range c.Tasks {
+		if !t.Unlisted {
+			names = append(names, t.Name)
+		}
+	}
+	return names
+}
+
+// ListAllPredefinedTaskNames returns the names of all predefined tasks, including unlisted ones.
+func (c *Config) ListAllPredefinedTaskNames() []string {
 	names := make([]string, len(c.Tasks))
 	for i, t := range c.Tasks {
 		names[i] = t.Name
