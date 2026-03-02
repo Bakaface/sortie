@@ -506,12 +506,20 @@ func loadProjectConfig(path string, cfg *Config) error {
 	hasNewFormat := len(proj.Workflows.OneOff) > 0 || len(proj.Workflows.Tasks) > 0 || len(proj.Workflows.Init) > 0
 
 	if hasNewFormat {
-		// New structured format
-		cfg.TaskWorkflows = proj.Workflows.Tasks
-		cfg.OneOff = proj.Workflows.OneOff
-		cfg.InitWorkflows = proj.Workflows.Init
+		// New structured format - only override categories that are actually defined
+		// so that e.g. global init workflows are preserved when project config
+		// only defines tasks and one-off workflows.
+		if len(proj.Workflows.Tasks) > 0 {
+			cfg.TaskWorkflows = proj.Workflows.Tasks
+		}
+		if len(proj.Workflows.OneOff) > 0 {
+			cfg.OneOff = proj.Workflows.OneOff
+		}
+		if len(proj.Workflows.Init) > 0 {
+			cfg.InitWorkflows = proj.Workflows.Init
+		}
 
-		// Build flat list for engine resolution
+		// Build flat list for engine resolution from the merged categories
 		cfg.Workflows = nil
 		for _, wf := range cfg.TaskWorkflows {
 			cfg.Workflows = append(cfg.Workflows, wf)

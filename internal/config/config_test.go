@@ -1294,6 +1294,81 @@ workflows:
 	}
 }
 
+func TestWorkflowCategoryMergingPreservesGlobalInit(t *testing.T) {
+	dir := t.TempDir()
+
+	// Global config defines init workflows
+	globalPath := filepath.Join(dir, "global.sortie.yml")
+	globalYAML := `
+workflows:
+  tasks:
+    - name: global-task
+      steps:
+        - name: implementing
+          prompt: "Implement"
+  init:
+    - name: spin-up-from-prd
+      description: "Spin up from PRD"
+      steps:
+        - name: analyzing
+          prompt: "Analyze PRD"
+`
+	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Project config defines tasks and one-off but NO init
+	projectPath := filepath.Join(dir, "project.sortie.yml")
+	projectYAML := `
+workflows:
+  one-off:
+    - name: refactor
+      description: "Refactor pass"
+      steps:
+        - name: refactoring
+          prompt: "Refactor"
+  tasks:
+    - name: project-task
+      steps:
+        - name: implementing
+          prompt: "Implement"
+`
+	if err := os.WriteFile(projectPath, []byte(projectYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	// Load global first, then project (same order as real loading)
+	if err := loadProjectConfig(globalPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadProjectConfig(projectPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Project tasks should override global tasks
+	if len(cfg.TaskWorkflows) != 1 || cfg.TaskWorkflows[0].Name != "project-task" {
+		t.Errorf("expected project task workflow to override global, got %v", cfg.ListWorkflowNames())
+	}
+
+	// Project one-off should be present
+	if len(cfg.OneOff) != 1 || cfg.OneOff[0].Name != "refactor" {
+		t.Errorf("expected project one-off workflow, got %v", cfg.ListPredefinedTaskNames())
+	}
+
+	// Global init workflows should be preserved (not wiped)
+	initNames := cfg.ListInitWorkflowNames()
+	if len(initNames) != 1 || initNames[0] != "spin-up-from-prd" {
+		t.Errorf("expected global init workflow to be preserved, got %v", initNames)
+	}
+
+	// Init workflow should be resolvable via flat list
+	wf := cfg.GetWorkflow("init:spin-up-from-prd")
+	if wf == nil {
+		t.Error("expected to resolve 'init:spin-up-from-prd' but got nil")
+	}
+}
+
 func TestLegacyWorkflowsListFormatStillWorks(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sortie.yml")
