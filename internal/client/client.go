@@ -223,6 +223,21 @@ func (c *Client) ListTasksFiltered(projectID int64) ([]daemon.TaskInfo, error) {
 	return resp.Tasks, nil
 }
 
+// ListTasksByProjectName returns tasks filtered by project name (repo basename).
+func (c *Client) ListTasksByProjectName(name string) ([]daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgListTasks, daemon.ListTasksRequest{ProjectName: name})
+	if err != nil {
+		return nil, err
+	}
+
+	var resp daemon.TaskListResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+
+	return resp.Tasks, nil
+}
+
 func (c *Client) StartAgent(taskID int64) error {
 	return c.requestOK(daemon.MsgStartAgent, daemon.StartAgentRequest{TaskID: taskID})
 }

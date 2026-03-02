@@ -101,7 +101,8 @@ type GetLogsRequest struct {
 }
 
 type ListTasksRequest struct {
-	ProjectID int64 `json:"project_id,omitempty"` // 0 means all projects
+	ProjectID   int64  `json:"project_id,omitempty"`    // 0 means all projects
+	ProjectName string `json:"project_name,omitempty"`  // filter by project name (repo basename)
 }
 
 type CreateTaskRequest struct {

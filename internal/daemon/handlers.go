@@ -38,6 +38,8 @@ func (s *Server) handleListTasks(conn net.Conn, req ListTasksRequest) {
 
 	if req.ProjectID > 0 {
 		tasks, err = s.database.GetTasksByProject(req.ProjectID)
+	} else if req.ProjectName != "" {
+		tasks, err = s.database.GetTasksByProjectName(req.ProjectName)
 	} else {
 		tasks, err = s.database.GetAllTasks()
 	}

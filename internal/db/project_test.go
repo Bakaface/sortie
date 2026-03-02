@@ -186,6 +186,125 @@ func TestCreateTask_WithProjectID(t *testing.T) {
 	}
 }
 
+func TestGetProjectsByName(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Create projects with different paths but same basename
+	_, err = database.GetOrCreateProject("/home/user/work/myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.GetOrCreateProject("/home/user/personal/myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.GetOrCreateProject("/home/user/other-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Query by name "myapp" should return both
+	projects, err := database.GetProjectsByName("myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 {
+		t.Errorf("expected 2 projects named 'myapp', got %d", len(projects))
+	}
+	for _, p := range projects {
+		if p.Name != "myapp" {
+			t.Errorf("expected name 'myapp', got '%s'", p.Name)
+		}
+	}
+
+	// Query by name "other-project" should return one
+	projects, err = database.GetProjectsByName("other-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 {
+		t.Errorf("expected 1 project named 'other-project', got %d", len(projects))
+	}
+
+	// Query by non-existent name should return empty
+	projects, err = database.GetProjectsByName("nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 0 {
+		t.Errorf("expected 0 projects named 'nonexistent', got %d", len(projects))
+	}
+}
+
+func TestGetTasksByProjectName(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Create projects: two with same name, one different
+	projA, err := database.GetOrCreateProject("/home/user/work/myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projB, err := database.GetOrCreateProject("/home/user/personal/myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projC, err := database.GetOrCreateProject("/home/user/other-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create tasks for each project
+	_, err = database.CreateTask(projA.ID, "Task A1", "Desc A1", "task-a1", "", "", "pending", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.CreateTask(projB.ID, "Task B1", "Desc B1", "task-b1", "", "", "pending", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.CreateTask(projC.ID, "Task C1", "Desc C1", "task-c1", "", "", "pending", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Filter by "myapp" should return tasks from both myapp projects
+	tasks, err := database.GetTasksByProjectName("myapp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks for 'myapp', got %d", len(tasks))
+	}
+
+	// Filter by "other-project" should return 1 task
+	tasks, err = database.GetTasksByProjectName("other-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 task for 'other-project', got %d", len(tasks))
+	}
+
+	// Filter by non-existent name should return empty
+	tasks, err = database.GetTasksByProjectName("nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 0 {
+		t.Errorf("expected 0 tasks for 'nonexistent', got %d", len(tasks))
+	}
+}
+
 func TestMigration_FreshDBHasProjectsTable(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := Open(dbPath)

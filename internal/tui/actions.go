@@ -22,6 +22,16 @@ type taskFieldUpdatedMsg struct {
 
 type taskDeletedMsg int64
 
+func (m Model) listTasks(c *client.Client) ([]daemon.TaskInfo, error) {
+	if m.projectID > 0 {
+		return c.ListTasksFiltered(m.projectID)
+	}
+	if m.projectName != "" {
+		return c.ListTasksByProjectName(m.projectName)
+	}
+	return c.ListTasksFiltered(0)
+}
+
 func (m Model) connectToDaemon() tea.Cmd {
 	return func() tea.Msg {
 		c := client.New(m.cfg)
@@ -33,7 +43,7 @@ func (m Model) connectToDaemon() tea.Cmd {
 			return errorMsg(err)
 		}
 
-		tasks, err := c.ListTasksFiltered(m.projectID)
+		tasks, err := m.listTasks(c)
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -59,7 +69,7 @@ func (m Model) refreshTasks() tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		tasks, err := m.client.ListTasksFiltered(m.projectID)
+		tasks, err := m.listTasks(m.client)
 		if err != nil {
 			return errorMsg(err)
 		}

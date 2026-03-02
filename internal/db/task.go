@@ -161,6 +161,30 @@ func (db *DB) GetTasksByProject(projectID int64) ([]*task.Task, error) {
 	return tasks, nil
 }
 
+// GetTasksByProjectName returns all tasks for projects matching the given name.
+func (db *DB) GetTasksByProjectName(name string) ([]*task.Task, error) {
+	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name = ?) ORDER BY id DESC`, taskColumns), name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tasks, err := scanTasks(rows)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, t := range tasks {
+		deps, err := db.getBlockedBy(t.ID)
+		if err != nil {
+			return nil, err
+		}
+		t.BlockedBy = deps
+	}
+
+	return tasks, nil
+}
+
 func (db *DB) getTasksByStatus(status task.Status) ([]*task.Task, error) {
 	rows, err := db.Query(fmt.Sprintf(`
 		SELECT %s FROM tasks WHERE status = ? ORDER BY id ASC

@@ -286,7 +286,7 @@ func TestPromptView_NewlinePreservesFirstLine(t *testing.T) {
 // TestPromptView_NewlineViaParentModel tests the exact flow through the parent
 // Model, mimicking how bubbletea routes messages.
 func TestPromptView_NewlineViaParentModel(t *testing.T) {
-	m := NewModel(nil, 0, "/tmp/test", false)
+	m := NewModel(nil, 0, "/tmp/test", "", false)
 	// Simulate window size
 	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
 	m = result.(Model)
@@ -345,7 +345,7 @@ func TestPromptView_NewlinePreservesFirstLine_SmallTerminal(t *testing.T) {
 // TestPromptView_NewlineWithInterleaved tests with non-key messages between
 // keystrokes, simulating cursor blink and tick messages in the real runtime.
 func TestPromptView_NewlineWithInterleaved(t *testing.T) {
-	m := NewModel(nil, 0, "/tmp/test", false)
+	m := NewModel(nil, 0, "/tmp/test", "", false)
 	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
 	m = result.(Model)
 

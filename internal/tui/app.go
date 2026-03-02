@@ -38,6 +38,7 @@ type Model struct {
 	quitting    bool
 	projectID   int64  // 0 = global mode (show all projects)
 	projectPath string // project directory path, empty in global mode
+	projectName string // repo basename for filtering in global mode
 	globalMode  bool
 
 	// Confirmation state
@@ -129,7 +130,7 @@ type artifactLoadedMsg struct {
 	content string
 }
 
-func NewModel(cfg *config.Config, projectID int64, projectPath string, globalMode bool) Model {
+func NewModel(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool) Model {
 	return Model{
 		cfg:         cfg,
 		keys:        newKeyMap(),
@@ -140,6 +141,7 @@ func NewModel(cfg *config.Config, projectID int64, projectPath string, globalMod
 		view:        viewList,
 		projectID:   projectID,
 		projectPath: projectPath,
+		projectName: projectName,
 		globalMode:  globalMode,
 	}
 }
@@ -495,9 +497,9 @@ func (m Model) renderHelpOverlay() string {
 	return b.String()
 }
 
-func Run(cfg *config.Config, projectID int64, projectPath string, globalMode bool) error {
+func Run(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool) error {
 	p := tea.NewProgram(
-		NewModel(cfg, projectID, projectPath, globalMode),
+		NewModel(cfg, projectID, projectPath, projectName, globalMode),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

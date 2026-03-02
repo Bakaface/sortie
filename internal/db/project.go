@@ -99,6 +99,31 @@ func (db *DB) GetProject(id int64) (*Project, error) {
 	return &p, nil
 }
 
+// GetProjectsByName returns all projects matching the given name (basename).
+func (db *DB) GetProjectsByName(name string) ([]*Project, error) {
+	rows, err := db.Query(`SELECT id, path, name, default_priority, created_at FROM projects WHERE name = ? ORDER BY id ASC`, name)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var projects []*Project
+	for rows.Next() {
+		var p Project
+		var defaultPriority sql.NullString
+		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		if defaultPriority.Valid {
+			p.DefaultPriority = task.Priority(defaultPriority.String)
+		} else {
+			p.DefaultPriority = task.PriorityMedium
+		}
+		projects = append(projects, &p)
+	}
+	return projects, rows.Err()
+}
+
 // ListProjects returns all registered projects.
 func (db *DB) ListProjects() ([]*Project, error) {
 	rows, err := db.Query(`SELECT id, path, name, default_priority, created_at FROM projects ORDER BY id ASC`)
