@@ -352,7 +352,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	}
 
 	// All steps completed — execute on_complete action
-	if err := e.executeOnComplete(ctx, t, outputFn); err != nil {
+	if err := e.executeOnComplete(ctx, t, outputFn, nil); err != nil {
 		return fmt.Errorf("on_complete action failed: %w", err)
 	}
 
@@ -360,20 +360,35 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 }
 
 // executeOnComplete runs the configured on_complete action after all steps finish.
-func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn func([]string)) error {
+// logFn is optional; when provided, progress messages are written to it (e.g. finalize log).
+func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn func([]string), logFn func(string, ...any)) error {
 	action := e.cfg.Git.OnComplete
+
+	logf := func(format string, args ...any) {
+		if logFn != nil {
+			logFn(format, args...)
+		}
+	}
+
 	switch action {
 	case "", "none":
+		logf("No on_complete action configured, skipping")
 		return nil
 
 	case "commit":
-		return gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title))
+		logf("Committing changes in worktree...")
+		if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
+			return err
+		}
+		logf("Commit completed")
+		return nil
 
 	case "merge":
 		if t.Branch == "" {
 			return fmt.Errorf("cannot merge: task branch name is empty")
 		}
 		// Commit any uncommitted changes first (operates on the worktree, safe to do concurrently)
+		logf("Committing changes in worktree before merge...")
 		if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
 			return fmt.Errorf("commit failed: %w", err)
 		}
@@ -383,33 +398,42 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 		}
 
 		// Wait for the target branch to be clean (no staged or unstaged changes)
+		logf("Checking target branch %s for pending changes...", baseBranch)
 		if err := e.waitForCleanTarget(ctx, t); err != nil {
 			return fmt.Errorf("waiting for clean target branch: %w", err)
 		}
 
 		// Pick the best conventional commit message from the branch's history
 		commitMsg := gitpkg.GetSquashCommitMessage(e.repoRoot, baseBranch, t.Branch, t.Title)
+		logf("Squash-merging branch %s into %s...", t.Branch, baseBranch)
 
 		const maxMergeAttempts = 3
 		var mergeErr error
 
 		for attempt := 1; attempt <= maxMergeAttempts; attempt++ {
+			if attempt > 1 {
+				logf("Merge attempt %d/%d...", attempt, maxMergeAttempts)
+			}
+
 			// Lock only for the squash-merge on the shared repoRoot
 			e.mergeMu.Lock()
 			mergeErr = gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch, commitMsg)
 			e.mergeMu.Unlock()
 
 			if mergeErr == nil {
+				logf("Merge successful")
 				break
 			}
 
 			log.Printf("Merge attempt %d/%d failed for task #%d: %v", attempt, maxMergeAttempts, t.ID, mergeErr)
+			logf("Merge attempt %d/%d failed: %v", attempt, maxMergeAttempts, mergeErr)
 
 			if attempt == maxMergeAttempts {
 				break
 			}
 
 			// Update branch outside mutex: merge baseBranch into the worktree branch
+			logf("Updating branch from %s...", baseBranch)
 			if err := gitpkg.MergeInto(t.WorktreePath, baseBranch); err != nil {
 				// Merge produced conflicts — try to resolve with Claude
 				conflictFiles, cfErr := gitpkg.GetConflictedFiles(t.WorktreePath)
@@ -425,6 +449,7 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 				}
 
 				log.Printf("Task #%d has %d conflicted files, spawning Claude to resolve", t.ID, len(conflictFiles))
+				logf("Found %d conflicted files, spawning Claude to resolve...", len(conflictFiles))
 
 				if resolveErr := e.resolveConflicts(ctx, t, conflictFiles, outputFn); resolveErr != nil {
 					gitpkg.AbortMerge(t.WorktreePath)
@@ -449,6 +474,7 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 				}
 
 				log.Printf("Task #%d conflicts resolved, retrying squash-merge", t.ID)
+				logf("Conflicts resolved, retrying squash-merge...")
 			}
 			// If MergeInto succeeded cleanly (no error), the branch is updated — retry the squash-merge
 		}
@@ -458,6 +484,7 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 		}
 
 		// Clean up worktree and branch (safe to run concurrently)
+		logf("Cleaning up worktree and branch...")
 		if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
 			log.Printf("Warning: failed to remove worktree: %v", err)
 		}
@@ -473,6 +500,7 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 		if err := e.database.ClearWorktreePath(t.ID); err != nil {
 			log.Printf("Warning: failed to clear worktree path: %v", err)
 		}
+		logf("Cleanup completed")
 		return nil
 
 	default:
@@ -522,6 +550,32 @@ func (e *Engine) waitForCleanTarget(ctx context.Context, t *task.Task) error {
 // FinalizeTask runs the summarizer and on_complete action for a task.
 // Used when finalizing a tmux-continued task.
 func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
+	// Open finalize log file so TUI can show progress
+	logDir := ProjectLogsDir(e.dataDir, t.ID)
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		log.Printf("Warning: failed to create log dir for task #%d: %v", t.ID, err)
+	}
+	logPath := ProjectLogPath(e.dataDir, t.ID, "finalize")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Printf("Warning: failed to open finalize log for task #%d: %v", t.ID, err)
+	}
+	defer func() {
+		if logFile != nil {
+			logFile.Close()
+		}
+	}()
+
+	logFn := func(format string, args ...any) {
+		msg := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
+		log.Printf("Task #%d finalize: %s", t.ID, fmt.Sprintf(format, args...))
+		if logFile != nil {
+			logFile.WriteString(msg + "\n")
+		}
+	}
+
+	logFn("=== Finalization started for task #%d: %s ===", t.ID, t.Title)
+
 	// Resolve branch name if not set (may not have been persisted to DB)
 	if t.Branch == "" {
 		if t.BranchName != "" {
@@ -534,12 +588,27 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	// Run summarizer to generate task context (same as normal completion)
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	if wf != nil {
+		logFn("Running summarizer...")
 		if err := e.runSummarizer(ctx, t, wf); err != nil {
-			log.Printf("Warning: summarizer failed for task #%d during finalize: %v", t.ID, err)
+			logFn("Warning: summarizer failed: %v", err)
+		} else {
+			logFn("Summarizer completed")
 		}
 	}
 
-	return e.executeOnComplete(ctx, t, nil)
+	action := e.cfg.Git.OnComplete
+	if action == "" {
+		action = "none"
+	}
+	logFn("Running on_complete action: %s", action)
+
+	if err := e.executeOnComplete(ctx, t, nil, logFn); err != nil {
+		logFn("Error: on_complete failed: %v", err)
+		return err
+	}
+
+	logFn("=== Finalization completed ===")
+	return nil
 }
 
 // resolveConflicts spawns a Claude Code agent to resolve merge conflicts in the worktree.
