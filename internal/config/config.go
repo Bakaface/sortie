@@ -16,12 +16,19 @@ type ProjectConfig struct {
 	DefaultPriority          string              `yaml:"default_priority"`
 	Yolo                     *bool               `yaml:"yolo,omitempty"`
 	ValidateArtifact         *bool               `yaml:"validate_artifact,omitempty"`
+	Verification             *VerificationConfig `yaml:"verification,omitempty"`
 	Git                      GitConfig           `yaml:"git"`
 	Workflows                []WorkflowConfig    `yaml:"workflows"`
 	Workflow                 WorkflowConfig      `yaml:"workflow"` // deprecated, backward compat
 	Tasks                    []TaskConfig        `yaml:"tasks"`
 	Notifications            *NotificationsConfig `yaml:"notifications,omitempty"`
 	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
+}
+
+type VerificationConfig struct {
+	ArtifactRetry    bool `yaml:"artifact_retry"`
+	MaxRetries       int  `yaml:"max_retries"`
+	VerifySummarizer bool `yaml:"verify_summarizer"`
 }
 
 // TaskConfig defines a predefined task with a built-in description and workflow steps.
@@ -165,6 +172,7 @@ type GlobalConfig struct {
 	MaxWorkers               int                 `yaml:"max_workers"`
 	Yolo                     *bool               `yaml:"yolo,omitempty"`
 	ValidateArtifact         *bool               `yaml:"validate_artifact,omitempty"`
+	Verification             *VerificationConfig `yaml:"verification,omitempty"`
 	Notifications            NotificationsConfig `yaml:"notifications"`
 	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
 }
@@ -205,6 +213,7 @@ type Config struct {
 	MaxWorkers       int
 	DefaultPriority  string
 	ValidateArtifact bool
+	Verification     VerificationConfig
 	Git              GitConfig
 	Workflows        []WorkflowConfig
 	Tasks            []TaskConfig
@@ -401,6 +410,12 @@ func loadGlobalConfig(path string, cfg *Config) error {
 	if global.ValidateArtifact != nil {
 		cfg.ValidateArtifact = *global.ValidateArtifact
 	}
+	if global.Verification != nil {
+		cfg.Verification = *global.Verification
+		if cfg.Verification.ArtifactRetry && cfg.Verification.MaxRetries == 0 {
+			cfg.Verification.MaxRetries = 1
+		}
+	}
 	cfg.Notifications = global.Notifications
 	if global.TmuxNestedAttachBehavior != "" {
 		cfg.TmuxNestedAttachBehavior = global.TmuxNestedAttachBehavior
@@ -440,6 +455,12 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.ValidateArtifact != nil {
 		cfg.ValidateArtifact = *proj.ValidateArtifact
+	}
+	if proj.Verification != nil {
+		cfg.Verification = *proj.Verification
+		if cfg.Verification.ArtifactRetry && cfg.Verification.MaxRetries == 0 {
+			cfg.Verification.MaxRetries = 1
+		}
 	}
 	if proj.Notifications != nil {
 		cfg.Notifications = *proj.Notifications

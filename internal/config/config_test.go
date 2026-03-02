@@ -1034,6 +1034,116 @@ workflow:
 	}
 }
 
+func TestVerificationConfigParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+verification:
+  artifact_retry: true
+  max_retries: 3
+  verify_summarizer: true
+workflow:
+  steps:
+    - name: implement
+      prompt: "Implement"
+      artifact: true
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.Verification.ArtifactRetry {
+		t.Error("expected artifact_retry to be true")
+	}
+	if cfg.Verification.MaxRetries != 3 {
+		t.Errorf("expected max_retries 3, got %d", cfg.Verification.MaxRetries)
+	}
+	if !cfg.Verification.VerifySummarizer {
+		t.Error("expected verify_summarizer to be true")
+	}
+}
+
+func TestVerificationConfigDefaultMaxRetries(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	// artifact_retry: true but no max_retries specified → should default to 1
+	yamlContent := `
+verification:
+  artifact_retry: true
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.Verification.ArtifactRetry {
+		t.Error("expected artifact_retry to be true")
+	}
+	if cfg.Verification.MaxRetries != 1 {
+		t.Errorf("expected max_retries to default to 1 when artifact_retry is true, got %d", cfg.Verification.MaxRetries)
+	}
+}
+
+func TestVerificationConfigProjectOverridesGlobal(t *testing.T) {
+	globalDir := t.TempDir()
+	globalPath := filepath.Join(globalDir, "config.yaml")
+	os.WriteFile(globalPath, []byte(`
+verification:
+  artifact_retry: true
+  max_retries: 2
+  verify_summarizer: true
+`), 0644)
+
+	projectDir := t.TempDir()
+	projectPath := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectPath, []byte(`
+verification:
+  artifact_retry: false
+`), 0644)
+
+	cfg := defaultConfig()
+	if err := loadGlobalConfig(globalPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Verification.ArtifactRetry {
+		t.Error("expected artifact_retry true from global config")
+	}
+	if cfg.Verification.MaxRetries != 2 {
+		t.Errorf("expected max_retries 2 from global config, got %d", cfg.Verification.MaxRetries)
+	}
+
+	if err := loadProjectConfig(projectPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Verification.ArtifactRetry {
+		t.Error("expected artifact_retry to be false after project override")
+	}
+}
+
+func TestVerificationConfigDefaultFalse(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Verification.ArtifactRetry {
+		t.Error("expected artifact_retry to default to false")
+	}
+	if cfg.Verification.MaxRetries != 0 {
+		t.Errorf("expected max_retries to default to 0, got %d", cfg.Verification.MaxRetries)
+	}
+	if cfg.Verification.VerifySummarizer {
+		t.Error("expected verify_summarizer to default to false")
+	}
+}
+
 // Helper function to check if string contains substring
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && contains(s, substr))

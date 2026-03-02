@@ -212,14 +212,63 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 		}
 
-		// Validate artifact file was written if validate_artifact is enabled
-		if step.Artifact && e.cfg.ValidateArtifact {
+		// Verify artifact was written for artifact steps
+		if step.Artifact && !useTmux {
 			artifactPath := filepath.Join(artifactsDir, step.Name+".md")
-			if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
-				if err := e.database.UpdateTaskStatus(t.ID, task.StatusArtifactMissing); err != nil {
-					log.Printf("Warning: failed to set artifact-missing: %v", err)
+
+			// Retry with log context if artifact is missing and retry is enabled
+			if !fileExistsAndNonEmpty(artifactPath) && e.cfg.Verification.ArtifactRetry {
+				for attempt := 1; attempt <= e.cfg.Verification.MaxRetries; attempt++ {
+					log.Printf("Task #%d step %q: artifact missing, retry %d/%d with log context",
+						t.ID, step.Name, attempt, e.cfg.Verification.MaxRetries)
+
+					// Read step log for context
+					logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
+					logContent := readLogTail(logPath, 500)
+
+					// Build retry prompt
+					retryPrompt := buildArtifactRetryPrompt(logContent, artifactPath)
+
+					if err := InjectClaudeMD(t.WorktreePath, retryPrompt, nil); err != nil {
+						log.Printf("Warning: failed to inject CLAUDE.md for artifact retry: %v", err)
+						break
+					}
+
+					retryStep := config.StepConfig{
+						Name:    step.Name + "-artifact-retry",
+						Timeout: "5m",
+					}
+					retryEnv := map[string]string{
+						"SORTIE_TASK_ID":  fmt.Sprintf("%d", t.ID),
+						"SORTIE_STEP":     retryStep.Name,
+						"SORTIE_WORKTREE": t.WorktreePath,
+					}
+
+					retryExit, _, retryErr := e.runClaudeStep(ctx, t, retryStep, retryPrompt, retryEnv, outputFn)
+					if retryErr != nil {
+						log.Printf("Warning: artifact retry agent failed: %v", retryErr)
+						break
+					}
+					if retryExit != 0 {
+						log.Printf("Warning: artifact retry agent exited with code %d", retryExit)
+						break
+					}
+
+					if fileExistsAndNonEmpty(artifactPath) {
+						log.Printf("Task #%d step %q: artifact recovered on retry %d", t.ID, step.Name, attempt)
+						break
+					}
 				}
-				return nil
+			}
+
+			// Final check: if still missing, handle based on config
+			if !fileExistsAndNonEmpty(artifactPath) {
+				if e.cfg.ValidateArtifact || e.cfg.Verification.ArtifactRetry {
+					if err := e.database.UpdateTaskStatus(t.ID, task.StatusArtifactMissing); err != nil {
+						log.Printf("Warning: failed to set artifact-missing: %v", err)
+					}
+					return nil
+				}
 			}
 		}
 
@@ -289,6 +338,17 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	}
 	if err := e.runSummarizer(ctx, t, wf); err != nil {
 		log.Printf("Warning: summarizer failed for task #%d: %v", t.ID, err)
+	}
+
+	// Retry summarizer once if verify_summarizer is enabled and context is empty
+	if e.cfg.Verification.VerifySummarizer && strings.TrimSpace(t.Context) == "" {
+		log.Printf("Task #%d: summarizer produced empty output, retrying", t.ID)
+		if err := e.runSummarizer(ctx, t, wf); err != nil {
+			log.Printf("Warning: summarizer retry failed for task #%d: %v", t.ID, err)
+		}
+		if strings.TrimSpace(t.Context) == "" {
+			log.Printf("Warning: summarizer still empty after retry for task #%d", t.ID)
+		}
 	}
 
 	// All steps completed — execute on_complete action
@@ -612,6 +672,36 @@ func readLastLines(path string, n int) ([]string, error) {
 		lines = lines[len(lines)-n:]
 	}
 	return lines, nil
+}
+
+// readLogTail reads the last n lines from a log file.
+// Returns empty string if the file doesn't exist or can't be read.
+func readLogTail(path string, maxLines int) string {
+	lines, err := readLastLines(path, maxLines)
+	if err != nil || len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+// buildArtifactRetryPrompt constructs the prompt for an artifact recovery agent.
+func buildArtifactRetryPrompt(logContent, artifactPath string) string {
+	var sb strings.Builder
+	sb.WriteString("The previous agent session completed a workflow step but did not write the required artifact file.\n\n")
+	if logContent != "" {
+		sb.WriteString("Below is the session log from that step:\n\n")
+		sb.WriteString("```\n")
+		sb.WriteString(logContent)
+		sb.WriteString("\n```\n\n")
+	}
+	sb.WriteString(fmt.Sprintf("Based on the session log above, write a summary to `%s`.\n\n", artifactPath))
+	sb.WriteString("Include:\n")
+	sb.WriteString("- What was done in the step\n")
+	sb.WriteString("- Reasoning and decisions made\n")
+	sb.WriteString("- Files changed\n")
+	sb.WriteString("- Any issues encountered\n\n")
+	sb.WriteString("Do NOT make any code changes. Only write the artifact file.")
+	return sb.String()
 }
 
 // runClaudeStepTmux starts a Claude session in a detached tmux session and returns

@@ -52,6 +52,12 @@ func ReadArtifact(worktreePath, stepName string) (string, error) {
 	return string(data), nil
 }
 
+// fileExistsAndNonEmpty checks if a file exists and has non-zero size.
+func fileExistsAndNonEmpty(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Size() > 0
+}
+
 // CollectArtifacts reads artifacts from all prior steps.
 func CollectArtifacts(worktreePath string, priorStepNames []string) map[string]string {
 	artifacts := make(map[string]string)
