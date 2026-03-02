@@ -384,7 +384,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	// Merge step info into status: show step name for active states
 	statusLabel := task.Status
 	switch task.Status {
-	case "running", "awaiting-approval", "tmux", "failed", "stopped", "artifact-missing":
+	case "running", "awaiting-approval", "tmux", "failed", "stopped", "artifact-missing", "merge-blocked":
 		if task.CurrentStep != "" {
 			statusLabel = task.CurrentStep
 		}
@@ -565,6 +565,8 @@ func statusIconFor(status string) string {
 		return "■"
 	case "artifact-missing":
 		return "◇"
+	case "merge-blocked":
+		return "⊘"
 	default:
 		return "○"
 	}

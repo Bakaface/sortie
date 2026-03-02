@@ -382,6 +382,11 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 			baseBranch = "main"
 		}
 
+		// Wait for the target branch to be clean (no staged or unstaged changes)
+		if err := e.waitForCleanTarget(ctx, t); err != nil {
+			return fmt.Errorf("waiting for clean target branch: %w", err)
+		}
+
 		// Pick the best conventional commit message from the branch's history
 		commitMsg := gitpkg.GetSquashCommitMessage(e.repoRoot, baseBranch, t.Branch, t.Title)
 
@@ -473,6 +478,44 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 	default:
 		log.Printf("Unknown on_complete action: %s", action)
 		return nil
+	}
+}
+
+// waitForCleanTarget polls the repo root until it has no pending changes (staged or unstaged).
+// If changes are detected, it sets the task to merge-blocked and retries every 10 seconds.
+func (e *Engine) waitForCleanTarget(ctx context.Context, t *task.Task) error {
+	dirty, err := gitpkg.HasChanges(e.repoRoot)
+	if err != nil {
+		return fmt.Errorf("failed to check target branch: %w", err)
+	}
+	if !dirty {
+		return nil
+	}
+
+	log.Printf("Task #%d: target branch has pending changes, entering merge-blocked state", t.ID)
+	if err := e.database.UpdateTaskStatus(t.ID, task.StatusMergeBlocked); err != nil {
+		log.Printf("Warning: failed to set merge-blocked status for task #%d: %v", t.ID, err)
+	}
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			dirty, err := gitpkg.HasChanges(e.repoRoot)
+			if err != nil {
+				log.Printf("Task #%d: failed to check target branch: %v", t.ID, err)
+				continue
+			}
+			if !dirty {
+				log.Printf("Task #%d: target branch is clean, proceeding with merge", t.ID)
+				return nil
+			}
+			log.Printf("Task #%d: target branch still has pending changes, retrying in 10s", t.ID)
+		}
 	}
 }
 

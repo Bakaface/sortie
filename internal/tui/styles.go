@@ -50,6 +50,7 @@ var (
 		"tmux":              lipgloss.NewStyle().Foreground(lipgloss.Color("#B07AAD")).Bold(true),
 		"finalizing":        lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
 		"summarizing":       lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
+		"merge-blocked":     lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
 		"completed":         lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
 		"failed":            lipgloss.NewStyle().Foreground(lipgloss.Color("#D94F4F")),
 		"stopped":           lipgloss.NewStyle().Foreground(lipgloss.Color("#7A7A7A")),

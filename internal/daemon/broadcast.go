@@ -62,7 +62,7 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 	}
 	for _, t := range tasks {
 		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusFinalizing, task.StatusSummarizing, task.StatusInit, task.StatusArtifactMissing:
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusFinalizing, task.StatusSummarizing, task.StatusMergeBlocked, task.StatusInit, task.StatusArtifactMissing:
 			return
 		}
 	}

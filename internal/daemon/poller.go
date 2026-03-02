@@ -119,8 +119,8 @@ func (s *Server) recoverOrphanedTasks() error {
 				log.Printf("Failed to reset task #%d: %v", t.ID, err)
 			}
 		}
-		if t.Status == task.StatusSummarizing {
-			log.Printf("Recovering task #%d stuck in summarizing, resetting to pending", t.ID)
+		if t.Status == task.StatusSummarizing || t.Status == task.StatusMergeBlocked {
+			log.Printf("Recovering task #%d stuck in %s, resetting to pending", t.ID, t.Status)
 			if err := s.database.ResetTaskForRetry(t.ID); err != nil {
 				log.Printf("Failed to reset task #%d: %v", t.ID, err)
 			}
