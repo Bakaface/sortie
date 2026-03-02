@@ -40,7 +40,7 @@ var tasksCmd = &cobra.Command{
 		}
 
 		if len(tasks) == 0 {
-			fmt.Println("No tasks found. Create tasks via the TUI (n key) or daemon IPC.")
+			fmt.Println("No tasks found. Create tasks with 'sortie create' or via the TUI.")
 			return nil
 		}
 
@@ -84,7 +84,7 @@ func listTasksFromDB() error {
 	}
 
 	if len(tasks) == 0 {
-		fmt.Println("No tasks found. Create tasks via the TUI (n key) or daemon IPC.")
+		fmt.Println("No tasks found. Create tasks with 'sortie create' or via the TUI.")
 		return nil
 	}
 

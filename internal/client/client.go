@@ -302,6 +302,21 @@ func (c *Client) CreateTask(description, workflow, branchName, projectPath strin
 	return &resp.Task, nil
 }
 
+// CreateTaskWithOptions creates a task with all available options.
+func (c *Client) CreateTaskWithOptions(req daemon.CreateTaskRequest) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgCreateTask, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp daemon.CreateTaskResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+
+	return &resp.Task, nil
+}
+
 func (c *Client) ContinueTask(id int64) error {
 	return c.requestOK(daemon.MsgContinueTask, daemon.ContinueTaskRequest{TaskID: id})
 }

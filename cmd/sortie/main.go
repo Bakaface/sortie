@@ -67,6 +67,15 @@ func init() {
 	rootCmd.AddCommand(daemonCmd)
 	rootCmd.AddCommand(tuiCmd)
 	rootCmd.AddCommand(initCmd)
+	createCmd.Flags().StringP("priority", "p", "", "Task priority (low, medium, high, urgent)")
+	createCmd.Flags().StringP("branch", "b", "", "Custom branch name template")
+	createCmd.Flags().StringP("workflow", "w", "", "Workflow to use")
+	editCmd.Flags().StringP("title", "t", "", "New title")
+	editCmd.Flags().StringP("description", "d", "", "New description")
+	editCmd.Flags().StringP("context", "c", "", "New context")
+	editCmd.Flags().StringP("priority", "p", "", "New priority (low, medium, high, urgent)")
+	deleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+
 	rootCmd.AddCommand(tasksCmd)
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(listCmd)
@@ -76,6 +85,9 @@ func init() {
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(cleanupCmd)
 	rootCmd.AddCommand(attachCmd)
+	rootCmd.AddCommand(createCmd)
+	rootCmd.AddCommand(editCmd)
+	rootCmd.AddCommand(deleteCmd)
 }
 
 func main() {
