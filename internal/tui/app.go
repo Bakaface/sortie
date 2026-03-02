@@ -52,6 +52,12 @@ type Model struct {
 	workflowPendingG  bool
 	selectedWorkflow  string
 
+	// Continue workflow selection state
+	selectingContinueWorkflow bool
+	continueWorkflowCursor    int
+	continueWorkflowPendingG  bool
+	continueTaskID            int64
+
 	// Predefined task (one-off) selection state
 	selectingTask bool
 	taskCursor    int
@@ -339,6 +345,23 @@ func (m Model) View() string {
 		for i, name := range workflows {
 			label := fmt.Sprintf("  %d. %s", i+1, name)
 			if i == m.workflowCursor {
+				b.WriteString(selectedStyle.Render("> "+label) + "\n")
+			} else {
+				b.WriteString("    " + label + "\n")
+			}
+		}
+		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel"))
+		return b.String()
+	}
+
+	// Show continue workflow selection as its own screen
+	if m.selectingContinueWorkflow {
+		workflows := m.cfg.ListWorkflowNames()
+		var b strings.Builder
+		b.WriteString(titleStyle.Render(fmt.Sprintf(" Continue Task #%d - Select Workflow ", m.continueTaskID)) + "\n\n")
+		for i, name := range workflows {
+			label := fmt.Sprintf("  %d. %s", i+1, name)
+			if i == m.continueWorkflowCursor {
 				b.WriteString(selectedStyle.Render("> "+label) + "\n")
 			} else {
 				b.WriteString("    " + label + "\n")

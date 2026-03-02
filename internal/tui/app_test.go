@@ -677,7 +677,15 @@ func TestListView_NonGlobalModeHidesProjectColumn(t *testing.T) {
 }
 
 func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
+	cfg := &config.Config{
+		TaskWorkflows: []config.WorkflowConfig{
+			{Name: "implement"},
+			{Name: "review"},
+		},
+	}
+
 	m := Model{
+		cfg:    cfg,
 		keys:   newKeyMap(),
 		client: &client.Client{},
 		list:   newListView(false),
@@ -688,24 +696,32 @@ func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
 		{ID: 10, Title: "Completed task", Status: "completed"},
 	})
 
-	// Single "c" triggers continue confirm immediately
+	// Single "c" now triggers workflow selection for completed tasks
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.confirmAction != "continue" {
-		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
+	if !updated.selectingContinueWorkflow {
+		t.Error("expected selectingContinueWorkflow to be true")
 	}
-	if updated.confirmTaskID != 10 {
-		t.Errorf("expected confirmTaskID to be 10, got %d", updated.confirmTaskID)
+	if updated.continueTaskID != 10 {
+		t.Errorf("expected continueTaskID to be 10, got %d", updated.continueTaskID)
 	}
 	if cmd != nil {
-		t.Error("expected no command (confirmation pending), got non-nil")
+		t.Error("expected no command (workflow selection pending), got non-nil")
 	}
 }
 
 func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
+	cfg := &config.Config{
+		TaskWorkflows: []config.WorkflowConfig{
+			{Name: "implement"},
+			{Name: "review"},
+		},
+	}
+
 	m := Model{
+		cfg:    cfg,
 		keys:   newKeyMap(),
 		client: &client.Client{},
 		list:   newListView(false),
@@ -716,19 +732,19 @@ func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
 		{ID: 11, Title: "Failed task", Status: "failed"},
 	})
 
-	// Single "c" triggers continue confirm immediately
+	// Single "c" now triggers workflow selection for failed tasks
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.confirmAction != "continue" {
-		t.Errorf("expected confirmAction to be 'continue', got %q", updated.confirmAction)
+	if !updated.selectingContinueWorkflow {
+		t.Error("expected selectingContinueWorkflow to be true")
 	}
-	if updated.confirmTaskID != 11 {
-		t.Errorf("expected confirmTaskID to be 11, got %d", updated.confirmTaskID)
+	if updated.continueTaskID != 11 {
+		t.Errorf("expected continueTaskID to be 11, got %d", updated.continueTaskID)
 	}
 	if cmd != nil {
-		t.Error("expected no command (confirmation pending), got non-nil")
+		t.Error("expected no command (workflow selection pending), got non-nil")
 	}
 }
 

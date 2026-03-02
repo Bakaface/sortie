@@ -114,12 +114,12 @@ func (m Model) retryTask(taskID int64) tea.Cmd {
 	}
 }
 
-func (m Model) continueTask(taskID int64) tea.Cmd {
+func (m Model) continueTask(taskID int64, workflow string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.ContinueTask(taskID); err != nil {
+		if err := m.client.ContinueTask(taskID, workflow); err != nil {
 			return errorMsg(err)
 		}
 		return nil

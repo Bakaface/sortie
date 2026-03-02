@@ -214,6 +214,20 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
+	// Terminal tasks (completed/failed that made it here) - workflow selected by user
+	if req.Workflow != "" {
+		// User selected a workflow — reset task to run through it
+		if err := s.database.ResetTaskForContinue(t.ID, req.Workflow); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to reset task for continue: %v", err))
+			return
+		}
+		s.broadcastTaskUpdate(t.ID)
+		log.Printf("Task #%d continuing with workflow %q", t.ID, req.Workflow)
+		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d continuing with workflow %q", t.ID, req.Workflow)})
+		return
+	}
+
+	// Fallback: no workflow specified — use tmux (legacy behavior)
 	if t.Status == task.StatusFailed {
 		if err := s.database.ResetTaskForRetryFromStep(req.TaskID); err != nil {
 			s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))

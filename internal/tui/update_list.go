@@ -35,6 +35,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleInitSelectKey(msg)
 	}
 
+	// Handle continue workflow selection if active
+	if m.selectingContinueWorkflow {
+		return m.handleContinueWorkflowSelectKey(msg)
+	}
+
 	// Handle artifact selection if active
 	if m.selectingArtifact {
 		return m.handleArtifactSelectKey(msg)
@@ -50,7 +55,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmTaskID = 0
 			switch action {
 			case "continue":
-				return m, m.continueTask(taskID)
+				return m, m.continueTask(taskID, "")
 			case "finalize":
 				return m, m.finalizeTask(taskID)
 			case "delete":
@@ -252,9 +257,21 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "c":
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "awaiting-approval" || task.Status == "completed" || task.Status == "failed" || task.Status == "artifact-missing" {
+			if task.Status == "awaiting-approval" || task.Status == "artifact-missing" {
 				m.confirmAction = "continue"
 				m.confirmTaskID = task.ID
+				return m, nil
+			}
+			if task.Status == "completed" || task.Status == "failed" {
+				workflows := m.cfg.ListWorkflowNames()
+				m.continueTaskID = task.ID
+				m.selectingContinueWorkflow = true
+				m.continueWorkflowCursor = 0
+				// If only one workflow (default), skip selection and use it directly
+				if len(workflows) == 1 && workflows[0] == "default" {
+					m.selectingContinueWorkflow = false
+					return m, m.continueTask(task.ID, "default")
+				}
 				return m, nil
 			}
 			if task.Status == "tmux" {
@@ -699,6 +716,71 @@ func (m Model) handleInitSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				description = initCfg.Name
 			}
 			return m, m.createTaskWithPrompt(description, "", nil)
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleContinueWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	workflows := m.cfg.ListWorkflowNames()
+	keyStr := msg.String()
+
+	// Handle "gg" sequence for go-to-top
+	if keyStr == "g" {
+		if m.continueWorkflowPendingG {
+			m.continueWorkflowPendingG = false
+			m.continueWorkflowCursor = 0
+			return m, nil
+		}
+		m.continueWorkflowPendingG = true
+		return m, nil
+	}
+	m.continueWorkflowPendingG = false
+
+	switch keyStr {
+	case "up", "k":
+		if m.continueWorkflowCursor > 0 {
+			m.continueWorkflowCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.continueWorkflowCursor < len(workflows)-1 {
+			m.continueWorkflowCursor++
+		}
+		return m, nil
+	case "G":
+		m.continueWorkflowCursor = max(0, len(workflows)-1)
+		return m, nil
+	case "ctrl+d", "pgdown":
+		half := max(1, len(workflows)/2)
+		m.continueWorkflowCursor = min(m.continueWorkflowCursor+half, len(workflows)-1)
+		return m, nil
+	case "ctrl+u", "pgup":
+		half := max(1, len(workflows)/2)
+		m.continueWorkflowCursor = max(m.continueWorkflowCursor-half, 0)
+		return m, nil
+	case "enter":
+		workflow := workflows[m.continueWorkflowCursor]
+		taskID := m.continueTaskID
+		m.selectingContinueWorkflow = false
+		m.continueTaskID = 0
+		return m, m.continueTask(taskID, workflow)
+	case "esc", "q":
+		m.selectingContinueWorkflow = false
+		m.continueTaskID = 0
+		return m, nil
+	}
+
+	// Number keys for quick selection (1-9)
+	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
+		idx := int(keyStr[0] - '1')
+		if idx < len(workflows) {
+			workflow := workflows[idx]
+			taskID := m.continueTaskID
+			m.selectingContinueWorkflow = false
+			m.continueTaskID = 0
+			return m, m.continueTask(taskID, workflow)
 		}
 	}
 
