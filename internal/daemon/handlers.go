@@ -342,6 +342,14 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 	}
 	s.broadcastTaskUpdate(t.ID)
 
+	// Respond immediately so the TUI is unblocked and can refresh
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d finalizing", t.ID)})
+
+	// Run summarizer + on_complete asynchronously
+	go s.runFinalization(t, pc)
+}
+
+func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 	repoRoot := s.getProjectRepoRoot(t)
 	if err := pc.engine.FinalizeTask(s.ctx, t); err != nil {
 		log.Printf("Warning: finalize failed for task #%d: %v", t.ID, err)
@@ -365,14 +373,12 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 
 	// Mark task as completed
 	if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
+		log.Printf("Error: failed to mark task #%d as completed: %v", t.ID, err)
 		return
 	}
 
 	s.broadcastTaskUpdate(t.ID)
-
 	log.Printf("Task #%d finalized from tmux continue session", t.ID)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d finalized", t.ID)})
 }
 
 func dirExists(path string) bool {
