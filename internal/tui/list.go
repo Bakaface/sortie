@@ -22,6 +22,7 @@ type listView struct {
 	showLineNumbers bool
 	showFinished    bool
 	globalMode      bool
+	projectName     string
 	tmuxSessions    map[int64]bool
 	pendingG        bool
 	matchedIndices  []int // indices of tasks matching current search
@@ -46,7 +47,7 @@ func safeKeyMap() table.KeyMap {
 	}
 }
 
-func newListView(globalMode bool) listView {
+func newListView(globalMode bool, projectName string) listView {
 	t := table.New(
 		table.WithColumns(computeColumns(80, globalMode, true, 0)),
 		table.WithFocused(true),
@@ -66,6 +67,7 @@ func newListView(globalMode bool) listView {
 		showLineNumbers: true,
 		showFinished:    true,
 		globalMode:      globalMode,
+		projectName:     projectName,
 	}
 }
 
@@ -318,6 +320,8 @@ func (l *listView) View() string {
 	var titleText string
 	if l.globalMode {
 		titleText = " " + AppTitle + " (Global) "
+	} else if l.projectName != "" {
+		titleText = " " + AppTitle + " (" + l.projectName + ") "
 	} else {
 		titleText = " " + AppTitle + " "
 	}

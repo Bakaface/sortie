@@ -140,7 +140,7 @@ func NewModel(cfg *config.Config, projectID int64, projectPath, projectName stri
 	return Model{
 		cfg:         cfg,
 		keys:        newKeyMap(),
-		list:        newListView(globalMode),
+		list:        newListView(globalMode, projectName),
 		detail:      newDetailView(),
 		taskInfo:    newTaskInfoView(),
 		prompt:      newPromptView(),

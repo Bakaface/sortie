@@ -7,7 +7,7 @@ import (
 )
 
 func TestPerformSearch(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix authentication bug", Status: "pending"},
 		{ID: 2, Title: "Add search feature", Status: "running"},
@@ -41,7 +41,7 @@ func TestPerformSearch(t *testing.T) {
 }
 
 func TestPerformSearchWithDescription(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "", Description: "Fix authentication bug", Status: "pending"},
 		{ID: 2, Title: "Add search feature", Description: "Implement vim-style search", Status: "running"},
@@ -71,7 +71,7 @@ func TestPerformSearchWithDescription(t *testing.T) {
 }
 
 func TestPerformSearchAndJump_ForwardSearch(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix bug", Status: "pending"},
 		{ID: 2, Title: "Add feature", Status: "running"},
@@ -115,7 +115,7 @@ func TestPerformSearchAndJump_ForwardSearch(t *testing.T) {
 }
 
 func TestPerformSearchAndJump_BackwardSearch(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix bug", Status: "pending"},
 		{ID: 2, Title: "Add feature", Status: "running"},
@@ -152,7 +152,7 @@ func TestPerformSearchAndJump_BackwardSearch(t *testing.T) {
 }
 
 func TestNextMatch_ForwardSearch(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix bug", Status: "pending"},
 		{ID: 2, Title: "Add feature", Status: "running"},
@@ -183,7 +183,7 @@ func TestNextMatch_ForwardSearch(t *testing.T) {
 }
 
 func TestNextMatch_BackwardSearch(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix bug", Status: "pending"},
 		{ID: 2, Title: "Add feature", Status: "running"},
@@ -214,7 +214,7 @@ func TestNextMatch_BackwardSearch(t *testing.T) {
 }
 
 func TestPreviousMatch_ForwardSearch(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix bug", Status: "pending"},
 		{ID: 2, Title: "Add feature", Status: "running"},
@@ -245,7 +245,7 @@ func TestPreviousMatch_ForwardSearch(t *testing.T) {
 }
 
 func TestPreviousMatch_BackwardSearch(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix bug", Status: "pending"},
 		{ID: 2, Title: "Add feature", Status: "running"},
@@ -276,7 +276,7 @@ func TestPreviousMatch_BackwardSearch(t *testing.T) {
 }
 
 func TestIsSearchMatch(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix bug", Status: "pending"},
 		{ID: 2, Title: "Add feature", Status: "running"},
@@ -297,7 +297,7 @@ func TestIsSearchMatch(t *testing.T) {
 }
 
 func TestSearchWithNoMatches(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Fix bug", Status: "pending"},
 		{ID: 2, Title: "Add feature", Status: "running"},

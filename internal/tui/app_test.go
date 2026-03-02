@@ -17,7 +17,7 @@ import (
 func TestHandleDetailKey_QReturnsToList(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -40,7 +40,7 @@ func TestHandleDetailKey_QReturnsToList(t *testing.T) {
 func TestHandleDetailKey_EscReturnsToList(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -62,7 +62,7 @@ func TestHandleDetailKey_EscReturnsToList(t *testing.T) {
 func TestHandleDetailKey_EscInFollowModeExitsFollow(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -83,7 +83,7 @@ func TestHandleDetailKey_EscInFollowModeExitsFollow(t *testing.T) {
 func TestHandleDetailKey_QInFollowModeReturnsToList(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -147,7 +147,7 @@ func TestDetailView_ShowsOnlyLogs(t *testing.T) {
 func TestTmuxSessionsMsg_UpdatesListView(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -173,7 +173,7 @@ func TestTmuxSessionsMsg_UpdatesListView(t *testing.T) {
 func TestTmuxDetachedMsg_TriggersRefresh(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -189,7 +189,7 @@ func TestTmuxDetachedMsg_TriggersRefresh(t *testing.T) {
 func TestHandleListKey_TReturnsCommandWhenTaskSelected(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -208,7 +208,7 @@ func TestHandleListKey_TReturnsCommandWhenTaskSelected(t *testing.T) {
 func TestHandleListKey_TNoOpWithNoTasks(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -224,7 +224,7 @@ func TestHandleListKey_TNoOpWithNoTasks(t *testing.T) {
 func TestHandleDetailKey_TReturnsCommandWhenTaskSet(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -242,7 +242,7 @@ func TestHandleDetailKey_TReturnsCommandWhenTaskSet(t *testing.T) {
 func TestHandleDetailKey_TNoOpWithNoTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -256,7 +256,7 @@ func TestHandleDetailKey_TNoOpWithNoTask(t *testing.T) {
 }
 
 func TestListView_RendersTmuxIndicator(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task with tmux", Status: "awaiting-approval", CurrentStep: "implement"},
 		{ID: 2, Title: "Task without tmux", Status: "running", CurrentStep: "review"},
@@ -272,7 +272,7 @@ func TestListView_RendersTmuxIndicator(t *testing.T) {
 }
 
 func TestListView_RendersTmuxStatus(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task with tmux status", Status: "tmux", CurrentStep: "implement"},
 	})
@@ -286,7 +286,7 @@ func TestListView_RendersTmuxStatus(t *testing.T) {
 }
 
 func TestListView_NoTmuxIndicatorWithoutSessions(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task without tmux", Status: "running", CurrentStep: "implement"},
 	})
@@ -303,7 +303,7 @@ func TestHandleKey_ClearsErrorAndProcessesKey(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 		err:    fmt.Errorf("some background error"),
@@ -331,7 +331,7 @@ func TestHandleKey_ClearsErrorAndProcessesKey(t *testing.T) {
 func TestHandleKey_ClearsErrorOnAnyKey(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 		err:    fmt.Errorf("some error"),
@@ -354,7 +354,7 @@ func TestHandleKey_ClearsErrorOnAnyKey(t *testing.T) {
 func TestHandleListKey_QQuitsApp(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -374,7 +374,7 @@ func TestHandleListKey_QQuitsApp(t *testing.T) {
 func TestHandleListKey_EnterOpensTaskInfoView(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
@@ -405,7 +405,7 @@ func TestHandleListKey_EnterOpensTaskInfoView(t *testing.T) {
 func TestHandleListKey_LOpensLogsView(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
@@ -438,7 +438,7 @@ func TestHandleListKey_LOpensLogsView(t *testing.T) {
 func TestHandleTaskInfoKey_QReturnsToList(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -459,7 +459,7 @@ func TestHandleTaskInfoKey_QReturnsToList(t *testing.T) {
 func TestHandleTaskInfoKey_EscReturnsToList(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -480,7 +480,7 @@ func TestHandleTaskInfoKey_EscReturnsToList(t *testing.T) {
 func TestHandleTaskInfoKey_LOpensLogsView(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -592,7 +592,7 @@ func TestTaskInfoView_NoLogs(t *testing.T) {
 }
 
 func TestListView_GlobalModeTitle(t *testing.T) {
-	l := newListView(true)
+	l := newListView(true, "")
 	l.SetSize(100, 24)
 	output := l.View()
 
@@ -602,7 +602,7 @@ func TestListView_GlobalModeTitle(t *testing.T) {
 }
 
 func TestListView_GlobalModeShowsProjectColumn(t *testing.T) {
-	l := newListView(true)
+	l := newListView(true, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task", Status: "running", ProjectName: "myproject"},
 	})
@@ -618,7 +618,7 @@ func TestListView_GlobalModeShowsProjectColumn(t *testing.T) {
 }
 
 func TestListView_SortsTasksDescendingByID(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "First task", Status: "completed"},
 		{ID: 3, Title: "Third task", Status: "running"},
@@ -640,7 +640,7 @@ func TestListView_SortsTasksDescendingByID(t *testing.T) {
 }
 
 func TestListView_SortsTasksDescendingPreservesCursor(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	// Set initial tasks with cursor at position 0
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 5, Title: "Task 5", Status: "running"},
@@ -664,7 +664,7 @@ func TestListView_SortsTasksDescendingPreservesCursor(t *testing.T) {
 }
 
 func TestListView_NonGlobalModeHidesProjectColumn(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task", Status: "running", ProjectName: "myproject"},
 	})
@@ -688,7 +688,7 @@ func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
 		cfg:    cfg,
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -724,7 +724,7 @@ func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
 		cfg:    cfg,
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -752,7 +752,7 @@ func TestHandleListKey_CNoOpForRunningTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -772,7 +772,7 @@ func TestHandleListKey_CNoOpForRunningTask(t *testing.T) {
 func TestHandleListKey_CNoOpWithNoClient(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -793,7 +793,7 @@ func TestHandleListKey_CTriggersFinalizeForTmuxTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -821,7 +821,7 @@ func TestHandleListKey_CNoOpForPendingTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -843,7 +843,7 @@ func TestHandleListKey_CContinuesAwaitingApprovalTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -867,7 +867,7 @@ func TestHandleListKey_CContinuesAwaitingApprovalTask(t *testing.T) {
 func newTestModelWithTasks(n int) Model {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -1025,7 +1025,7 @@ func TestHandleListKey_PgUpPageUp(t *testing.T) {
 }
 
 func TestListView_GotoTopAndBottom(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 10)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -1044,7 +1044,7 @@ func TestListView_GotoTopAndBottom(t *testing.T) {
 }
 
 func TestListView_PageDownPageUp(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 30)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -1069,7 +1069,7 @@ func TestListView_PageDownPageUp(t *testing.T) {
 }
 
 func TestListView_ShowsRealTaskID(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	// Use non-sequential IDs to prove the ID column shows real task IDs,
 	// not positional indices (e.g., 1, 2, 3).
 	l.SetTasks([]daemon.TaskInfo{
@@ -1101,7 +1101,7 @@ func TestHandleListKey_RShowsTaskSelection(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -1136,7 +1136,7 @@ func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -1167,7 +1167,7 @@ func TestHandleListKey_RRefreshesWithNoTasks(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -1194,7 +1194,7 @@ func TestHandleTaskSelectKey_Navigation(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
 		client:        &client.Client{},
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -1268,7 +1268,7 @@ func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
 		client:        &client.Client{},
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -1300,7 +1300,7 @@ func TestHandleTaskSelectKey_NumberKeyCreatesTask(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
 		client:        &client.Client{},
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -1334,7 +1334,7 @@ func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
 		client:        &client.Client{},
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -1366,7 +1366,7 @@ func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
 func TestViewRendersTaskSelection(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -1396,7 +1396,7 @@ func TestViewRendersTaskSelection(t *testing.T) {
 }
 
 func TestListView_PageWithSmallHeight(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 10)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -1640,7 +1640,7 @@ func TestHandleListKey_POpensPrioritySelection(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -1665,7 +1665,7 @@ func TestHandlePrioritySelectKey_EscCancels(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
 		client:            &client.Client{},
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingPriority: true,
@@ -1685,7 +1685,7 @@ func TestHandlePrioritySelectKey_Navigation(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
 		client:            &client.Client{},
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingPriority: true,
@@ -1711,7 +1711,7 @@ func TestHandlePrioritySelectKey_Navigation(t *testing.T) {
 }
 
 func TestListView_RendersPriorityBadge(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Urgent task", Status: "pending", Priority: "urgent"},
 		{ID: 2, Title: "Low task", Status: "pending", Priority: "low"},
@@ -1775,7 +1775,7 @@ func TestTaskInfoView_ShowsPriority(t *testing.T) {
 func TestHandleListKey_QuestionMarkTogglesHelp(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -1807,7 +1807,7 @@ func TestHandleListKey_QuestionMarkTogglesHelp(t *testing.T) {
 func TestHandleListKey_EscClosesHelp(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -1828,7 +1828,7 @@ func TestHandleListKey_EscClosesHelp(t *testing.T) {
 func TestHandleListKey_HelpConsumesKeys(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -1856,7 +1856,7 @@ func TestHandleListKey_HelpConsumesKeys(t *testing.T) {
 func TestViewRendersHelpOverlay(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -1914,7 +1914,7 @@ func TestShortHelp_IsConcise(t *testing.T) {
 }
 
 func TestListView_ShowsAscendingIndexColumn(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 42, Title: "First task", Status: "running"},
 		{ID: 7, Title: "Second task", Status: "pending"},
@@ -1948,7 +1948,7 @@ func TestListView_ShowsAscendingIndexColumn(t *testing.T) {
 }
 
 func TestListView_AscendingIndexOnlyForFirst10(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 12)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{
@@ -2044,7 +2044,7 @@ func TestHandleListKey_NumberKeyClampedToTaskCount(t *testing.T) {
 }
 
 func TestListView_GotoIndex(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 5)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -2201,7 +2201,7 @@ func TestCommandMode_DisplaysInView(t *testing.T) {
 
 func TestListView_LineNumWidth(t *testing.T) {
 	// 1-9 tasks → minimum width 2
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 9)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -2250,7 +2250,7 @@ func TestCommandMode_NumberKeysNoLongerNavigate(t *testing.T) {
 }
 
 func TestListView_HeaderHasIndexColumn(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task", Status: "pending"},
 	})
@@ -2282,7 +2282,7 @@ func TestListView_HeaderHasIndexColumn(t *testing.T) {
 func TestTaskCreatedMsg_CursorMovesToTop(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -2317,7 +2317,7 @@ func TestHandleListKey_OAOpensArtifactSelection(t *testing.T) {
 
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
@@ -2368,7 +2368,7 @@ func TestHandleListKey_OAMultipleArtifactsShowsSelection(t *testing.T) {
 
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
@@ -2421,7 +2421,7 @@ func TestHandleListKey_EAOpensEditArtifact(t *testing.T) {
 
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
@@ -2464,7 +2464,7 @@ func TestHandleListKey_EAOpensEditArtifact(t *testing.T) {
 func TestHandleTaskInfoKey_YSetsPendingY(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2487,7 +2487,7 @@ func TestHandleTaskInfoKey_YSetsPendingY(t *testing.T) {
 func TestHandleTaskInfoKey_YDCopiesDescription(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2516,7 +2516,7 @@ func TestHandleTaskInfoKey_YDCopiesDescription(t *testing.T) {
 func TestHandleTaskInfoKey_YCCopiesContext(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2545,7 +2545,7 @@ func TestHandleTaskInfoKey_YCCopiesContext(t *testing.T) {
 func TestHandleListKey_OANoWorktreeShowsError(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
@@ -2583,7 +2583,7 @@ func TestHandleListKey_OANoArtifactsShowsError(t *testing.T) {
 
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
@@ -2617,7 +2617,7 @@ func TestHandleListKey_OANoArtifactsShowsError(t *testing.T) {
 func TestHandleTaskInfoKey_YResetByOtherKey(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2646,7 +2646,7 @@ func TestHandleTaskInfoKey_YResetByOtherKey(t *testing.T) {
 func TestHandleListKey_ONonAResetsPending(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 	}
@@ -2729,7 +2729,7 @@ func TestHandleArtifactSelectKey_EscCancels(t *testing.T) {
 func TestHandleArtifactViewKey_QReturnsToList(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
-		list: newListView(false),
+		list: newListView(false, ""),
 		view: viewArtifact,
 	}
 
@@ -2748,7 +2748,7 @@ func TestHandleArtifactViewKey_QReturnsToList(t *testing.T) {
 func TestHandleArtifactViewKey_EscReturnsToList(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
-		list: newListView(false),
+		list: newListView(false, ""),
 		view: viewArtifact,
 	}
 
@@ -2767,7 +2767,7 @@ func TestHandleArtifactViewKey_EscReturnsToList(t *testing.T) {
 func TestHandleTaskInfoKey_YDNoTaskNoError(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2796,7 +2796,7 @@ func TestHandleTaskInfoKey_OAOpensArtifactSelection(t *testing.T) {
 
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2843,7 +2843,7 @@ func TestHandleTaskInfoKey_EAOpensEditArtifact(t *testing.T) {
 
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2879,7 +2879,7 @@ func TestHandleTaskInfoKey_EAOpensEditArtifact(t *testing.T) {
 func TestHandleTaskInfoKey_YDEmptyDescriptionNoOp(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2903,7 +2903,7 @@ func TestHandleTaskInfoKey_YDEmptyDescriptionNoOp(t *testing.T) {
 func TestHandleTaskInfoKey_YCEmptyContextNoOp(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -2927,7 +2927,7 @@ func TestHandleTaskInfoKey_YCEmptyContextNoOp(t *testing.T) {
 func TestViewRendersArtifactSelection(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingArtifact: true,
@@ -2952,7 +2952,7 @@ func TestViewRendersArtifactSelection(t *testing.T) {
 func TestViewRendersEditArtifactTitle(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingArtifact: true,
@@ -2989,7 +2989,7 @@ func TestArtifactViewState_View(t *testing.T) {
 func TestArtifactLoadedMsg_SwitchesToArtifactView(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
-		list: newListView(false),
+		list: newListView(false, ""),
 		view: viewList,
 	}
 	m.artifactView.SetSize(80, 24)
@@ -3012,7 +3012,7 @@ func TestHandleListKey_OAFiltersNonExistentArtifacts(t *testing.T) {
 
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
@@ -3093,7 +3093,7 @@ func TestTaskInfoKeyMap_ContainsArtifactBindings(t *testing.T) {
 func TestHandleTaskInfoKey_EscDismissesArtifactSelection(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		taskInfo:          newTaskInfoView(),
 		view:              viewTaskInfo,
@@ -3134,7 +3134,7 @@ func TestTaskInfoView_HelpShowsYankBindings(t *testing.T) {
 }
 
 func TestSetNumber_DefaultTrue(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	if !l.showLineNumbers {
 		t.Error("expected showLineNumbers to default to true")
 	}
@@ -3208,7 +3208,7 @@ func TestSetNumber_CommandModeIntegration(t *testing.T) {
 }
 
 func TestSetNumber_HidesLineNumbersInView(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task One", Status: "pending"},
 		{ID: 2, Title: "Task Two", Status: "running"},
@@ -3287,7 +3287,7 @@ func TestMatchSetNumber(t *testing.T) {
 }
 
 func TestSetFinished_DefaultTrue(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	if !l.showFinished {
 		t.Error("expected showFinished to default to true")
 	}
@@ -3361,7 +3361,7 @@ func TestSetFinished_CommandModeIntegration(t *testing.T) {
 }
 
 func TestSetFinished_HidesFinishedTasksInView(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Active Task", Status: "pending"},
 		{ID: 2, Title: "Running Task", Status: "running"},
@@ -3435,7 +3435,7 @@ func TestMatchSetFinished(t *testing.T) {
 }
 
 func TestSetFinished_PreservesAllTasksOnRefresh(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.showFinished = false
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Active", Status: "pending"},
@@ -3460,7 +3460,7 @@ func TestSetFinished_PreservesAllTasksOnRefresh(t *testing.T) {
 }
 
 func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
-	l := newListView(true)
+	l := newListView(true, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task", Status: "running", ProjectName: "proj"},
 	})
@@ -3492,7 +3492,7 @@ func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
 func TestHandleListKey_SlashEntersForwardSearch(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
-		list: newListView(false),
+		list: newListView(false, ""),
 		view: viewList,
 	}
 
@@ -3514,7 +3514,7 @@ func TestHandleListKey_SlashEntersForwardSearch(t *testing.T) {
 func TestHandleListKey_QuestionMarkEntersBackwardSearch(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
-		list: newListView(false),
+		list: newListView(false, ""),
 		view: viewList,
 	}
 
@@ -3533,7 +3533,7 @@ func TestHandleListKey_QuestionMarkEntersBackwardSearch(t *testing.T) {
 func TestHandleSearchKey_EscCancelsSearch(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		view:        viewList,
 		searchMode:  true,
 		searchQuery: "test",
@@ -3554,7 +3554,7 @@ func TestHandleSearchKey_EscCancelsSearch(t *testing.T) {
 func TestHandleSearchKey_EnterCommitsSearch(t *testing.T) {
 	m := Model{
 		keys:            newKeyMap(),
-		list:            newListView(false),
+		list:            newListView(false, ""),
 		view:            viewList,
 		searchMode:      true,
 		searchQuery:     "fix",
@@ -3581,7 +3581,7 @@ func TestHandleSearchKey_EnterCommitsSearch(t *testing.T) {
 func TestHandleSearchKey_TypingBuildsQuery(t *testing.T) {
 	m := Model{
 		keys:       newKeyMap(),
-		list:       newListView(false),
+		list:       newListView(false, ""),
 		view:       viewList,
 		searchMode: true,
 	}
@@ -3606,7 +3606,7 @@ func TestHandleSearchKey_TypingBuildsQuery(t *testing.T) {
 func TestHandleSearchKey_BackspaceDeletesChar(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		view:        viewList,
 		searchMode:  true,
 		searchQuery: "ab",
@@ -3630,7 +3630,7 @@ func TestHandleSearchKey_BackspaceDeletesChar(t *testing.T) {
 func TestHandleListKey_NNavigatesToNextMatch(t *testing.T) {
 	m := Model{
 		keys:            newKeyMap(),
-		list:            newListView(false),
+		list:            newListView(false, ""),
 		view:            viewList,
 		searchDirection: 1,
 	}
@@ -3656,7 +3656,7 @@ func TestHandleListKey_NNavigatesToNextMatch(t *testing.T) {
 func TestHandleListKey_ShiftNNavigatesToPrevMatch(t *testing.T) {
 	m := Model{
 		keys:            newKeyMap(),
-		list:            newListView(false),
+		list:            newListView(false, ""),
 		view:            viewList,
 		searchDirection: 1,
 	}
@@ -3683,7 +3683,7 @@ func TestHandleListKey_NWithNoSearchCreatesNewTask(t *testing.T) {
 	m := Model{
 		cfg:         cfg,
 		keys:        newKeyMap(),
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		prompt:      newPromptView(),
 		view:        viewList,
@@ -3704,7 +3704,7 @@ func TestHandleListKey_NWithNoSearchCreatesNewTask(t *testing.T) {
 func TestViewRendersSearchBar(t *testing.T) {
 	m := Model{
 		keys:            newKeyMap(),
-		list:            newListView(false),
+		list:            newListView(false, ""),
 		view:            viewList,
 		searchMode:      true,
 		searchQuery:     "test",
@@ -3727,7 +3727,7 @@ func TestViewRendersSearchBar(t *testing.T) {
 func TestHandleListKey_SearchModeDispatchesToHandleSearchKey(t *testing.T) {
 	m := Model{
 		keys:       newKeyMap(),
-		list:       newListView(false),
+		list:       newListView(false, ""),
 		view:       viewList,
 		searchMode: true,
 	}
@@ -3769,7 +3769,7 @@ func TestFullHelp_ContainsSearchBindings(t *testing.T) {
 func TestStatusMessage_ClearedOnKeypress(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		taskInfo:      newTaskInfoView(),
 		view:          viewList,
@@ -3788,7 +3788,7 @@ func TestStatusMessage_ClearedOnKeypress(t *testing.T) {
 func TestStatusMessage_TickDecrementsAndClears(t *testing.T) {
 	m := Model{
 		keys:             newKeyMap(),
-		list:             newListView(false),
+		list:             newListView(false, ""),
 		detail:           newDetailView(),
 		taskInfo:         newTaskInfoView(),
 		view:             viewList,
@@ -3819,7 +3819,7 @@ func TestStatusMessage_TickDecrementsAndClears(t *testing.T) {
 func TestStatusMessage_RenderedInView(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		taskInfo:      newTaskInfoView(),
 		view:          viewList,
@@ -3837,7 +3837,7 @@ func TestStatusMessage_RenderedInView(t *testing.T) {
 func TestStatusMessage_NotRenderedWhenEmpty(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		taskInfo:      newTaskInfoView(),
 		view:          viewList,
@@ -3855,7 +3855,7 @@ func TestStatusMessage_NotRenderedWhenEmpty(t *testing.T) {
 func TestYDEmptyDescription_NoStatusMessage(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -3876,7 +3876,7 @@ func TestYDEmptyDescription_NoStatusMessage(t *testing.T) {
 func TestYCEmptyContext_NoStatusMessage(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
-		list:     newListView(false),
+		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
@@ -3895,7 +3895,7 @@ func TestYCEmptyContext_NoStatusMessage(t *testing.T) {
 }
 
 func TestListView_WindowedRendering(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 20)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -3926,7 +3926,7 @@ func TestListView_WindowedRendering(t *testing.T) {
 func TestListView_HelperRowPersistsAfterSearchCancel(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
-		list: newListView(false),
+		list: newListView(false, ""),
 		view: viewList,
 	}
 	tasks := make([]daemon.TaskInfo, 20)
@@ -3967,7 +3967,7 @@ func TestListView_HelperRowPersistsAfterSearchCancel(t *testing.T) {
 }
 
 func TestListView_ScrollOffsetFollowsCursor(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 20)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -4000,7 +4000,7 @@ func TestListView_ScrollOffsetFollowsCursor(t *testing.T) {
 }
 
 func TestListView_ExtraLinesReduceVisibleRows(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	l.SetSize(100, 15) // visibleRows = 15 - 7 = 8
 
 	if l.visibleRows() != 8 {
@@ -4019,7 +4019,7 @@ func TestListView_ExtraLinesReduceVisibleRows(t *testing.T) {
 }
 
 func TestListView_ScrollIndicatorInHelpBar(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 20)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -4047,7 +4047,7 @@ func TestListView_ScrollIndicatorInHelpBar(t *testing.T) {
 }
 
 func TestListView_NoScrollIndicatorWhenAllVisible(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 5)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -4064,7 +4064,7 @@ func TestListView_NoScrollIndicatorWhenAllVisible(t *testing.T) {
 }
 
 func TestListView_TitleAlwaysVisible(t *testing.T) {
-	l := newListView(false)
+	l := newListView(false, "")
 	tasks := make([]daemon.TaskInfo, 50)
 	for i := range tasks {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
@@ -4097,7 +4097,7 @@ func TestListView_TitleAlwaysVisible(t *testing.T) {
 func TestStatusMessage_CountedInExtraLines(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
-		list: newListView(false),
+		list: newListView(false, ""),
 		view: viewList,
 	}
 	tasks := make([]daemon.TaskInfo, 20)
@@ -4146,7 +4146,7 @@ func countTaskLines(output string) int {
 func TestListView_OutputFitsTerminalHeight(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
-		list: newListView(false),
+		list: newListView(false, ""),
 		view: viewList,
 	}
 	tasks := make([]daemon.TaskInfo, 30)
@@ -4195,7 +4195,7 @@ func newTestModelWithWorkflows(n int) Model {
 	return Model{
 		cfg:               cfg,
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingWorkflow: true,
@@ -4317,7 +4317,7 @@ func TestWorkflowSelect_CtrlUClampsToStart(t *testing.T) {
 func TestPrioritySelect_GGGoesToTop(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingPriority: true,
@@ -4339,7 +4339,7 @@ func TestPrioritySelect_GGGoesToTop(t *testing.T) {
 func TestPrioritySelect_ShiftGGoesToBottom(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingPriority: true,
@@ -4358,7 +4358,7 @@ func TestPrioritySelect_ShiftGGoesToBottom(t *testing.T) {
 func TestPrioritySelect_CtrlDPageDown(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingPriority: true,
@@ -4378,7 +4378,7 @@ func TestPrioritySelect_CtrlDPageDown(t *testing.T) {
 func TestPrioritySelect_CtrlUPageUp(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingPriority: true,
@@ -4405,7 +4405,7 @@ func TestTaskSelect_GGGoesToTop(t *testing.T) {
 	m := Model{
 		cfg:           cfg,
 		keys:          newKeyMap(),
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -4433,7 +4433,7 @@ func TestTaskSelect_ShiftGGoesToBottom(t *testing.T) {
 	m := Model{
 		cfg:           cfg,
 		keys:          newKeyMap(),
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -4459,7 +4459,7 @@ func TestTaskSelect_CtrlDPageDown(t *testing.T) {
 	m := Model{
 		cfg:           cfg,
 		keys:          newKeyMap(),
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -4486,7 +4486,7 @@ func TestTaskSelect_CtrlUPageUp(t *testing.T) {
 	m := Model{
 		cfg:           cfg,
 		keys:          newKeyMap(),
-		list:          newListView(false),
+		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		view:          viewList,
 		selectingTask: true,
@@ -4506,7 +4506,7 @@ func TestTaskSelect_CtrlUPageUp(t *testing.T) {
 func TestArtifactSelect_GGGoesToTop(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingArtifact: true,
@@ -4528,7 +4528,7 @@ func TestArtifactSelect_GGGoesToTop(t *testing.T) {
 func TestArtifactSelect_ShiftGGoesToBottom(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingArtifact: true,
@@ -4548,7 +4548,7 @@ func TestArtifactSelect_ShiftGGoesToBottom(t *testing.T) {
 func TestArtifactSelect_CtrlDPageDown(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingArtifact: true,
@@ -4569,7 +4569,7 @@ func TestArtifactSelect_CtrlDPageDown(t *testing.T) {
 func TestArtifactSelect_CtrlUPageUp(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
-		list:              newListView(false),
+		list:              newListView(false, ""),
 		detail:            newDetailView(),
 		view:              viewList,
 		selectingArtifact: true,
@@ -4619,7 +4619,7 @@ func TestExecRunTask_RunsTask(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -4645,7 +4645,7 @@ func TestExecRunTask_UnknownTask(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -4674,7 +4674,7 @@ func TestExecRunTask_EmptyArgs(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -4695,7 +4695,7 @@ func TestExecRunTask_EmptyArgs(t *testing.T) {
 func TestExecRunTask_NoClient(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 		cfg:    &config.Config{},
@@ -4713,7 +4713,7 @@ func TestExecRunTask_UsesNameWhenNoDescription(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -4739,7 +4739,7 @@ func TestExecRunTask_RunsUnlistedTask(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -4765,7 +4765,7 @@ func TestCommandMode_RunTaskIntegration(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -4931,7 +4931,7 @@ func TestCompleteRunTask_NilConfig(t *testing.T) {
 func TestCommandMode_TabCompletion(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		commandMode: true,
@@ -4961,7 +4961,7 @@ func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
@@ -5001,7 +5001,7 @@ func TestViewRendersTaskSelection_HidesUnlisted(t *testing.T) {
 	// Since unlisted is removed, all one-off workflows are now visible
 	m := Model{
 		keys:        newKeyMap(),
-		list:        newListView(false),
+		list:        newListView(false, ""),
 		detail:      newDetailView(),
 		view:        viewList,
 		selectingTask: true,
@@ -5090,7 +5090,7 @@ func TestHandleDetailKey_EOpensLogEditor(t *testing.T) {
 	}
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
@@ -5108,7 +5108,7 @@ func TestHandleDetailKey_EOpensLogEditor(t *testing.T) {
 func TestHandleDetailKey_EWithNoTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		list:   newListView(false),
+		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewDetail,
 	}
