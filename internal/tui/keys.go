@@ -229,6 +229,7 @@ type detailFollowKeyMap struct {
 	Back       key.Binding
 	Stop       key.Binding
 	Attach     key.Binding
+	EditLog    key.Binding
 }
 
 func newDetailFollowKeyMap() detailFollowKeyMap {
@@ -249,11 +250,15 @@ func newDetailFollowKeyMap() detailFollowKeyMap {
 			key.WithKeys("t"),
 			key.WithHelp("t", "tmux attach"),
 		),
+		EditLog: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "open log"),
+		),
 	}
 }
 
 func (k detailFollowKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.ExitFollow, k.Back, k.Stop, k.Attach}
+	return []key.Binding{k.ExitFollow, k.Back, k.Stop, k.Attach, k.EditLog}
 }
 
 type detailNormalKeyMap struct {
@@ -267,6 +272,7 @@ type detailNormalKeyMap struct {
 	Back       key.Binding
 	Stop       key.Binding
 	Attach     key.Binding
+	EditLog    key.Binding
 }
 
 func newDetailNormalKeyMap() detailNormalKeyMap {
@@ -311,11 +317,15 @@ func newDetailNormalKeyMap() detailNormalKeyMap {
 			key.WithKeys("t"),
 			key.WithHelp("t", "tmux attach"),
 		),
+		EditLog: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "open log"),
+		),
 	}
 }
 
 func (k detailNormalKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Attach, k.Back}
+	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Attach, k.EditLog, k.Back}
 }
 
 type taskInfoKeyMap struct {

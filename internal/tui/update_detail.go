@@ -22,6 +22,11 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.attachTmuxSession(m.detail.task.ID)
 		}
 		return m, nil
+	case "e":
+		if m.detail.task != nil {
+			return m, m.openLogInEditor(m.detail.task)
+		}
+		return m, nil
 	}
 
 	// Navigation keys work in both modes; in follow mode they switch to normal first

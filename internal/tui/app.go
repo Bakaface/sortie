@@ -113,6 +113,7 @@ type tickMsg time.Time
 type tmuxDetachedMsg struct{ taskID int64 }
 type tmuxSessionsMsg map[int64]bool
 type editorArtifactFinishedMsg struct{}
+type editorLogFinishedMsg struct{}
 type editorFieldFinishedMsg struct {
 	taskID int64
 	field  string
@@ -199,6 +200,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case editorArtifactFinishedMsg:
+		return m, nil
+
+	case editorLogFinishedMsg:
 		return m, nil
 
 	case editorFieldFinishedMsg:

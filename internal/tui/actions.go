@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aface/sortie/internal/client"
+	"github.com/aface/sortie/internal/daemon"
 	"github.com/aface/sortie/internal/tmux"
+	"github.com/aface/sortie/internal/workflow"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -278,6 +281,68 @@ func (m Model) openEditorForField(taskID int64, field, currentValue string) tea.
 		}
 		return editorFieldFinishedMsg{taskID: taskID, field: field, path: path}
 	})
+}
+
+func (m Model) openLogInEditor(task *daemon.TaskInfo) tea.Cmd {
+	dataDir := filepath.Join(task.ProjectPath, ".sortie")
+	logsDir := workflow.ProjectLogsDir(dataDir, task.ID)
+
+	logFile, err := findLogFile(logsDir, task.CurrentStep)
+	if err != nil {
+		return func() tea.Msg { return errorMsg(err) }
+	}
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	c := exec.Command(editor, logFile)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			return errorMsg(fmt.Errorf("editor exited with error: %w", err))
+		}
+		return editorLogFinishedMsg{}
+	})
+}
+
+// findLogFile determines which log file to open for a task.
+// It prefers the current step's log, then falls back to the most recently modified log.
+func findLogFile(logsDir, currentStep string) (string, error) {
+	// Try current step's log first
+	if currentStep != "" {
+		stepLog := filepath.Join(logsDir, currentStep+".log")
+		if _, err := os.Stat(stepLog); err == nil {
+			return stepLog, nil
+		}
+	}
+
+	// Fall back to the most recently modified log file
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		return "", fmt.Errorf("no log files found for this task")
+	}
+
+	var newest string
+	var newestTime time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".log") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if newest == "" || info.ModTime().After(newestTime) {
+			newest = filepath.Join(logsDir, e.Name())
+			newestTime = info.ModTime()
+		}
+	}
+
+	if newest == "" {
+		return "", fmt.Errorf("no log files found for this task")
+	}
+	return newest, nil
 }
 
 func (m Model) attachTmuxSession(taskID int64) tea.Cmd {

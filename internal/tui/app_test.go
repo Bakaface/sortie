@@ -5002,3 +5002,100 @@ func TestViewRendersTaskSelection_HidesUnlisted(t *testing.T) {
 		t.Error("expected 'Hidden' (unlisted) task to be absent from selection view")
 	}
 }
+
+func TestFindLogFile_CurrentStep(t *testing.T) {
+	dir := t.TempDir()
+	// Create two log files
+	os.WriteFile(filepath.Join(dir, "implement.log"), []byte("log1"), 0644)
+	os.WriteFile(filepath.Join(dir, "review.log"), []byte("log2"), 0644)
+
+	result, err := findLogFile(dir, "implement")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := filepath.Join(dir, "implement.log")
+	if result != expected {
+		t.Errorf("expected %s, got %s", expected, result)
+	}
+}
+
+func TestFindLogFile_FallbackToNewest(t *testing.T) {
+	dir := t.TempDir()
+	// Create two log files with different modification times
+	old := filepath.Join(dir, "implement.log")
+	os.WriteFile(old, []byte("old"), 0644)
+	os.Chtimes(old, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))
+
+	newest := filepath.Join(dir, "review.log")
+	os.WriteFile(newest, []byte("new"), 0644)
+
+	result, err := findLogFile(dir, "nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != newest {
+		t.Errorf("expected %s (newest), got %s", newest, result)
+	}
+}
+
+func TestFindLogFile_NoLogs(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := findLogFile(dir, "implement")
+	if err == nil {
+		t.Error("expected error for empty logs directory")
+	}
+}
+
+func TestFindLogFile_EmptyCurrentStep(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "implement.log")
+	os.WriteFile(logFile, []byte("log"), 0644)
+
+	result, err := findLogFile(dir, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result != logFile {
+		t.Errorf("expected %s, got %s", logFile, result)
+	}
+}
+
+func TestHandleDetailKey_EOpensLogEditor(t *testing.T) {
+	task := &daemon.TaskInfo{
+		ID:          1,
+		ProjectPath: "/some/project",
+		CurrentStep: "implement",
+	}
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+	m.detail.SetTask(task)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
+	_, cmd := m.handleDetailKey(msg)
+
+	// The "e" key should produce a command (tea.ExecProcess or error)
+	if cmd == nil {
+		t.Error("expected a command from 'e' key, got nil")
+	}
+}
+
+func TestHandleDetailKey_EWithNoTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
+	_, cmd := m.handleDetailKey(msg)
+
+	if cmd != nil {
+		t.Error("expected nil command when no task is selected")
+	}
+}
