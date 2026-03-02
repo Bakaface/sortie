@@ -51,10 +51,15 @@ type Model struct {
 	workflowPendingG  bool
 	selectedWorkflow  string
 
-	// Predefined task selection state
+	// Predefined task (one-off) selection state
 	selectingTask bool
 	taskCursor    int
 	taskPendingG  bool
+
+	// Init workflow selection state
+	selectingInit bool
+	initCursor    int
+	initPendingG  bool
 
 	// Priority selection state
 	selectingPriority bool
@@ -353,6 +358,27 @@ func (m Model) View() string {
 				b.WriteString(selectedStyle.Render("> "+label) + "\n")
 				if taskCfg != nil && taskCfg.Description != "" {
 					b.WriteString(dimStyle.Render("     "+taskCfg.Description) + "\n")
+				}
+			} else {
+				b.WriteString("    " + label + "\n")
+			}
+		}
+		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel"))
+		return b.String()
+	}
+
+	// Show init workflow selection as its own screen
+	if m.selectingInit {
+		inits := m.cfg.ListInitWorkflowNames()
+		var b strings.Builder
+		b.WriteString(titleStyle.Render(" Run Init Workflow ") + "\n\n")
+		for i, name := range inits {
+			initCfg := m.cfg.GetInitWorkflow(name)
+			label := fmt.Sprintf("  %d. %s", i+1, name)
+			if i == m.initCursor {
+				b.WriteString(selectedStyle.Render("> "+label) + "\n")
+				if initCfg != nil && initCfg.Description != "" {
+					b.WriteString(dimStyle.Render("     "+initCfg.Description) + "\n")
 				}
 			} else {
 				b.WriteString("    " + label + "\n")

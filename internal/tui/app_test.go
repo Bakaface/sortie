@@ -1090,7 +1090,7 @@ func TestHandleListKey_RShowsTaskSelection(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
 				{Name: "Security", Description: "Security scan"},
 			},
@@ -1125,7 +1125,7 @@ func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
 			},
 		},
@@ -1185,7 +1185,7 @@ func TestHandleTaskSelectKey_Navigation(t *testing.T) {
 		taskCursor:    0,
 		projectPath:   "/tmp/test",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Task A", Description: "Desc A"},
 				{Name: "Task B", Description: "Desc B"},
 				{Name: "Task C", Description: "Desc C"},
@@ -1233,7 +1233,7 @@ func TestHandleTaskSelectKey_EscCancels(t *testing.T) {
 		selectingTask: true,
 		taskCursor:    1,
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Task A"},
 			},
 		},
@@ -1259,7 +1259,7 @@ func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
 		taskCursor:    0,
 		projectPath:   "/tmp/test",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
 			},
 		},
@@ -1272,8 +1272,8 @@ func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
 	if updated.selectingTask {
 		t.Error("expected selectingTask to be false after enter")
 	}
-	if updated.selectedWorkflow != "task:Housekeeping" {
-		t.Errorf("expected selectedWorkflow 'task:Housekeeping', got %q", updated.selectedWorkflow)
+	if updated.selectedWorkflow != "oneoff:Housekeeping" {
+		t.Errorf("expected selectedWorkflow 'oneoff:Housekeeping', got %q", updated.selectedWorkflow)
 	}
 	if cmd == nil {
 		t.Error("expected create task command, got nil")
@@ -1291,7 +1291,7 @@ func TestHandleTaskSelectKey_NumberKeyCreatesTask(t *testing.T) {
 		taskCursor:    0,
 		projectPath:   "/tmp/test",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "First", Description: "First task"},
 				{Name: "Second", Description: "Second task"},
 			},
@@ -1306,7 +1306,7 @@ func TestHandleTaskSelectKey_NumberKeyCreatesTask(t *testing.T) {
 	if updated.selectingTask {
 		t.Error("expected selectingTask to be false after number key")
 	}
-	if updated.selectedWorkflow != "task:Second" {
+	if updated.selectedWorkflow != "oneoff:Second" {
 		t.Errorf("expected selectedWorkflow 'task:Second', got %q", updated.selectedWorkflow)
 	}
 	if cmd == nil {
@@ -1325,7 +1325,7 @@ func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
 		taskCursor:    0,
 		projectPath:   "/tmp/test",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "NoDesc"},
 			},
 		},
@@ -1339,8 +1339,8 @@ func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
 		t.Error("expected selectingTask to be false")
 	}
 	// When description is empty, the task name is used as description
-	if updated.selectedWorkflow != "task:NoDesc" {
-		t.Errorf("expected selectedWorkflow 'task:NoDesc', got %q", updated.selectedWorkflow)
+	if updated.selectedWorkflow != "oneoff:NoDesc" {
+		t.Errorf("expected selectedWorkflow 'oneoff:NoDesc', got %q", updated.selectedWorkflow)
 	}
 	if cmd == nil {
 		t.Error("expected create task command, got nil")
@@ -1356,7 +1356,7 @@ func TestViewRendersTaskSelection(t *testing.T) {
 		selectingTask: true,
 		taskCursor:    0,
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
 				{Name: "Security Scan", Description: "Run security audit"},
 			},
@@ -4175,7 +4175,7 @@ func newTestModelWithWorkflows(n int) Model {
 	for i := range workflows {
 		workflows[i] = config.WorkflowConfig{Name: fmt.Sprintf("workflow-%d", i+1)}
 	}
-	cfg := &config.Config{Workflows: workflows}
+	cfg := &config.Config{TaskWorkflows: workflows}
 	return Model{
 		cfg:               cfg,
 		keys:              newKeyMap(),
@@ -4381,10 +4381,10 @@ func TestPrioritySelect_CtrlUPageUp(t *testing.T) {
 
 func TestTaskSelect_GGGoesToTop(t *testing.T) {
 	cfg := &config.Config{
-		Tasks: make([]config.TaskConfig, 10),
+		OneOff: make([]config.WorkflowConfig, 10),
 	}
-	for i := range cfg.Tasks {
-		cfg.Tasks[i] = config.TaskConfig{Name: fmt.Sprintf("task-%d", i+1), Description: fmt.Sprintf("desc %d", i+1)}
+	for i := range cfg.OneOff {
+		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1), Description: fmt.Sprintf("desc %d", i+1)}
 	}
 	m := Model{
 		cfg:           cfg,
@@ -4409,10 +4409,10 @@ func TestTaskSelect_GGGoesToTop(t *testing.T) {
 
 func TestTaskSelect_ShiftGGoesToBottom(t *testing.T) {
 	cfg := &config.Config{
-		Tasks: make([]config.TaskConfig, 10),
+		OneOff: make([]config.WorkflowConfig, 10),
 	}
-	for i := range cfg.Tasks {
-		cfg.Tasks[i] = config.TaskConfig{Name: fmt.Sprintf("task-%d", i+1)}
+	for i := range cfg.OneOff {
+		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
 	}
 	m := Model{
 		cfg:           cfg,
@@ -4435,10 +4435,10 @@ func TestTaskSelect_ShiftGGoesToBottom(t *testing.T) {
 
 func TestTaskSelect_CtrlDPageDown(t *testing.T) {
 	cfg := &config.Config{
-		Tasks: make([]config.TaskConfig, 10),
+		OneOff: make([]config.WorkflowConfig, 10),
 	}
-	for i := range cfg.Tasks {
-		cfg.Tasks[i] = config.TaskConfig{Name: fmt.Sprintf("task-%d", i+1)}
+	for i := range cfg.OneOff {
+		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
 	}
 	m := Model{
 		cfg:           cfg,
@@ -4462,10 +4462,10 @@ func TestTaskSelect_CtrlDPageDown(t *testing.T) {
 
 func TestTaskSelect_CtrlUPageUp(t *testing.T) {
 	cfg := &config.Config{
-		Tasks: make([]config.TaskConfig, 10),
+		OneOff: make([]config.WorkflowConfig, 10),
 	}
-	for i := range cfg.Tasks {
-		cfg.Tasks[i] = config.TaskConfig{Name: fmt.Sprintf("task-%d", i+1)}
+	for i := range cfg.OneOff {
+		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
 	}
 	m := Model{
 		cfg:           cfg,
@@ -4608,7 +4608,7 @@ func TestExecRunTask_RunsTask(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor", Description: "Refactor the code"},
 			},
 		},
@@ -4617,7 +4617,7 @@ func TestExecRunTask_RunsTask(t *testing.T) {
 	result, cmd := execRunTask(m, "Refactor")
 	updated := result.(Model)
 
-	if updated.selectedWorkflow != "task:Refactor" {
+	if updated.selectedWorkflow != "oneoff:Refactor" {
 		t.Errorf("expected selectedWorkflow 'task:Refactor', got %q", updated.selectedWorkflow)
 	}
 	if cmd == nil {
@@ -4634,7 +4634,7 @@ func TestExecRunTask_UnknownTask(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor", Description: "Refactor the code"},
 			},
 		},
@@ -4702,7 +4702,7 @@ func TestExecRunTask_UsesNameWhenNoDescription(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor"},
 			},
 		},
@@ -4711,7 +4711,7 @@ func TestExecRunTask_UsesNameWhenNoDescription(t *testing.T) {
 	result, cmd := execRunTask(m, "Refactor")
 	updated := result.(Model)
 
-	if updated.selectedWorkflow != "task:Refactor" {
+	if updated.selectedWorkflow != "oneoff:Refactor" {
 		t.Errorf("expected selectedWorkflow 'task:Refactor', got %q", updated.selectedWorkflow)
 	}
 	if cmd == nil {
@@ -4728,8 +4728,8 @@ func TestExecRunTask_RunsUnlistedTask(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
-				{Name: "Secret", Description: "Hidden task", Unlisted: true},
+			OneOff: []config.WorkflowConfig{
+				{Name: "Secret", Description: "Hidden task"},
 			},
 		},
 	}
@@ -4737,7 +4737,7 @@ func TestExecRunTask_RunsUnlistedTask(t *testing.T) {
 	result, cmd := execRunTask(m, "Secret")
 	updated := result.(Model)
 
-	if updated.selectedWorkflow != "task:Secret" {
+	if updated.selectedWorkflow != "oneoff:Secret" {
 		t.Errorf("expected selectedWorkflow 'task:Secret', got %q", updated.selectedWorkflow)
 	}
 	if cmd == nil {
@@ -4754,7 +4754,7 @@ func TestCommandMode_RunTaskIntegration(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor", Description: "Refactor code"},
 			},
 		},
@@ -4788,7 +4788,7 @@ func TestCommandMode_RunTaskIntegration(t *testing.T) {
 	if m.commandMode {
 		t.Error("expected command mode to be inactive after enter")
 	}
-	if m.selectedWorkflow != "task:Refactor" {
+	if m.selectedWorkflow != "oneoff:Refactor" {
 		t.Errorf("expected selectedWorkflow 'task:Refactor', got %q", m.selectedWorkflow)
 	}
 	if cmd == nil {
@@ -4799,7 +4799,7 @@ func TestCommandMode_RunTaskIntegration(t *testing.T) {
 func TestCompleteRunTask_SingleMatch(t *testing.T) {
 	m := Model{
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor", Description: "Refactor code"},
 				{Name: "Security", Description: "Security scan"},
 			},
@@ -4818,7 +4818,7 @@ func TestCompleteRunTask_SingleMatch(t *testing.T) {
 func TestCompleteRunTask_MultipleMatchesExtends(t *testing.T) {
 	m := Model{
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor-code", Description: "Refactor code"},
 				{Name: "Refactor-tests", Description: "Refactor tests"},
 			},
@@ -4837,7 +4837,7 @@ func TestCompleteRunTask_MultipleMatchesExtends(t *testing.T) {
 func TestCompleteRunTask_MultipleMatchesNoExtension(t *testing.T) {
 	m := Model{
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor", Description: "Refactor code"},
 				{Name: "Review", Description: "Review code"},
 			},
@@ -4854,7 +4854,7 @@ func TestCompleteRunTask_MultipleMatchesNoExtension(t *testing.T) {
 func TestCompleteRunTask_NoMatch(t *testing.T) {
 	m := Model{
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor"},
 			},
 		},
@@ -4869,9 +4869,9 @@ func TestCompleteRunTask_NoMatch(t *testing.T) {
 func TestCompleteRunTask_IncludesUnlisted(t *testing.T) {
 	m := Model{
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor"},
-				{Name: "Secret", Unlisted: true},
+				{Name: "Secret"},
 			},
 		},
 	}
@@ -4888,7 +4888,7 @@ func TestCompleteRunTask_IncludesUnlisted(t *testing.T) {
 func TestCompleteRunTask_ExactRunTask(t *testing.T) {
 	m := Model{
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor"},
 			},
 		},
@@ -4921,7 +4921,7 @@ func TestCommandMode_TabCompletion(t *testing.T) {
 		commandMode: true,
 		commandInput: "RunTask Ref",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Refactor", Description: "Refactor code"},
 				{Name: "Security", Description: "Security scan"},
 			},
@@ -4941,6 +4941,7 @@ func TestCommandMode_TabCompletion(t *testing.T) {
 }
 
 func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
+	// Since unlisted is removed, all one-off workflows are now visible
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
@@ -4949,9 +4950,9 @@ func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Visible", Description: "A visible task"},
-				{Name: "Hidden", Description: "A hidden task", Unlisted: true},
+				{Name: "Hidden", Description: "A hidden task"},
 			},
 		},
 	}
@@ -4967,17 +4968,21 @@ func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
 		t.Fatal("expected selectingTask to be true")
 	}
 
-	// The task selection view should only show listed tasks
+	// All one-off workflows are visible (unlisted removed)
 	tasks := updated.cfg.ListPredefinedTaskNames()
-	if len(tasks) != 1 {
-		t.Errorf("expected 1 listed task, got %d", len(tasks))
+	if len(tasks) != 2 {
+		t.Errorf("expected 2 tasks, got %d", len(tasks))
 	}
 	if tasks[0] != "Visible" {
-		t.Errorf("expected listed task 'Visible', got %q", tasks[0])
+		t.Errorf("expected first task 'Visible', got %q", tasks[0])
+	}
+	if tasks[1] != "Hidden" {
+		t.Errorf("expected second task 'Hidden', got %q", tasks[1])
 	}
 }
 
 func TestViewRendersTaskSelection_HidesUnlisted(t *testing.T) {
+	// Since unlisted is removed, all one-off workflows are now visible
 	m := Model{
 		keys:        newKeyMap(),
 		list:        newListView(false),
@@ -4986,9 +4991,9 @@ func TestViewRendersTaskSelection_HidesUnlisted(t *testing.T) {
 		selectingTask: true,
 		taskCursor:    0,
 		cfg: &config.Config{
-			Tasks: []config.TaskConfig{
+			OneOff: []config.WorkflowConfig{
 				{Name: "Visible", Description: "A visible task"},
-				{Name: "Hidden", Description: "A hidden task", Unlisted: true},
+				{Name: "Hidden", Description: "A hidden task"},
 			},
 		},
 	}
@@ -4998,8 +5003,8 @@ func TestViewRendersTaskSelection_HidesUnlisted(t *testing.T) {
 	if !strings.Contains(output, "Visible") {
 		t.Error("expected 'Visible' task in selection view")
 	}
-	if strings.Contains(output, "Hidden") {
-		t.Error("expected 'Hidden' (unlisted) task to be absent from selection view")
+	if !strings.Contains(output, "Hidden") {
+		t.Error("expected 'Hidden' task to be visible (unlisted removed)")
 	}
 }
 

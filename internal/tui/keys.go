@@ -12,6 +12,7 @@ type keyMap struct {
 	Stop           key.Binding
 	Retry          key.Binding
 	RunTask        key.Binding
+	InitWorkflow   key.Binding
 	Delete         key.Binding
 	NewTask        key.Binding
 	Continue       key.Binding
@@ -66,6 +67,10 @@ func newKeyMap() keyMap {
 		RunTask: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "run task"),
+		),
+		InitWorkflow: key.NewBinding(
+			key.WithKeys("i"),
+			key.WithHelp("i", "init"),
 		),
 		Delete: key.NewBinding(
 			key.WithKeys("d"),
@@ -163,13 +168,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.Continue, k.Stop, k.Quit, k.Help}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.InitWorkflow, k.Continue, k.Stop, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.GotoTask, k.SearchForward, k.SearchBackward, k.NextMatch, k.PrevMatch, k.Enter, k.Logs},
-		{k.NewTask, k.RunTask, k.Stop, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
+		{k.NewTask, k.RunTask, k.InitWorkflow, k.Stop, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

@@ -12,17 +12,43 @@ import (
 
 // ProjectConfig is loaded from .sortie.yml (both global ~/.sortie.yml and project-local)
 type ProjectConfig struct {
-	MaxWorkers               int                 `yaml:"max_workers"`
-	DefaultPriority          string              `yaml:"default_priority"`
-	Yolo                     *bool               `yaml:"yolo,omitempty"`
-	ValidateArtifact         *bool               `yaml:"validate_artifact,omitempty"`
-	Verification             *VerificationConfig `yaml:"verification,omitempty"`
-	Git                      GitConfig           `yaml:"git"`
-	Workflows                []WorkflowConfig    `yaml:"workflows"`
-	Workflow                 WorkflowConfig      `yaml:"workflow"` // deprecated, backward compat
-	Tasks                    []TaskConfig        `yaml:"tasks"`
+	MaxWorkers               int                  `yaml:"max_workers"`
+	DefaultPriority          string               `yaml:"default_priority"`
+	Yolo                     *bool                `yaml:"yolo,omitempty"`
+	ValidateArtifact         *bool                `yaml:"validate_artifact,omitempty"`
+	Verification             *VerificationConfig  `yaml:"verification,omitempty"`
+	Git                      GitConfig            `yaml:"git"`
+	Workflows                ProjectWorkflows     `yaml:"workflows"`
+	Workflow                 WorkflowConfig       `yaml:"workflow"` // deprecated, backward compat
+	Tasks                    []TaskConfig         `yaml:"tasks"`    // deprecated, use workflows.one-off
 	Notifications            *NotificationsConfig `yaml:"notifications,omitempty"`
-	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
+	TmuxNestedAttachBehavior string               `yaml:"tmux_nested_attach_behavior"`
+}
+
+// ProjectWorkflows is the consolidated workflows section in .sortie.yml.
+// Supports both the new structured format (map with one-off/tasks/init keys)
+// and the legacy list format ([]WorkflowConfig).
+type ProjectWorkflows struct {
+	OneOff []WorkflowConfig `yaml:"one-off"`
+	Tasks  []WorkflowConfig `yaml:"tasks"`
+	Init   []WorkflowConfig `yaml:"init"`
+
+	// legacy holds workflows parsed from the old list format
+	legacy []WorkflowConfig
+}
+
+// UnmarshalYAML handles both the new structured format and the legacy list format.
+func (pw *ProjectWorkflows) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.SequenceNode {
+		return value.Decode(&pw.legacy)
+	}
+	type raw ProjectWorkflows
+	return value.Decode((*raw)(pw))
+}
+
+// IsEmpty returns true if no workflows are configured in any format.
+func (pw *ProjectWorkflows) IsEmpty() bool {
+	return len(pw.OneOff) == 0 && len(pw.Tasks) == 0 && len(pw.Init) == 0 && len(pw.legacy) == 0
 }
 
 type VerificationConfig struct {
@@ -32,11 +58,11 @@ type VerificationConfig struct {
 }
 
 // TaskConfig defines a predefined task with a built-in description and workflow steps.
-// Unlike workflows, predefined tasks don't require the user to enter a prompt.
+// Deprecated: use workflows.one-off in .sortie.yml instead.
 type TaskConfig struct {
 	Name             string       `yaml:"name"`
 	Description      string       `yaml:"description"`
-	Unlisted         bool         `yaml:"unlisted"`
+	Unlisted         bool         `yaml:"unlisted"` // deprecated, ignored
 	Steps            []StepConfig `yaml:"steps"`
 	SummarizerPrompt string       `yaml:"summarizer_prompt"`
 }
@@ -49,6 +75,7 @@ type GitConfig struct {
 
 type WorkflowConfig struct {
 	Name             string       `yaml:"name"`
+	Description      string       `yaml:"description,omitempty"`
 	Tmux             bool         `yaml:"tmux,omitempty"`
 	Steps            []StepConfig `yaml:"steps"`
 	SummarizerPrompt string       `yaml:"summarizer_prompt"`
@@ -216,8 +243,10 @@ type Config struct {
 	ValidateArtifact bool
 	Verification     VerificationConfig
 	Git              GitConfig
-	Workflows        []WorkflowConfig
-	Tasks            []TaskConfig
+	Workflows        []WorkflowConfig // flat list for engine resolution (all kinds, with prefixed names)
+	TaskWorkflows    []WorkflowConfig // "tasks" workflows (for "n" new task menu)
+	OneOff           []WorkflowConfig // "one-off" workflows (for "r" run menu)
+	InitWorkflows    []WorkflowConfig // "init" workflows (for "i" init menu)
 
 	// From global config
 	Notifications            NotificationsConfig
@@ -470,39 +499,91 @@ func loadProjectConfig(path string, cfg *Config) error {
 		cfg.TmuxNestedAttachBehavior = proj.TmuxNestedAttachBehavior
 	}
 
-	// Handle workflows: prefer new plural form, fall back to old singular
-	if len(proj.Workflows) > 0 {
-		cfg.Workflows = proj.Workflows
+	// Handle workflows section: supports three formats:
+	// 1. New structured: workflows: { one-off: [...], tasks: [...], init: [...] }
+	// 2. Legacy list:    workflows: [{ name: ..., steps: [...] }, ...]
+	// 3. Ancient singular: workflow: { steps: [...] }
+	hasNewFormat := len(proj.Workflows.OneOff) > 0 || len(proj.Workflows.Tasks) > 0 || len(proj.Workflows.Init) > 0
+
+	if hasNewFormat {
+		// New structured format
+		cfg.TaskWorkflows = proj.Workflows.Tasks
+		cfg.OneOff = proj.Workflows.OneOff
+		cfg.InitWorkflows = proj.Workflows.Init
+
+		// Build flat list for engine resolution
+		cfg.Workflows = nil
+		for _, wf := range cfg.TaskWorkflows {
+			cfg.Workflows = append(cfg.Workflows, wf)
+		}
+		for _, wf := range cfg.OneOff {
+			engineWf := wf
+			engineWf.Name = "oneoff:" + wf.Name
+			cfg.Workflows = append(cfg.Workflows, engineWf)
+		}
+		for _, wf := range cfg.InitWorkflows {
+			engineWf := wf
+			engineWf.Name = "init:" + wf.Name
+			cfg.Workflows = append(cfg.Workflows, engineWf)
+		}
+	} else if len(proj.Workflows.legacy) > 0 {
+		// Legacy list format: all items are task workflows
+		cfg.TaskWorkflows = proj.Workflows.legacy
+		cfg.Workflows = proj.Workflows.legacy
 	} else if len(proj.Workflow.Steps) > 0 {
-		// Backward compat: convert old singular workflow to workflows slice
+		// Ancient singular format
+		cfg.TaskWorkflows = []WorkflowConfig{proj.Workflow}
 		cfg.Workflows = []WorkflowConfig{proj.Workflow}
 	}
 
-	// Ensure all workflows have names
-	for i := range cfg.Workflows {
-		if cfg.Workflows[i].Name == "" {
+	// Ensure all task workflows have names
+	for i := range cfg.TaskWorkflows {
+		if cfg.TaskWorkflows[i].Name == "" {
 			if i == 0 {
-				cfg.Workflows[i].Name = "default"
+				cfg.TaskWorkflows[i].Name = "default"
 			} else {
-				cfg.Workflows[i].Name = fmt.Sprintf("workflow-%d", i+1)
+				cfg.TaskWorkflows[i].Name = fmt.Sprintf("workflow-%d", i+1)
 			}
 		}
 	}
+	// Ensure all one-off workflows have names
+	for i := range cfg.OneOff {
+		if cfg.OneOff[i].Name == "" {
+			cfg.OneOff[i].Name = fmt.Sprintf("oneoff-%d", i+1)
+		}
+	}
+	// Ensure all init workflows have names
+	for i := range cfg.InitWorkflows {
+		if cfg.InitWorkflows[i].Name == "" {
+			cfg.InitWorkflows[i].Name = fmt.Sprintf("init-%d", i+1)
+		}
+	}
 
-	// Load predefined tasks and register their steps as synthetic workflows
+	// Sync names into the flat Workflows list
+	for i := range cfg.Workflows {
+		if cfg.Workflows[i].Name == "" {
+			cfg.Workflows[i].Name = fmt.Sprintf("workflow-%d", i+1)
+		}
+	}
+
+	// Handle deprecated tasks: root key (backward compat — these become one-off)
 	if len(proj.Tasks) > 0 {
-		cfg.Tasks = proj.Tasks
-		for i, task := range cfg.Tasks {
-			if task.Name == "" {
-				cfg.Tasks[i].Name = fmt.Sprintf("task-%d", i+1)
+		for i, task := range proj.Tasks {
+			name := task.Name
+			if name == "" {
+				name = fmt.Sprintf("task-%d", i+1)
 			}
-			// Register as a workflow so the engine can resolve it
-			wfName := "task:" + cfg.Tasks[i].Name
-			cfg.Workflows = append(cfg.Workflows, WorkflowConfig{
-				Name:             wfName,
+			wf := WorkflowConfig{
+				Name:             name,
+				Description:      task.Description,
 				Steps:            task.Steps,
 				SummarizerPrompt: task.SummarizerPrompt,
-			})
+			}
+			cfg.OneOff = append(cfg.OneOff, wf)
+			// Register for engine resolution with oneoff: prefix
+			engineWf := wf
+			engineWf.Name = "oneoff:" + name
+			cfg.Workflows = append(cfg.Workflows, engineWf)
 		}
 	}
 
@@ -604,49 +685,60 @@ func (c *Config) GetWorkflow(name string) *WorkflowConfig {
 	return &def
 }
 
-// ListWorkflowNames returns the names of all configured workflows,
-// excluding synthetic task: workflows. If no workflows are configured, returns ["default"].
+// ListWorkflowNames returns the names of all configured task workflows
+// (the "tasks" kind used for new task creation). If none configured, returns ["default"].
 func (c *Config) ListWorkflowNames() []string {
-	if len(c.Workflows) == 0 {
+	if len(c.TaskWorkflows) == 0 {
 		return []string{"default"}
 	}
-	var names []string
-	for _, w := range c.Workflows {
-		if !strings.HasPrefix(w.Name, "task:") {
-			names = append(names, w.Name)
-		}
-	}
-	if len(names) == 0 {
-		return []string{"default"}
+	names := make([]string, len(c.TaskWorkflows))
+	for i, w := range c.TaskWorkflows {
+		names[i] = w.Name
 	}
 	return names
 }
 
-// ListPredefinedTaskNames returns the names of listed (non-unlisted) predefined tasks.
+// ListPredefinedTaskNames returns the names of all one-off workflows
+// (the "one-off" kind shown in the "r" run menu).
 func (c *Config) ListPredefinedTaskNames() []string {
-	var names []string
-	for _, t := range c.Tasks {
-		if !t.Unlisted {
-			names = append(names, t.Name)
-		}
-	}
-	return names
-}
-
-// ListAllPredefinedTaskNames returns the names of all predefined tasks, including unlisted ones.
-func (c *Config) ListAllPredefinedTaskNames() []string {
-	names := make([]string, len(c.Tasks))
-	for i, t := range c.Tasks {
+	names := make([]string, len(c.OneOff))
+	for i, t := range c.OneOff {
 		names[i] = t.Name
 	}
 	return names
 }
 
-// GetPredefinedTask returns the predefined task config with the given name, or nil.
-func (c *Config) GetPredefinedTask(name string) *TaskConfig {
-	for i := range c.Tasks {
-		if c.Tasks[i].Name == name {
-			return &c.Tasks[i]
+// ListAllPredefinedTaskNames returns the names of all one-off workflows.
+// Equivalent to ListPredefinedTaskNames (the unlisted concept has been removed).
+func (c *Config) ListAllPredefinedTaskNames() []string {
+	return c.ListPredefinedTaskNames()
+}
+
+// GetPredefinedTask returns the one-off workflow config with the given name, or nil.
+func (c *Config) GetPredefinedTask(name string) *WorkflowConfig {
+	for i := range c.OneOff {
+		if c.OneOff[i].Name == name {
+			return &c.OneOff[i]
+		}
+	}
+	return nil
+}
+
+// ListInitWorkflowNames returns the names of all init workflows
+// (the "init" kind shown in the "i" init menu).
+func (c *Config) ListInitWorkflowNames() []string {
+	names := make([]string, len(c.InitWorkflows))
+	for i, w := range c.InitWorkflows {
+		names[i] = w.Name
+	}
+	return names
+}
+
+// GetInitWorkflow returns the init workflow config with the given name, or nil.
+func (c *Config) GetInitWorkflow(name string) *WorkflowConfig {
+	for i := range c.InitWorkflows {
+		if c.InitWorkflows[i].Name == name {
+			return &c.InitWorkflows[i]
 		}
 	}
 	return nil

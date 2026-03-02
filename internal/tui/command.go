@@ -162,7 +162,7 @@ func execRunTask(m Model, args string) (tea.Model, tea.Cmd) {
 		m.err = fmt.Errorf("unknown task: %s", args)
 		return m, nil
 	}
-	m.selectedWorkflow = "task:" + taskCfg.Name
+	m.selectedWorkflow = "oneoff:" + taskCfg.Name
 	description := taskCfg.Description
 	if description == "" {
 		description = taskCfg.Name

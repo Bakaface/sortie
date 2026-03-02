@@ -30,6 +30,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleTaskSelectKey(msg)
 	}
 
+	// Handle init workflow selection if active
+	if m.selectingInit {
+		return m.handleInitSelectKey(msg)
+	}
+
 	// Handle artifact selection if active
 	if m.selectingArtifact {
 		return m.handleArtifactSelectKey(msg)
@@ -266,6 +271,18 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.priorityTaskID = task.ID
 			m.priorityCursor = 0
 			return m, nil
+		}
+		return m, nil
+
+	case "i":
+		// Show init workflow selection if init workflows are configured
+		if m.client != nil && m.projectPath != "" {
+			inits := m.cfg.ListInitWorkflowNames()
+			if len(inits) > 0 {
+				m.selectingInit = true
+				m.initCursor = 0
+				return m, nil
+			}
 		}
 		return m, nil
 
@@ -518,7 +535,7 @@ func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Create task directly with the predefined description and workflow
-		m.selectedWorkflow = "task:" + taskCfg.Name
+		m.selectedWorkflow = "oneoff:" + taskCfg.Name
 		description := taskCfg.Description
 		if description == "" {
 			description = taskCfg.Name
@@ -539,7 +556,7 @@ func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if taskCfg == nil {
 				return m, nil
 			}
-			m.selectedWorkflow = "task:" + taskCfg.Name
+			m.selectedWorkflow = "oneoff:" + taskCfg.Name
 			description := taskCfg.Description
 			if description == "" {
 				description = taskCfg.Name
@@ -604,6 +621,85 @@ func (m Model) handlePrioritySelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		selected := priorities[idx]
 		m.selectingPriority = false
 		return m, m.updateTaskPriority(m.priorityTaskID, selected)
+	}
+
+	return m, nil
+}
+
+func (m Model) handleInitSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	inits := m.cfg.ListInitWorkflowNames()
+	keyStr := msg.String()
+
+	// Handle "gg" sequence for go-to-top
+	if keyStr == "g" {
+		if m.initPendingG {
+			m.initPendingG = false
+			m.initCursor = 0
+			return m, nil
+		}
+		m.initPendingG = true
+		return m, nil
+	}
+	m.initPendingG = false
+
+	switch keyStr {
+	case "up", "k":
+		if m.initCursor > 0 {
+			m.initCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.initCursor < len(inits)-1 {
+			m.initCursor++
+		}
+		return m, nil
+	case "G":
+		m.initCursor = max(0, len(inits)-1)
+		return m, nil
+	case "ctrl+d", "pgdown":
+		half := max(1, len(inits)/2)
+		m.initCursor = min(m.initCursor+half, len(inits)-1)
+		return m, nil
+	case "ctrl+u", "pgup":
+		half := max(1, len(inits)/2)
+		m.initCursor = max(m.initCursor-half, 0)
+		return m, nil
+	case "enter":
+		initName := inits[m.initCursor]
+		initCfg := m.cfg.GetInitWorkflow(initName)
+		m.selectingInit = false
+		if initCfg == nil {
+			return m, nil
+		}
+		// Create task directly with the init workflow description
+		m.selectedWorkflow = "init:" + initCfg.Name
+		description := initCfg.Description
+		if description == "" {
+			description = initCfg.Name
+		}
+		return m, m.createTaskWithPrompt(description, "", nil)
+	case "esc", "q":
+		m.selectingInit = false
+		return m, nil
+	}
+
+	// Number keys for quick selection (1-9)
+	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
+		idx := int(keyStr[0] - '1')
+		if idx < len(inits) {
+			initName := inits[idx]
+			initCfg := m.cfg.GetInitWorkflow(initName)
+			m.selectingInit = false
+			if initCfg == nil {
+				return m, nil
+			}
+			m.selectedWorkflow = "init:" + initCfg.Name
+			description := initCfg.Description
+			if description == "" {
+				description = initCfg.Name
+			}
+			return m, m.createTaskWithPrompt(description, "", nil)
+		}
 	}
 
 	return m, nil

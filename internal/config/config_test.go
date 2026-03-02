@@ -84,39 +84,39 @@ tasks:
 		t.Fatal(err)
 	}
 
-	// Check predefined tasks were parsed
-	if len(cfg.Tasks) != 2 {
-		t.Fatalf("expected 2 predefined tasks, got %d", len(cfg.Tasks))
+	// Check predefined tasks were parsed into OneOff
+	if len(cfg.OneOff) != 2 {
+		t.Fatalf("expected 2 one-off workflows, got %d", len(cfg.OneOff))
 	}
 
-	if cfg.Tasks[0].Name != "Refactor: Housekeeping" {
-		t.Errorf("expected first task name 'Refactor: Housekeeping', got %q", cfg.Tasks[0].Name)
+	if cfg.OneOff[0].Name != "Refactor: Housekeeping" {
+		t.Errorf("expected first workflow name 'Refactor: Housekeeping', got %q", cfg.OneOff[0].Name)
 	}
-	if cfg.Tasks[0].Description != "Standard codebase maintenance" {
-		t.Errorf("expected first task description 'Standard codebase maintenance', got %q", cfg.Tasks[0].Description)
+	if cfg.OneOff[0].Description != "Standard codebase maintenance" {
+		t.Errorf("expected first workflow description 'Standard codebase maintenance', got %q", cfg.OneOff[0].Description)
 	}
-	if len(cfg.Tasks[0].Steps) != 2 {
-		t.Fatalf("expected 2 steps in first task, got %d", len(cfg.Tasks[0].Steps))
+	if len(cfg.OneOff[0].Steps) != 2 {
+		t.Fatalf("expected 2 steps in first workflow, got %d", len(cfg.OneOff[0].Steps))
 	}
-	if !cfg.Tasks[0].Steps[0].Artifact {
+	if !cfg.OneOff[0].Steps[0].Artifact {
 		t.Error("expected audit step to have artifact: true")
 	}
-	if !cfg.Tasks[0].Steps[1].Human {
+	if !cfg.OneOff[0].Steps[1].Human {
 		t.Error("expected refactor step to have human: true")
 	}
 
-	// Check synthetic workflows were registered
-	wf := cfg.GetWorkflow("task:Refactor: Housekeeping")
-	if wf.Name != "task:Refactor: Housekeeping" {
-		t.Errorf("expected synthetic workflow name 'task:Refactor: Housekeeping', got %q", wf.Name)
+	// Check synthetic workflows were registered with oneoff: prefix
+	wf := cfg.GetWorkflow("oneoff:Refactor: Housekeeping")
+	if wf.Name != "oneoff:Refactor: Housekeeping" {
+		t.Errorf("expected synthetic workflow name 'oneoff:Refactor: Housekeeping', got %q", wf.Name)
 	}
 	if len(wf.Steps) != 2 {
 		t.Fatalf("expected 2 steps in synthetic workflow, got %d", len(wf.Steps))
 	}
 
-	wf2 := cfg.GetWorkflow("task:Security Scan")
-	if wf2.Name != "task:Security Scan" {
-		t.Errorf("expected synthetic workflow name 'task:Security Scan', got %q", wf2.Name)
+	wf2 := cfg.GetWorkflow("oneoff:Security Scan")
+	if wf2.Name != "oneoff:Security Scan" {
+		t.Errorf("expected synthetic workflow name 'oneoff:Security Scan', got %q", wf2.Name)
 	}
 }
 
@@ -140,20 +140,20 @@ tasks:
 		t.Fatal(err)
 	}
 
-	if cfg.Tasks[0].Name != "task-1" {
-		t.Errorf("expected auto-named task 'task-1', got %q", cfg.Tasks[0].Name)
+	if cfg.OneOff[0].Name != "task-1" {
+		t.Errorf("expected auto-named workflow 'task-1', got %q", cfg.OneOff[0].Name)
 	}
 
-	// Should be resolvable as workflow
-	wf := cfg.GetWorkflow("task:task-1")
-	if wf.Name != "task:task-1" {
-		t.Errorf("expected synthetic workflow 'task:task-1', got %q", wf.Name)
+	// Should be resolvable as workflow with oneoff: prefix
+	wf := cfg.GetWorkflow("oneoff:task-1")
+	if wf.Name != "oneoff:task-1" {
+		t.Errorf("expected synthetic workflow 'oneoff:task-1', got %q", wf.Name)
 	}
 }
 
 func TestListPredefinedTaskNames(t *testing.T) {
 	cfg := &Config{
-		Tasks: []TaskConfig{
+		OneOff: []WorkflowConfig{
 			{Name: "task-a"},
 			{Name: "task-b"},
 		},
@@ -181,17 +181,25 @@ func TestListPredefinedTaskNamesEmpty(t *testing.T) {
 
 func TestListWorkflowNamesExcludesSyntheticTasks(t *testing.T) {
 	cfg := &Config{
+		TaskWorkflows: []WorkflowConfig{
+			{Name: "default"},
+			{Name: "review"},
+		},
+		OneOff: []WorkflowConfig{
+			{Name: "Housekeeping"},
+			{Name: "Security"},
+		},
 		Workflows: []WorkflowConfig{
 			{Name: "default"},
-			{Name: "task:Housekeeping"},
 			{Name: "review"},
-			{Name: "task:Security"},
+			{Name: "oneoff:Housekeeping"},
+			{Name: "oneoff:Security"},
 		},
 	}
 
 	names := cfg.ListWorkflowNames()
 	if len(names) != 2 {
-		t.Fatalf("expected 2 workflow names (excluding task: prefixed), got %d: %v", len(names), names)
+		t.Fatalf("expected 2 workflow names (from TaskWorkflows only), got %d: %v", len(names), names)
 	}
 	if names[0] != "default" {
 		t.Errorf("expected first name 'default', got %q", names[0])
@@ -203,21 +211,22 @@ func TestListWorkflowNamesExcludesSyntheticTasks(t *testing.T) {
 
 func TestListWorkflowNamesOnlySyntheticTasksReturnsDefault(t *testing.T) {
 	cfg := &Config{
+		TaskWorkflows: []WorkflowConfig{}, // Empty TaskWorkflows
 		Workflows: []WorkflowConfig{
-			{Name: "task:Housekeeping"},
-			{Name: "task:Security"},
+			{Name: "oneoff:Housekeeping"},
+			{Name: "oneoff:Security"},
 		},
 	}
 
 	names := cfg.ListWorkflowNames()
 	if len(names) != 1 || names[0] != "default" {
-		t.Errorf("expected [\"default\"] when only synthetic task workflows exist, got %v", names)
+		t.Errorf("expected [\"default\"] when TaskWorkflows is empty, got %v", names)
 	}
 }
 
 func TestGetPredefinedTask(t *testing.T) {
 	cfg := &Config{
-		Tasks: []TaskConfig{
+		OneOff: []WorkflowConfig{
 			{Name: "task-a", Description: "desc-a"},
 			{Name: "task-b", Description: "desc-b"},
 		},
@@ -237,38 +246,43 @@ func TestGetPredefinedTask(t *testing.T) {
 }
 
 func TestListPredefinedTaskNamesExcludesUnlisted(t *testing.T) {
+	// Unlisted concept removed - all one-off workflows are returned
 	cfg := &Config{
-		Tasks: []TaskConfig{
+		OneOff: []WorkflowConfig{
 			{Name: "task-a"},
-			{Name: "task-b", Unlisted: true},
+			{Name: "task-b"},
 			{Name: "task-c"},
 		},
 	}
 
 	names := cfg.ListPredefinedTaskNames()
-	if len(names) != 2 {
-		t.Fatalf("expected 2 names (excluding unlisted), got %d: %v", len(names), names)
+	if len(names) != 3 {
+		t.Fatalf("expected 3 names (unlisted removed), got %d: %v", len(names), names)
 	}
 	if names[0] != "task-a" {
 		t.Errorf("expected first name 'task-a', got %q", names[0])
 	}
-	if names[1] != "task-c" {
-		t.Errorf("expected second name 'task-c', got %q", names[1])
+	if names[1] != "task-b" {
+		t.Errorf("expected second name 'task-b', got %q", names[1])
+	}
+	if names[2] != "task-c" {
+		t.Errorf("expected third name 'task-c', got %q", names[2])
 	}
 }
 
 func TestListAllPredefinedTaskNamesIncludesUnlisted(t *testing.T) {
+	// ListAllPredefinedTaskNames now same as ListPredefinedTaskNames (unlisted removed)
 	cfg := &Config{
-		Tasks: []TaskConfig{
+		OneOff: []WorkflowConfig{
 			{Name: "task-a"},
-			{Name: "task-b", Unlisted: true},
+			{Name: "task-b"},
 			{Name: "task-c"},
 		},
 	}
 
 	names := cfg.ListAllPredefinedTaskNames()
 	if len(names) != 3 {
-		t.Fatalf("expected 3 names (including unlisted), got %d: %v", len(names), names)
+		t.Fatalf("expected 3 names, got %d: %v", len(names), names)
 	}
 	if names[1] != "task-b" {
 		t.Errorf("expected second name 'task-b', got %q", names[1])
@@ -1180,6 +1194,148 @@ func TestVerificationConfigDefaultFalse(t *testing.T) {
 	}
 	if cfg.Verification.VerifySummarizer {
 		t.Error("expected verify_summarizer to default to false")
+	}
+}
+
+func TestNewWorkflowsStructureParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+workflows:
+  one-off:
+    - name: refactor
+      description: "Refactor pass"
+      steps:
+        - name: refactoring
+          prompt: "Refactor"
+  tasks:
+    - name: fast
+      steps:
+        - name: implementing
+          prompt: "Implement"
+  init:
+    - name: spin-up
+      description: "Spin up from PRD"
+      steps:
+        - name: analyzing
+          prompt: "Analyze PRD"
+          artifact: true
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify OneOff
+	if len(cfg.OneOff) != 1 {
+		t.Fatalf("expected 1 one-off workflow, got %d", len(cfg.OneOff))
+	}
+	if cfg.OneOff[0].Name != "refactor" {
+		t.Errorf("expected one-off name 'refactor', got %q", cfg.OneOff[0].Name)
+	}
+	if cfg.OneOff[0].Description != "Refactor pass" {
+		t.Errorf("expected one-off description 'Refactor pass', got %q", cfg.OneOff[0].Description)
+	}
+
+	// Verify TaskWorkflows
+	if len(cfg.TaskWorkflows) != 1 {
+		t.Fatalf("expected 1 task workflow, got %d", len(cfg.TaskWorkflows))
+	}
+	if cfg.TaskWorkflows[0].Name != "fast" {
+		t.Errorf("expected task workflow name 'fast', got %q", cfg.TaskWorkflows[0].Name)
+	}
+
+	// Verify InitWorkflows
+	if len(cfg.InitWorkflows) != 1 {
+		t.Fatalf("expected 1 init workflow, got %d", len(cfg.InitWorkflows))
+	}
+	if cfg.InitWorkflows[0].Name != "spin-up" {
+		t.Errorf("expected init workflow name 'spin-up', got %q", cfg.InitWorkflows[0].Name)
+	}
+	if cfg.InitWorkflows[0].Description != "Spin up from PRD" {
+		t.Errorf("expected init description 'Spin up from PRD', got %q", cfg.InitWorkflows[0].Description)
+	}
+
+	// Verify workflow resolution
+	wf := cfg.GetWorkflow("oneoff:refactor")
+	if wf == nil || wf.Name != "oneoff:refactor" {
+		t.Errorf("expected to resolve 'oneoff:refactor'")
+	}
+
+	wf2 := cfg.GetWorkflow("fast")
+	if wf2 == nil || wf2.Name != "fast" {
+		t.Errorf("expected to resolve 'fast'")
+	}
+
+	wf3 := cfg.GetWorkflow("init:spin-up")
+	if wf3 == nil || wf3.Name != "init:spin-up" {
+		t.Errorf("expected to resolve 'init:spin-up'")
+	}
+
+	// Verify listing functions
+	workflowNames := cfg.ListWorkflowNames()
+	if len(workflowNames) != 1 || workflowNames[0] != "fast" {
+		t.Errorf("expected ListWorkflowNames to return ['fast'], got %v", workflowNames)
+	}
+
+	predefinedNames := cfg.ListPredefinedTaskNames()
+	if len(predefinedNames) != 1 || predefinedNames[0] != "refactor" {
+		t.Errorf("expected ListPredefinedTaskNames to return ['refactor'], got %v", predefinedNames)
+	}
+
+	initNames := cfg.ListInitWorkflowNames()
+	if len(initNames) != 1 || initNames[0] != "spin-up" {
+		t.Errorf("expected ListInitWorkflowNames to return ['spin-up'], got %v", initNames)
+	}
+}
+
+func TestLegacyWorkflowsListFormatStillWorks(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+workflows:
+  - name: default
+    steps:
+      - name: implementing
+        prompt: "Implement"
+  - name: review
+    steps:
+      - name: reviewing
+        prompt: "Review"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Legacy list format should populate TaskWorkflows
+	if len(cfg.TaskWorkflows) != 2 {
+		t.Fatalf("expected 2 task workflows from legacy format, got %d", len(cfg.TaskWorkflows))
+	}
+	if cfg.TaskWorkflows[0].Name != "default" {
+		t.Errorf("expected first workflow name 'default', got %q", cfg.TaskWorkflows[0].Name)
+	}
+	if cfg.TaskWorkflows[1].Name != "review" {
+		t.Errorf("expected second workflow name 'review', got %q", cfg.TaskWorkflows[1].Name)
+	}
+
+	// ListWorkflowNames should return them
+	names := cfg.ListWorkflowNames()
+	if len(names) != 2 {
+		t.Fatalf("expected 2 workflow names, got %d: %v", len(names), names)
+	}
+	if names[0] != "default" || names[1] != "review" {
+		t.Errorf("expected ['default', 'review'], got %v", names)
 	}
 }
 
