@@ -905,7 +905,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 // workDir sets the working directory for the Claude process so it can access
 // the task's worktree files.
 func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir string) (string, error) {
-	args := []string{"-p", prompt, "--output-format", "text"}
+	args := []string{"-p", prompt, "--output-format", "text", "--model", "haiku"}
 	args = append(args, e.cfg.Claude.Args()...)
 
 	cmd := exec.CommandContext(ctx, e.cfg.Claude.Command, args...)
