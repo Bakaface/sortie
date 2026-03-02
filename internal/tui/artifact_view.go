@@ -29,9 +29,9 @@ func (v *artifactViewState) recalcViewport() {
 	}
 
 	// Header: title bar + blank line + artifact name + gap = 4 lines
-	// Footer: help bar = 2 lines
+	// Footer: help bar + bottom margin = 3 lines
 	headerHeight := 4
-	footerHeight := 2
+	footerHeight := 3
 	vpHeight := v.height - headerHeight - footerHeight
 	if vpHeight < 1 {
 		vpHeight = 1

@@ -860,7 +860,7 @@ func newTestModelWithTasks(n int) Model {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	m.list.SetTasks(tasks)
-	m.list.SetSize(100, 30) // 30 lines tall → visibleRows = 24, half = 12
+	m.list.SetSize(100, 30) // 30 lines tall → visibleRows = 23, half = 11
 	return m
 }
 
@@ -934,9 +934,9 @@ func TestHandleListKey_CtrlDPageDown(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// height=30, visibleRows=24, half=12
-	if updated.list.table.Cursor() != 12 {
-		t.Errorf("expected cursor at 12 after ctrl+d, got %d", updated.list.table.Cursor())
+	// height=30, visibleRows=23, half=11
+	if updated.list.table.Cursor() != 11 {
+		t.Errorf("expected cursor at 11 after ctrl+d, got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -948,9 +948,9 @@ func TestHandleListKey_CtrlUPageUp(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// height=30, visibleRows=24, half=12
-	if updated.list.table.Cursor() != 8 {
-		t.Errorf("expected cursor at 8 after ctrl+u, got %d", updated.list.table.Cursor())
+	// height=30, visibleRows=23, half=11
+	if updated.list.table.Cursor() != 9 {
+		t.Errorf("expected cursor at 9 after ctrl+u, got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -988,9 +988,9 @@ func TestHandleListKey_PgDownPageDown(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// height=30, visibleRows=24, half=12
-	if updated.list.table.Cursor() != 12 {
-		t.Errorf("expected cursor at 12 after pgdown, got %d", updated.list.table.Cursor())
+	// height=30, visibleRows=23, half=11
+	if updated.list.table.Cursor() != 11 {
+		t.Errorf("expected cursor at 11 after pgdown, got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -1002,9 +1002,9 @@ func TestHandleListKey_PgUpPageUp(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// height=30, visibleRows=24, half=12
-	if updated.list.table.Cursor() != 8 {
-		t.Errorf("expected cursor at 8 after pgup, got %d", updated.list.table.Cursor())
+	// height=30, visibleRows=23, half=11
+	if updated.list.table.Cursor() != 9 {
+		t.Errorf("expected cursor at 9 after pgup, got %d", updated.list.table.Cursor())
 	}
 }
 
@@ -1034,21 +1034,21 @@ func TestListView_PageDownPageUp(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 30) // visibleRows=24, half=12
+	l.SetSize(100, 30) // visibleRows=23, half=11
 
 	l.PageDown()
-	if l.table.Cursor() != 12 {
-		t.Errorf("expected cursor at 12 after PageDown, got %d", l.table.Cursor())
+	if l.table.Cursor() != 11 {
+		t.Errorf("expected cursor at 11 after PageDown, got %d", l.table.Cursor())
 	}
 
 	l.PageDown()
-	if l.table.Cursor() != 24 {
-		t.Errorf("expected cursor at 24 after second PageDown, got %d", l.table.Cursor())
+	if l.table.Cursor() != 22 {
+		t.Errorf("expected cursor at 22 after second PageDown, got %d", l.table.Cursor())
 	}
 
 	l.PageUp()
-	if l.table.Cursor() != 12 {
-		t.Errorf("expected cursor at 12 after PageUp, got %d", l.table.Cursor())
+	if l.table.Cursor() != 11 {
+		t.Errorf("expected cursor at 11 after PageUp, got %d", l.table.Cursor())
 	}
 }
 
@@ -3885,7 +3885,7 @@ func TestListView_WindowedRendering(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 15) // visibleRows = 15 - 6 = 9
+	l.SetSize(100, 15) // visibleRows = 15 - 7 = 8
 
 	output := l.View()
 	lines := strings.Split(output, "\n")
@@ -3897,8 +3897,8 @@ func TestListView_WindowedRendering(t *testing.T) {
 			taskLines++
 		}
 	}
-	if taskLines != 9 {
-		t.Errorf("expected 9 visible task rows, got %d", taskLines)
+	if taskLines != 8 {
+		t.Errorf("expected 8 visible task rows, got %d", taskLines)
 	}
 
 	// Helper row should always be present
@@ -3957,7 +3957,7 @@ func TestListView_ScrollOffsetFollowsCursor(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 15) // visibleRows = 9
+	l.SetSize(100, 15) // visibleRows = 8
 
 	// Cursor starts at 0, scroll offset at 0
 	if l.scrollOffset != 0 {
@@ -3985,20 +3985,20 @@ func TestListView_ScrollOffsetFollowsCursor(t *testing.T) {
 
 func TestListView_ExtraLinesReduceVisibleRows(t *testing.T) {
 	l := newListView(false)
-	l.SetSize(100, 15) // visibleRows = 15 - 6 = 9
+	l.SetSize(100, 15) // visibleRows = 15 - 7 = 8
 
-	if l.visibleRows() != 9 {
-		t.Errorf("expected 9 visible rows without extra lines, got %d", l.visibleRows())
+	if l.visibleRows() != 8 {
+		t.Errorf("expected 8 visible rows without extra lines, got %d", l.visibleRows())
 	}
 
 	l.extraLines = 1 // e.g., search bar
-	if l.visibleRows() != 8 {
-		t.Errorf("expected 8 visible rows with 1 extra line, got %d", l.visibleRows())
+	if l.visibleRows() != 7 {
+		t.Errorf("expected 7 visible rows with 1 extra line, got %d", l.visibleRows())
 	}
 
 	l.extraLines = 2 // e.g., search bar + command bar
-	if l.visibleRows() != 7 {
-		t.Errorf("expected 7 visible rows with 2 extra lines, got %d", l.visibleRows())
+	if l.visibleRows() != 6 {
+		t.Errorf("expected 6 visible rows with 2 extra lines, got %d", l.visibleRows())
 	}
 }
 
@@ -4009,13 +4009,13 @@ func TestListView_ScrollIndicatorInHelpBar(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 15) // visibleRows = 9, 20 tasks → needs scrolling
+	l.SetSize(100, 15) // visibleRows = 8, 20 tasks → needs scrolling
 
 	output := l.View()
 
 	// When more tasks exist than visible, should show scroll position
-	if !strings.Contains(output, "1-9/20") {
-		t.Errorf("expected scroll position '1-9/20' in help bar, got:\n%s", output)
+	if !strings.Contains(output, "1-8/20") {
+		t.Errorf("expected scroll position '1-8/20' in help bar, got:\n%s", output)
 	}
 
 	// Scroll down past the visible window
@@ -4037,7 +4037,7 @@ func TestListView_NoScrollIndicatorWhenAllVisible(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 15) // visibleRows = 9, only 5 tasks → no scrolling needed
+	l.SetSize(100, 15) // visibleRows = 8, only 5 tasks → no scrolling needed
 
 	output := l.View()
 
@@ -4054,7 +4054,7 @@ func TestListView_TitleAlwaysVisible(t *testing.T) {
 		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
 	}
 	l.SetTasks(tasks)
-	l.SetSize(100, 20) // visibleRows = 14
+	l.SetSize(100, 20) // visibleRows = 13
 
 	// Title should always be the first content
 	output := l.View()

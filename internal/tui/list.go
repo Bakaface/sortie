@@ -249,7 +249,7 @@ func (l *listView) lineNumWidth() int {
 // When scroll indicators are shown (tasks above or below), they replace task rows
 // rather than adding extra lines, so the total height stays constant.
 func (l *listView) visibleRows() int {
-	return max(1, l.height-6-l.extraLines)
+	return max(1, l.height-7-l.extraLines)
 }
 
 func (l *listView) PageDown() {

@@ -441,7 +441,7 @@ func (m Model) View() string {
 		content += fmt.Sprintf("\n  %s", m.statusMessage)
 	}
 
-	return content
+	return content + "\n"
 }
 
 func (m Model) renderHelpOverlay() string {

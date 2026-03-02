@@ -46,9 +46,9 @@ func (v *taskInfoView) recalcViewport() {
 	}
 
 	// Header: title bar + blank line + gap before viewport = 3 lines
-	// Footer: help bar = 2 lines
+	// Footer: help bar + bottom margin = 3 lines
 	headerHeight := 3
-	footerHeight := 2
+	footerHeight := 3
 	vpHeight := v.height - headerHeight - footerHeight
 	if vpHeight < 1 {
 		vpHeight = 1

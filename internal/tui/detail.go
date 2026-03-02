@@ -92,7 +92,7 @@ func (d *detailView) recalcViewport() {
 	}
 
 	headerHeight := d.headerLines()
-	footerHeight := 2
+	footerHeight := 3
 	vpHeight := d.height - headerHeight - footerHeight
 	if vpHeight < 1 {
 		vpHeight = 1
