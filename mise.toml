@@ -1,0 +1,17 @@
+[tasks.build]
+alias = "b"
+description = "Build the sortie binary"
+run = "go build -o ~/bin/sortie ./cmd/sortie"
+
+[tasks.daemon]
+description = "Start the daemon in foreground mode"
+run = "./sortie daemon start -f"
+depends = ["build"]
+
+[tasks.db]
+description = "Open SQLite database console"
+run = "sqlite3 $(git rev-parse --show-toplevel)/.sortie/tasks.db"
+
+[tasks.e2e-test]
+description = "Run end-to-end test via Claude Code"
+run = "claude --dangerously-skip-permissions 'Run the /e2e-test command'"
