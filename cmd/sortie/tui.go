@@ -38,7 +38,7 @@ func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, p
 			return 0, "", "", true
 		}
 		repoName := filepath.Base(repoRoot)
-		return 0, "", repoName, false
+		return 0, repoRoot, repoName, false
 	}
 
 	repoRoot, err := gitpkg.GetRepoRoot(cwd)
