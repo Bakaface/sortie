@@ -332,8 +332,8 @@ func (c *Client) CreateTaskWithOptions(req daemon.CreateTaskRequest) (*daemon.Ta
 	return &resp.Task, nil
 }
 
-func (c *Client) ContinueTask(id int64, workflow string) error {
-	return c.requestOK(daemon.MsgContinueTask, daemon.ContinueTaskRequest{TaskID: id, Workflow: workflow})
+func (c *Client) ContinueTask(id int64, workflow, prompt string) error {
+	return c.requestOK(daemon.MsgContinueTask, daemon.ContinueTaskRequest{TaskID: id, Workflow: workflow, Prompt: prompt})
 }
 
 func (c *Client) FinalizeTask(id int64) error {

@@ -55,7 +55,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.confirmTaskID = 0
 			switch action {
 			case "continue":
-				return m, m.continueTask(taskID, "")
+				return m, m.continueTask(taskID, "", "")
 			case "finalize":
 				return m, m.finalizeTask(taskID)
 			case "delete":
@@ -267,10 +267,14 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.continueTaskID = task.ID
 				m.selectingContinueWorkflow = true
 				m.continueWorkflowCursor = 0
-				// If only one workflow (default), skip selection and use it directly
+				// If only one workflow (default), skip selection and go to prompt
 				if len(workflows) == 1 && workflows[0] == "default" {
 					m.selectingContinueWorkflow = false
-					return m, m.continueTask(task.ID, "default")
+					m.continueSelectedWorkflow = "default"
+					m.view = viewPrompt
+					m.prompt.Reset()
+					m.prompt.Focus()
+					return m, nil
 				}
 				return m, nil
 			}
@@ -762,10 +766,13 @@ func (m Model) handleContinueWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.C
 		return m, nil
 	case "enter":
 		workflow := workflows[m.continueWorkflowCursor]
-		taskID := m.continueTaskID
+		m.continueSelectedWorkflow = workflow
 		m.selectingContinueWorkflow = false
-		m.continueTaskID = 0
-		return m, m.continueTask(taskID, workflow)
+		// Don't zero continueTaskID - prompt view needs it
+		m.view = viewPrompt
+		m.prompt.Reset()
+		m.prompt.Focus()
+		return m, nil
 	case "esc", "q":
 		m.selectingContinueWorkflow = false
 		m.continueTaskID = 0
@@ -777,10 +784,13 @@ func (m Model) handleContinueWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.C
 		idx := int(keyStr[0] - '1')
 		if idx < len(workflows) {
 			workflow := workflows[idx]
-			taskID := m.continueTaskID
+			m.continueSelectedWorkflow = workflow
 			m.selectingContinueWorkflow = false
-			m.continueTaskID = 0
-			return m, m.continueTask(taskID, workflow)
+			// Don't zero continueTaskID - prompt view needs it
+			m.view = viewPrompt
+			m.prompt.Reset()
+			m.prompt.Focus()
+			return m, nil
 		}
 	}
 

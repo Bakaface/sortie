@@ -344,7 +344,7 @@ var continueCmd = &cobra.Command{
 		}
 		defer c.Close()
 
-		if err := c.ContinueTask(taskID, ""); err != nil {
+		if err := c.ContinueTask(taskID, "", ""); err != nil {
 			return fmt.Errorf("failed to continue task: %w", err)
 		}
 

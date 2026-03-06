@@ -57,6 +57,7 @@ type Model struct {
 	continueWorkflowCursor    int
 	continueWorkflowPendingG  bool
 	continueTaskID            int64
+	continueSelectedWorkflow  string // workflow selected for continue, held while user enters prompt
 
 	// Predefined task (one-off) selection state
 	selectingTask bool

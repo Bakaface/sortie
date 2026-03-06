@@ -117,6 +117,7 @@ type CreateTaskRequest struct {
 type ContinueTaskRequest struct {
 	TaskID   int64  `json:"task_id"`
 	Workflow string `json:"workflow,omitempty"`
+	Prompt   string `json:"prompt,omitempty"`
 }
 
 type FinalizeTaskRequest struct {

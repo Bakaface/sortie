@@ -9,8 +9,17 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch keyStr {
 	case "enter":
-		// Submit the task
 		description := m.prompt.Value()
+		// Continue mode: send continue request with prompt
+		if m.continueTaskID != 0 && m.continueSelectedWorkflow != "" {
+			taskID := m.continueTaskID
+			workflow := m.continueSelectedWorkflow
+			m.continueTaskID = 0
+			m.continueSelectedWorkflow = ""
+			m.view = viewList
+			return m, m.continueTask(taskID, workflow, description)
+		}
+		// New task mode: create task with prompt
 		if description == "" {
 			return m, nil
 		}
@@ -26,6 +35,8 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "esc":
 		// Cancel and return to list
+		m.continueTaskID = 0
+		m.continueSelectedWorkflow = ""
 		m.view = viewList
 		return m, nil
 

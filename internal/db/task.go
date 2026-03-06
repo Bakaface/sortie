@@ -344,7 +344,16 @@ func (db *DB) ResetTaskForRetryFromStep(id int64) error {
 	return err
 }
 
-func (db *DB) ResetTaskForContinue(id int64, workflow string) error {
+func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
+	if prompt != "" {
+		_, err := db.Exec(
+			`UPDATE tasks SET status = ?, workflow = ?, description = ?, step_index = 0, current_step = NULL, loop_iteration = 0,
+			 exit_code = NULL, error_message = NULL, started_at = NULL,
+			 completed_at = NULL, updated_at = ? WHERE id = ?`,
+			task.StatusPending, workflow, prompt, time.Now(), id,
+		)
+		return err
+	}
 	_, err := db.Exec(
 		`UPDATE tasks SET status = ?, workflow = ?, step_index = 0, current_step = NULL, loop_iteration = 0,
 		 exit_code = NULL, error_message = NULL, started_at = NULL,
