@@ -11,11 +11,11 @@ Make decisions and implement them. If something is ambiguous, pick the best opti
 
 # Task
 
-Implement the following task on branch `sortie/1-add-test-file-with-test-content` (based on `main`).
+Implement the following task on branch `sortie/2-move-project-name-to-right-aligned-brack` (based on `main`).
 
-## Task #1: Add "test" file with "test" content
+## Task #2: Move project name to right-aligned bracket widget in title bar
 
-Test task - add "test" file with "test" content
+"✈ Sortie (sortie)" - here's how the title looks currently: "Sortie" + the project's name. Can we move project to the separate UI widget? Ideally on the same level that the project, pinned to the right ("[<project-name>]").
 
 ## Requirements
 - Follow existing code style and patterns in the codebase

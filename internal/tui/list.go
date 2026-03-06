@@ -317,16 +317,23 @@ func (l *listView) titleWidth() int {
 func (l *listView) View() string {
 	var b strings.Builder
 
-	var titleText string
+	titleText := " " + AppTitle + " "
 	if l.globalMode {
 		titleText = " " + AppTitle + " (Global) "
-	} else if l.projectName != "" {
-		titleText = " " + AppTitle + " (" + l.projectName + ") "
-	} else {
-		titleText = " " + AppTitle + " "
 	}
 	title := titleStyle.Render(titleText)
-	b.WriteString(title)
+
+	// Right-align the project name bracket widget on the same line
+	if !l.globalMode && l.projectName != "" && l.width > 0 {
+		projectWidget := titleStyle.Render(" [" + l.projectName + "] ")
+		gap := l.width - lipgloss.Width(title) - lipgloss.Width(projectWidget)
+		if gap < 0 {
+			gap = 0
+		}
+		b.WriteString(title + strings.Repeat(" ", gap) + projectWidget)
+	} else {
+		b.WriteString(title)
+	}
 	b.WriteString("\n\n")
 
 	if len(l.tasks) == 0 {
