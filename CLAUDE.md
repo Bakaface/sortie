@@ -11,13 +11,13 @@ Make decisions and implement them. If something is ambiguous, pick the best opti
 
 # Task
 
-Implement the following task on branch `sortie/3-fix-continue-workflow-fast-track-unchang` (based on `main`).
+Implement the following task on branch `sortie/6-dim-project-indicator-to-grey-text-with` (based on `main`).
 
-## Task #3: Fix continue workflow: fast-track unchanged tasks and allow prompt input
+## Task #6: Dim project indicator to grey text with transparent background
 
-"Continue" functionality doesn't work correctly:
-1. When I continuing the work on finalized task via `tmux: true` workflow and immediately press "continue" again, the task transfers to "finalizing" state for some time. We should "fast-track" this: if nonew changes were made, the system should recognize that it's already in the desired state and avoid redundant processing - we should just  return the task to finalized state and kill tmux session/clean up worktree and branch.
-2. When I press "c" on finalized task ans select workflow **without** tmux: true, the system doesn't let me to enter the prompt - it just starts the workflow immediately. User should be able to specify the prompt - then the system picks it up, enhancing entered prompt with the "continuation" part, containing the task's "context".
+CUrrently the right-size project indicator has blue background and white bold font. We want to make it less prominent:
+- Background should be transparent
+- The text should be grey
 
 ## Requirements
 - Follow existing code style and patterns in the codebase

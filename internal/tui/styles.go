@@ -83,6 +83,9 @@ var (
 				Background(lipgloss.Color("#3A3A3A")).
 				Foreground(lipgloss.Color("#E8E8E8"))
 
+	projectIndicatorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#6B6B6B"))
+
 	subHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E8E8E8"))
 )
 

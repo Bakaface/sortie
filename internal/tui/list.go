@@ -325,7 +325,7 @@ func (l *listView) View() string {
 
 	// Right-align the project name bracket widget on the same line
 	if !l.globalMode && l.projectName != "" && l.width > 0 {
-		projectWidget := titleStyle.Render(" [" + l.projectName + "] ")
+		projectWidget := projectIndicatorStyle.Render("[" + l.projectName + "]")
 		gap := l.width - lipgloss.Width(title) - lipgloss.Width(projectWidget)
 		if gap < 0 {
 			gap = 0
