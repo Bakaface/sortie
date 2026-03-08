@@ -70,6 +70,7 @@ func init() {
 	createCmd.Flags().StringP("priority", "p", "", "Task priority (low, medium, high, urgent)")
 	createCmd.Flags().StringP("branch", "b", "", "Custom branch name template")
 	createCmd.Flags().StringP("workflow", "w", "", "Workflow to use")
+	createCmd.Flags().Bool("no-worktree", false, "Run task in current directory without creating a worktree")
 	editCmd.Flags().StringP("title", "t", "", "New title")
 	editCmd.Flags().StringP("description", "d", "", "New description")
 	editCmd.Flags().StringP("context", "c", "", "New context")

@@ -139,6 +139,7 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		LoopIteration: t.LoopIteration,
 		BranchName:    t.BranchName,
 		Branch:        t.Branch,
+		Worktree:      t.Worktree,
 		WorktreePath:  t.WorktreePath,
 		ErrorMessage:  t.ErrorMessage,
 		Context:       t.Context,

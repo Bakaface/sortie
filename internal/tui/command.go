@@ -167,7 +167,7 @@ func execRunTask(m Model, args string) (tea.Model, tea.Cmd) {
 	if description == "" {
 		description = taskCfg.Name
 	}
-	return m, m.createTaskWithPrompt(description, "", nil)
+	return m, m.createTaskWithPrompt(description, "", true, nil)
 }
 
 // completeRunTask returns tab-completed command input for RunTask.

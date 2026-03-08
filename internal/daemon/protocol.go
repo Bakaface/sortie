@@ -111,6 +111,7 @@ type CreateTaskRequest struct {
 	Priority    string   `json:"priority,omitempty"`
 	BranchName  string   `json:"branch_name,omitempty"` // user-provided branch template
 	ProjectPath string   `json:"project_path,omitempty"` // resolved to project_id by daemon
+	Worktree    *bool    `json:"worktree,omitempty"`     // nil means default (true)
 	Images      []string `json:"images,omitempty"`
 }
 
@@ -181,6 +182,7 @@ type TaskInfo struct {
 	LoopIteration int        `json:"loop_iteration,omitempty"`
 	BranchName   string     `json:"branch_name,omitempty"`
 	Branch       string     `json:"branch"`
+	Worktree     bool       `json:"worktree"`
 	WorktreePath string     `json:"worktree_path,omitempty"`
 	ErrorMessage string     `json:"error_message,omitempty"`
 	Context      string     `json:"context,omitempty"`

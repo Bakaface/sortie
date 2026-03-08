@@ -157,6 +157,7 @@ func showTaskDetailFromDB(taskID int64) error {
 		CurrentStep:  t.CurrentStep,
 		BranchName:   t.BranchName,
 		Branch:       t.Branch,
+		Worktree:     t.Worktree,
 		WorktreePath: t.WorktreePath,
 		ErrorMessage: t.ErrorMessage,
 		BlockedBy:    t.BlockedBy,
@@ -189,7 +190,9 @@ func printTaskDetail(t *daemon.TaskInfo) {
 	if t.CurrentStep != "" {
 		fmt.Printf("  Step:        %s (index %d)\n", t.CurrentStep, t.StepIndex)
 	}
-	if t.WorktreePath != "" {
+	if !t.Worktree {
+		fmt.Printf("  Worktree:    off (runs in current directory)\n")
+	} else if t.WorktreePath != "" {
 		fmt.Printf("  Worktree:    %s\n", t.WorktreePath)
 	}
 	if len(t.BlockedBy) > 0 {
@@ -453,7 +456,7 @@ func cleanupTask(database *db.DB, taskID int64) error {
 
 	cleaned := false
 
-	if t.WorktreePath != "" && repoRoot != "" {
+	if t.Worktree && t.WorktreePath != "" && repoRoot != "" {
 		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
 			return fmt.Errorf("failed to remove worktree: %w", err)
 		}
@@ -464,7 +467,7 @@ func cleanupTask(database *db.DB, taskID int64) error {
 	}
 
 	// Delete the task branch
-	if t.Branch != "" && repoRoot != "" {
+	if t.Worktree && t.Branch != "" && repoRoot != "" {
 		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to delete branch %s for task #%d: %v\n", t.Branch, taskID, err)
 		} else {

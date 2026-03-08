@@ -58,25 +58,30 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	steps := wf.Steps
 
-	// Resolve branch name if not set
-	if t.Branch == "" {
-		if t.BranchName != "" {
-			t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
-		} else {
-			t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
+	if t.Worktree {
+		// Resolve branch name if not set
+		if t.Branch == "" {
+			if t.BranchName != "" {
+				t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
+			} else {
+				t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
+			}
 		}
-	}
 
-	// Create worktree if not already set
-	if t.WorktreePath == "" {
-		worktree, err := gitpkg.CreateWorktree(e.repoRoot, t.ID, e.cfg.Git.BaseBranch, t.Branch)
-		if err != nil {
-			return fmt.Errorf("failed to create worktree: %w", err)
+		// Create worktree if not already set
+		if t.WorktreePath == "" {
+			worktree, err := gitpkg.CreateWorktree(e.repoRoot, t.ID, e.cfg.Git.BaseBranch, t.Branch)
+			if err != nil {
+				return fmt.Errorf("failed to create worktree: %w", err)
+			}
+			t.WorktreePath = worktree.Path
+			if err := e.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
+				log.Printf("Warning: failed to update worktree path: %v", err)
+			}
 		}
-		t.WorktreePath = worktree.Path
-		if err := e.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
-			log.Printf("Warning: failed to update worktree path: %v", err)
-		}
+	} else {
+		// No-worktree mode: run in project root directory
+		t.WorktreePath = e.repoRoot
 	}
 
 	// Ensure .sortie directories exist in worktree
@@ -384,6 +389,15 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 		return nil
 
 	case "merge":
+		if !t.Worktree {
+			// No-worktree mode: treat merge as commit since there's no separate branch
+			logf("No-worktree mode: committing changes in project root...")
+			if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
+				return err
+			}
+			logf("Commit completed")
+			return nil
+		}
 		if t.Branch == "" {
 			return fmt.Errorf("cannot merge: task branch name is empty")
 		}
@@ -577,7 +591,7 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	logFn("=== Finalization started for task #%d: %s ===", t.ID, t.Title)
 
 	// Resolve branch name if not set (may not have been persisted to DB)
-	if t.Branch == "" {
+	if t.Worktree && t.Branch == "" {
 		if t.BranchName != "" {
 			t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
 		} else {

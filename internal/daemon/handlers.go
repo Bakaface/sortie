@@ -260,7 +260,10 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
-	if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
+	if !t.Worktree {
+		// No-worktree mode: run in project root
+		t.WorktreePath = pc.repoRoot
+	} else if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
 		if t.Branch == "" {
 			if t.BranchName != "" {
 				t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
@@ -364,7 +367,7 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 
 	// Fast-track: if no meaningful changes were made, skip full finalization
 	// and go straight to completed, cleaning up worktree and branch.
-	if t.WorktreePath != "" {
+	if t.WorktreePath != "" && t.Worktree {
 		noiseFiles := []string{".claude-output.log", "CLAUDE.md"}
 		hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
 		if err != nil {
@@ -414,7 +417,7 @@ func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 		log.Printf("Warning: finalize failed for task #%d: %v", t.ID, err)
 		// Don't fail the whole operation — still mark as completed.
 		// Best-effort cleanup of worktree and branch so they don't linger.
-		if t.WorktreePath != "" && repoRoot != "" {
+		if t.Worktree && t.WorktreePath != "" && repoRoot != "" {
 			if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
 				log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, rmErr)
 			}
@@ -423,7 +426,7 @@ func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 				log.Printf("Warning: failed to clear worktree path for task #%d: %v", t.ID, err)
 			}
 		}
-		if t.Branch != "" && repoRoot != "" {
+		if t.Worktree && t.Branch != "" && repoRoot != "" {
 			if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
 				log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, rmErr)
 			}
@@ -548,7 +551,12 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		priority = proj.DefaultPriority
 	}
 
-	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", task.StatusInit, priority, req.Images)
+	worktree := true
+	if req.Worktree != nil {
+		worktree = *req.Worktree
+	}
+
+	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", task.StatusInit, priority, worktree, req.Images)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
 		return
@@ -558,10 +566,10 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
 
-	go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, description)
+	go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, description)
 }
 
-func (s *Server) refineTaskTitle(taskID, projectID int64, branchName, description string) {
+func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, description string) {
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
@@ -582,12 +590,14 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, branchName, descriptio
 
 	slug := task.Slugify(title)
 
-	// Use per-task branch template if provided, otherwise fall back to config default
+	// Skip branch resolution for no-worktree tasks
 	var branch string
-	if branchName != "" {
-		branch = config.ResolveBranchTemplate(branchName, taskID, title, slug)
-	} else {
-		branch = projCfg.ResolveBranchName(taskID, slug)
+	if worktree {
+		if branchName != "" {
+			branch = config.ResolveBranchTemplate(branchName, taskID, title, slug)
+		} else {
+			branch = projCfg.ResolveBranchName(taskID, slug)
+		}
 	}
 
 	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {
@@ -687,13 +697,13 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 
 	repoRoot := s.getProjectRepoRoot(t)
 
-	if t.WorktreePath != "" && repoRoot != "" {
+	if t.Worktree && t.WorktreePath != "" && repoRoot != "" {
 		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
 			log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, err)
 		}
 	}
 
-	if t.Branch != "" && repoRoot != "" {
+	if t.Worktree && t.Branch != "" && repoRoot != "" {
 		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
 			log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, err)
 		}

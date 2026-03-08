@@ -32,6 +32,7 @@ type promptView struct {
 	textarea   textarea.Model
 	branchInput textinput.Model
 	focusField promptField
+	worktree   bool
 	images     []string
 	width      int
 	height     int
@@ -56,6 +57,7 @@ func newPromptView() promptView {
 		textarea:    ta,
 		branchInput: bi,
 		focusField:  promptFieldDescription,
+		worktree:    true,
 		images:      make([]string, 0),
 	}
 }
@@ -121,6 +123,7 @@ func (p *promptView) visualLineCount() int {
 func (p *promptView) Reset() {
 	p.textarea.Reset()
 	p.branchInput.Reset()
+	p.worktree = true
 	p.images = make([]string, 0)
 	p.focusField = promptFieldDescription
 	p.textarea.Focus()
@@ -138,6 +141,20 @@ func (p *promptView) BranchName() string {
 
 func (p *promptView) Images() []string {
 	return p.images
+}
+
+func (p *promptView) Worktree() bool {
+	return p.worktree
+}
+
+func (p *promptView) ToggleWorktree() {
+	p.worktree = !p.worktree
+	// When worktree is disabled and branch field is focused, switch to description
+	if !p.worktree && p.focusField == promptFieldBranch {
+		p.focusField = promptFieldDescription
+		p.branchInput.Blur()
+		p.textarea.Focus()
+	}
 }
 
 // Update passes the message to the active input and checks for image paths.
@@ -159,7 +176,11 @@ func (p *promptView) Update(msg tea.Msg) tea.Cmd {
 }
 
 // SwitchFocus toggles focus between the description textarea and the branch input.
+// When worktree mode is off, branch input is hidden so tab is a no-op.
 func (p *promptView) SwitchFocus() {
+	if !p.worktree {
+		return // branch input is hidden
+	}
 	if p.focusField == promptFieldDescription {
 		p.focusField = promptFieldBranch
 		p.textarea.Blur()
@@ -287,13 +308,28 @@ func (p *promptView) View() string {
 	b.WriteString(taStyle.Render(strings.Join(lines, "\n")))
 	b.WriteString("\n")
 
-	// Branch name input
-	b.WriteString("\n")
 	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
-	b.WriteString("  ")
-	b.WriteString(labelStyle.Render("Branch: "))
-	b.WriteString(p.branchInput.View())
+
+	// Worktree mode indicator
 	b.WriteString("\n")
+	b.WriteString("  ")
+	b.WriteString(labelStyle.Render("Worktree: "))
+	if p.worktree {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#7EC99D")).Render("on"))
+	} else {
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#E88388")).Render("off"))
+		b.WriteString(dimStyle.Render(" (runs in current directory)"))
+	}
+	b.WriteString("\n")
+
+	// Branch name input (hidden when worktree is off)
+	if p.worktree {
+		b.WriteString("\n")
+		b.WriteString("  ")
+		b.WriteString(labelStyle.Render("Branch: "))
+		b.WriteString(p.branchInput.View())
+		b.WriteString("\n")
+	}
 
 	// Attached images
 	if len(p.images) > 0 {
@@ -331,6 +367,9 @@ func (p *promptView) View() string {
 		b.WriteString(dimStyle.Render("ctrl+x"))
 		b.WriteString(helpStyle.Render(" remove last image"))
 	}
+	b.WriteString(helpStyle.Render(" | "))
+	b.WriteString(dimStyle.Render("ctrl+w"))
+	b.WriteString(helpStyle.Render(" worktree"))
 	b.WriteString(helpStyle.Render(" | "))
 	b.WriteString(dimStyle.Render("ctrl+g"))
 	b.WriteString(helpStyle.Render(" editor"))

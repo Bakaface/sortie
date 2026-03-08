@@ -91,6 +91,7 @@ type Task struct {
 	LoopIteration int
 	BranchName   string // user-provided branch template (e.g. "feature/{{task.title}}")
 	Branch       string // resolved branch name
+	Worktree     bool // whether to use git worktree isolation (default true)
 	WorktreePath string
 	ExitCode     *int
 	ErrorMessage string

@@ -169,8 +169,13 @@ func (v *taskInfoView) renderMetadata() string {
 		b.WriteString("\n")
 	}
 
-	// Worktree path
-	if t.WorktreePath != "" {
+	// Worktree mode
+	if !t.Worktree {
+		b.WriteString(labelStyle.Render("Worktree:  "))
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#E88388")).Render("off"))
+		b.WriteString(dimStyle.Render(" (runs in current directory)"))
+		b.WriteString("\n")
+	} else if t.WorktreePath != "" {
 		b.WriteString(labelStyle.Render("Worktree:  "))
 		b.WriteString(dimStyle.Render(t.WorktreePath))
 		b.WriteString("\n")

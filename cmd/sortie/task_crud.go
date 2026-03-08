@@ -50,6 +50,7 @@ The daemon must be running.`,
 
 		branch, _ := cmd.Flags().GetString("branch")
 		workflow, _ := cmd.Flags().GetString("workflow")
+		noWorktree, _ := cmd.Flags().GetBool("no-worktree")
 
 		c := client.New(cfg)
 		if err := c.Connect(); err != nil {
@@ -57,12 +58,14 @@ The daemon must be running.`,
 		}
 		defer c.Close()
 
+		worktree := !noWorktree
 		t, err := c.CreateTaskWithOptions(daemon.CreateTaskRequest{
 			Description: description,
 			Workflow:    workflow,
 			Priority:    priority,
 			BranchName:  branch,
 			ProjectPath: cfg.ProjectDir,
+			Worktree:    &worktree,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create task: %w", err)

@@ -162,13 +162,13 @@ func (m Model) updateTaskPriority(taskID int64, priority string) tea.Cmd {
 	}
 }
 
-func (m Model) createTaskWithPrompt(description, branchName string, images []string) tea.Cmd {
+func (m Model) createTaskWithPrompt(description, branchName string, worktree bool, images []string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
 
-		info, err := m.client.CreateTask(description, m.selectedWorkflow, branchName, m.projectPath, images)
+		info, err := m.client.CreateTask(description, m.selectedWorkflow, branchName, m.projectPath, worktree, images)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
@@ -195,7 +195,7 @@ func (m Model) handleEditorResult(path string) tea.Cmd {
 			return nil
 		}
 
-		info, err := m.client.CreateTask(description, m.selectedWorkflow, "", m.projectPath, nil)
+		info, err := m.client.CreateTask(description, m.selectedWorkflow, "", m.projectPath, true, nil)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
