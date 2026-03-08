@@ -3,13 +3,28 @@ package client
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/aface/sortie/internal/daemon"
 )
+
+// shortSocketPath returns a short Unix socket path to avoid exceeding
+// macOS's 104-byte sun_path limit (t.TempDir() paths are too long).
+func shortSocketPath(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "st")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return filepath.Join(dir, fmt.Sprintf("%d.sock", os.Getpid()))
+}
 
 // mockServer simulates a daemon that reads requests and sends back typed responses.
 // It processes requests sequentially (like the real server).
@@ -42,7 +57,7 @@ func mockServer(t *testing.T, listener net.Listener, handler func(msg *daemon.Me
 
 func TestSendAndWait_ConcurrentCallsGetCorrectResponses(t *testing.T) {
 	// Create a Unix socket pair for testing
-	listener, err := net.Listen("unix", t.TempDir()+"/test.sock")
+	listener, err := net.Listen("unix", shortSocketPath(t))
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
 	}
@@ -135,7 +150,7 @@ func TestSendAndWait_ConcurrentCallsGetCorrectResponses(t *testing.T) {
 func TestSendAndWait_BroadcastsNotRoutedToResponses(t *testing.T) {
 	// Verify that broadcast messages (task_update, agent_update) go to subChan,
 	// not respChan, so they don't interfere with sendAndWait.
-	listener, err := net.Listen("unix", t.TempDir()+"/test.sock")
+	listener, err := net.Listen("unix", shortSocketPath(t))
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
 	}
@@ -195,7 +210,7 @@ func TestSendAndWait_BroadcastsNotRoutedToResponses(t *testing.T) {
 
 func TestSend_FireAndForget(t *testing.T) {
 	// Verify that send() (used by Unsubscribe) works independently of sendAndWait.
-	listener, err := net.Listen("unix", t.TempDir()+"/test.sock")
+	listener, err := net.Listen("unix", shortSocketPath(t))
 	if err != nil {
 		t.Fatalf("failed to create listener: %v", err)
 	}

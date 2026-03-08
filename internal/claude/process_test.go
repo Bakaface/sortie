@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"os"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +14,13 @@ func TestProcessOutputFunc(t *testing.T) {
 	// This test requires the claude CLI to be installed and ANTHROPIC_API_KEY set.
 	// It's an integration test that verifies the full pipeline:
 	// Claude process → stdout pipe → scanner → parser → OutputFunc
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		t.Skip("skipping integration test: ANTHROPIC_API_KEY not set")
+	}
+	if _, err := exec.LookPath("claude"); err != nil {
+		t.Skip("skipping integration test: claude CLI not found")
+	}
+
 	cfg := &config.ClaudeConfig{
 		Command: "claude",
 		Yolo:    true,
