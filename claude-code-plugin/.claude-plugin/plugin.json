@@ -1,0 +1,13 @@
+{
+  "name": "sortie",
+  "version": "0.1.0",
+  "description": "Skills for configuring and working with Sortie — a daemon that orchestrates Claude Code agents on parallel tasks using git worktrees",
+  "author": {
+    "name": "Bakaface"
+  },
+  "homepage": "https://github.com/Bakaface/sortie",
+  "repository": "https://github.com/Bakaface/sortie",
+  "license": "MIT",
+  "keywords": ["sortie", "claude-code", "orchestration", "worktree", "workflows"],
+  "skills": "./skills/"
+}
