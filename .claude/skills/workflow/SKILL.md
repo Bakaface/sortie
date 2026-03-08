@@ -12,8 +12,10 @@ description: >
 ## Execution Flow (RunTask)
 
 1. Create/reuse git worktree (skip if `task.Worktree == false`)
-2. Copy attached images to `.sortie/images/`
-3. For each step (from `task.StepIndex`):
+2. **Sync configured paths** via `SyncPathsToWorktree(srcRoot, dstRoot, paths)` — copies `worktree-sync-paths` from project root
+3. `EnsureWorkDirs(worktreePath)` — create `.sortie/artifacts/`, `.sortie/images/`, `.sortie/logs/`
+4. Copy attached images to `.sortie/images/`
+5. For each step (from `task.StepIndex`):
    - Collect artifacts from prior `artifact: true` steps
    - Build `TemplateContext`, resolve prompt via `ResolveTemplate()`
    - Append artifact instruction if `step.Artifact == true`
@@ -22,7 +24,7 @@ description: >
    - Validate meaningful code changes (skip for human/tmux)
    - Verify artifact written (retry if configured)
    - Evaluate loop conditions, check approval gates
-4. Run summarizer, execute `on_complete` (commit/merge/none)
+6. Run summarizer, execute `on_complete` (commit/merge/none)
 
 ## File Map
 
@@ -32,6 +34,7 @@ description: >
 | `template.go` | `{{placeholder}}` interpolation via `ResolveTemplate()` |
 | `claudemd.go` | `InjectClaudeMD()` — writes instruction file for spawned Claude agents |
 | `artifact.go` | Directory management, artifact read/write, image copying |
+| `sync.go` | `SyncPathsToWorktree(srcRoot, dstRoot string, paths []string) error` — copies configured paths |
 
 ## Template System
 
@@ -62,6 +65,21 @@ worktree/.sortie/
 ```
 
 Project-level logs: `.sortie/logs/{taskID}/{stepName}.log`
+
+## Artifact & Directory Functions
+
+```go
+ArtifactsDir(worktreePath string) string
+LogsDir(worktreePath string) string
+LogPath(worktreePath, stepName string) string
+EnsureWorkDirs(worktreePath string) error
+ProjectLogsDir(dataDir string, taskID int64) string
+ProjectLogPath(dataDir string, taskID int64, stepName string) string
+ReadArtifact(worktreePath, stepName string) (string, error)
+CollectArtifacts(worktreePath string, priorStepNames []string) map[string]string
+ImagesDir(worktreePath string) string
+CopyImagesToWorktree(worktreePath string, imagePaths []string) ([]string, error)
+```
 
 ## Key Mechanisms
 

@@ -49,27 +49,42 @@ type Message struct {
 ## Key Types
 
 ```go
-type TaskInfo struct {
-    // Mirrors task.Task fields + computed metadata
-    ID, ProjectID, Title, Description, Slug, Workflow, Status, Priority string
-    StepIndex, LoopIteration int
-    CurrentStep, BranchName, Branch, WorktreePath string
-    Worktree bool
-    ExitCode *int
-    ErrorMessage, Context string
-    BlockedBy []int64
-    Images []string
-    CreatedAt, StartedAt, CompletedAt, UpdatedAt time.Time
+type AgentInfo struct {
+    ID          string     `json:"id"`
+    TaskID      int64      `json:"task_id"`
+    Description string     `json:"description"`
+    WorkDir     string     `json:"work_dir"`
+    State       AgentState `json:"state"`   // pending|starting|running|waiting_for_input|completed|failed|stopped
+    StartedAt   time.Time  `json:"started_at"`
+    Error       string     `json:"error,omitempty"`
 }
 
-type AgentInfo struct {
-    ID, TaskID string
-    State AgentState  // pending|starting|running|waiting_for_input|completed|failed|stopped
-    PID int
-    CurrentStep string
-    StepIndex int
-    StartedAt time.Time
-    EndedAt *time.Time
-    Error string
+type TaskInfo struct {
+    ID            int64      `json:"id"`
+    ProjectID     int64      `json:"project_id"`
+    ProjectName   string     `json:"project_name,omitempty"`
+    ProjectPath   string     `json:"project_path,omitempty"`
+    Title         string     `json:"title"`
+    Description   string     `json:"description"`
+    Slug          string     `json:"slug"`
+    Workflow      string     `json:"workflow,omitempty"`
+    Status        string     `json:"status"`
+    Priority      string     `json:"priority"`
+    StepIndex     int        `json:"step_index"`
+    CurrentStep   string     `json:"current_step"`
+    LoopIteration int        `json:"loop_iteration,omitempty"`
+    BranchName    string     `json:"branch_name,omitempty"`
+    Branch        string     `json:"branch"`
+    Worktree      bool       `json:"worktree"`
+    WorktreePath  string     `json:"worktree_path,omitempty"`
+    ErrorMessage  string     `json:"error_message,omitempty"`
+    Context       string     `json:"context,omitempty"`
+    Images        []string   `json:"images,omitempty"`
+    BlockedBy     []int64    `json:"blocked_by,omitempty"`
+    CreatedAt     time.Time  `json:"created_at"`
+    StartedAt     *time.Time `json:"started_at,omitempty"`
+    CompletedAt   *time.Time `json:"completed_at,omitempty"`
 }
 ```
+
+Note: `AgentInfo` in the protocol is a simplified projection. Internal `agent.Agent` has additional fields (`PID`, `CurrentStep`, `StepIndex`, `Duration()`) not exposed over the wire.
