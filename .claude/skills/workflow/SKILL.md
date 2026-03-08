@@ -84,6 +84,22 @@ ImagesDir(worktreePath string) string
 CopyImagesToWorktree(worktreePath string, imagePaths []string) ([]string, error)
 ```
 
+## Non-Worktree Mode
+
+When `task.Worktree == false`:
+- Worktree creation and branch resolution are skipped; `WorktreePath` is set to project root
+- Path syncing (`SyncPathsToWorktree`) is skipped
+- `on_complete: merge` falls back to a simple commit (no branch to merge)
+- Worktree/branch cleanup on delete is skipped
+- The summarizer uses `git diff --stat` against `base_branch` for context (may be empty if changes were already committed)
+
+## Finalization (FinalizeTask)
+
+`FinalizeTask()` handles tmux task completion:
+1. Sets `StatusSummarizing`, runs summarizer (same as normal completion)
+2. Runs `executeOnComplete` (commit/merge/none)
+3. Called from `handleFinalizeTask` → `runFinalization` (async)
+
 ## Key Mechanisms
 
 - **Merge**: serialized via `mergeMu`; squash-merge into base, Claude resolves conflicts, up to 3 retries

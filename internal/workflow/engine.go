@@ -607,6 +607,9 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	// Run summarizer to generate task context (same as normal completion)
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	if wf != nil {
+		if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
+			logFn("Warning: failed to set summarizing status: %v", err)
+		}
 		logFn("Running summarizer...")
 		if err := e.runSummarizer(ctx, t, wf); err != nil {
 			logFn("Warning: summarizer failed: %v", err)

@@ -38,13 +38,15 @@ type Task struct {
 ## Status State Machine
 
 ```
-pending -> init -> running -+-> awaiting-approval -> running (resumed)
+init -> pending -> running -+-> summarizing -> completed
+                            +-> awaiting-approval -> running (resumed)
                             +-> tmux -> finalizing -> summarizing -> completed
                             +-> artifact-missing -> running (continued)
                             +-> merge-blocked -> completed
-                            +-> completed
                             +-> failed
 ```
+
+**Title refinement**: During `init`, an async goroutine generates an AI title (haiku model, 30s timeout). On success, `FinalizeTaskIdentity()` updates title/slug/branch before transitioning to `pending`. On failure, the sanitized description is kept as title.
 
 **Terminal:** `completed`, `failed`
 **Active:** `running`, `awaiting-approval`, `tmux`, `finalizing`, `summarizing`, `merge-blocked`, `artifact-missing`

@@ -368,7 +368,7 @@ func (p *promptView) View() string {
 		b.WriteString(helpStyle.Render(" remove last image"))
 	}
 	b.WriteString(helpStyle.Render(" | "))
-	b.WriteString(dimStyle.Render("ctrl+w"))
+	b.WriteString(dimStyle.Render("alt+w"))
 	b.WriteString(helpStyle.Render(" worktree"))
 	b.WriteString(helpStyle.Render(" | "))
 	b.WriteString(dimStyle.Render("ctrl+g"))

@@ -37,7 +37,7 @@ Model (app.go)
 |------|----------------|
 | `list.go` | Task table with custom row rendering, scroll offset, search matching |
 | `detail.go` | Viewport-based log viewer with follow mode, ANSI stripping |
-| `prompt.go` | Dual-field form (textarea + textinput), worktree toggle, image detection |
+| `prompt.go` | Dual-field form (textarea + textinput), worktree toggle (`alt+w`), image detection |
 | `task_info.go` | Metadata display + workflow step progress (icons: `○`/`●`/`✓`/`✗`) |
 | `artifact_view.go` | Artifact content viewer |
 
@@ -85,6 +85,14 @@ Dedicated state flags per dialog: `selecting*` + `*Cursor` + `*PendingG`. Confir
 - Use `lipgloss.AdaptiveColor` for light/dark terminal support
 - Status icons: `●` running, `○` pending, `✓` completed, `✗` failed, `◷` awaiting, `▣` tmux
 - Helpers: `stateStyle()`, `priorityStyle()`, `priorityBadge()`, `statusIconFor()`
+
+## Non-Worktree Mode
+
+The `promptView` includes a worktree toggle (`alt+w`):
+- When **on** (default): task runs in an isolated git worktree with its own branch
+- When **off**: task runs directly in the project root directory; branch input is hidden
+- The toggle state persists per-project (stored in DB via `default_worktree`) and within a TUI session (survives `Reset()`)
+- When worktree is toggled off while branch field is focused, focus auto-switches to description
 
 ## Pitfalls
 

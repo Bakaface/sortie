@@ -49,7 +49,7 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.prompt.Update(msg)
 		return m, cmd
 
-	case "ctrl+w":
+	case "alt+w":
 		// Toggle worktree mode
 		m.prompt.ToggleWorktree()
 		return m, nil

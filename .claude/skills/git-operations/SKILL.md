@@ -71,6 +71,14 @@ GetLastCommitMessage(workDir string) (string, error)
 - `ConventionalCommitFromTitle(title)` — freeform text -> conventional commit format
 - `GetSquashCommitMessage(repoRoot, baseBranch, branch, fallback)` — search branch commits for conventional format, fallback to first subject
 
+## Non-Worktree Mode
+
+When `task.Worktree == false`, git worktree/branch operations are skipped entirely:
+- No `CreateWorktree` / `RemoveWorktree` calls
+- No branch resolution or deletion
+- `on_complete: merge` falls back to `Commit()` in project root
+- `DiffStat` against base branch may return empty if changes are already committed
+
 ## Patterns
 
 - All git commands via `exec.Command("git", ...)` with `Dir` set

@@ -629,7 +629,7 @@ func (s *Server) generateTitle(ctx context.Context, description string, claude *
 		description,
 	)
 
-	args := []string{"-p", prompt, "--output-format", "text"}
+	args := []string{"-p", prompt, "--output-format", "text", "--model", "haiku"}
 	args = append(args, claude.DefaultArgs...)
 
 	cmd := exec.CommandContext(ctx, claude.Command, args...)
