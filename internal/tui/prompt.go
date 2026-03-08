@@ -38,7 +38,7 @@ type promptView struct {
 	height     int
 }
 
-func newPromptView() promptView {
+func newPromptView(defaultWorktree bool) promptView {
 	ta := textarea.New()
 	ta.Prompt = PromptPrefix
 	ta.Placeholder = "Describe the task..."
@@ -57,7 +57,7 @@ func newPromptView() promptView {
 		textarea:    ta,
 		branchInput: bi,
 		focusField:  promptFieldDescription,
-		worktree:    true,
+		worktree:    defaultWorktree,
 		images:      make([]string, 0),
 	}
 }
@@ -123,7 +123,7 @@ func (p *promptView) visualLineCount() int {
 func (p *promptView) Reset() {
 	p.textarea.Reset()
 	p.branchInput.Reset()
-	p.worktree = true
+	// Keep worktree state — it persists across task creation within a session
 	p.images = make([]string, 0)
 	p.focusField = promptFieldDescription
 	p.textarea.Focus()

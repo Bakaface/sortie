@@ -14,6 +14,7 @@ type Project struct {
 	Path            string
 	Name            string
 	DefaultPriority task.Priority
+	DefaultWorktree bool
 	CreatedAt       time.Time
 }
 
@@ -59,6 +60,7 @@ func (db *DB) GetOrCreateProject(projectPath string) (*Project, error) {
 		Path:            absPath,
 		Name:            name,
 		DefaultPriority: task.PriorityMedium,
+		DefaultWorktree: true,
 		CreatedAt:       time.Now(),
 	}, nil
 }
@@ -68,8 +70,8 @@ func (db *DB) GetProjectByPath(path string) (*Project, error) {
 	var p Project
 	var defaultPriority sql.NullString
 	err := db.QueryRow(
-		`SELECT id, path, name, default_priority, created_at FROM projects WHERE path = ?`, path,
-	).Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.CreatedAt)
+		`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE path = ?`, path,
+	).Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -86,8 +88,8 @@ func (db *DB) GetProject(id int64) (*Project, error) {
 	var p Project
 	var defaultPriority sql.NullString
 	err := db.QueryRow(
-		`SELECT id, path, name, default_priority, created_at FROM projects WHERE id = ?`, id,
-	).Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.CreatedAt)
+		`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE id = ?`, id,
+	).Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +103,7 @@ func (db *DB) GetProject(id int64) (*Project, error) {
 
 // GetProjectsByName returns all projects matching the given name (basename).
 func (db *DB) GetProjectsByName(name string) ([]*Project, error) {
-	rows, err := db.Query(`SELECT id, path, name, default_priority, created_at FROM projects WHERE name = ? ORDER BY id ASC`, name)
+	rows, err := db.Query(`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE name = ? ORDER BY id ASC`, name)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +113,7 @@ func (db *DB) GetProjectsByName(name string) ([]*Project, error) {
 	for rows.Next() {
 		var p Project
 		var defaultPriority sql.NullString
-		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		if defaultPriority.Valid {
@@ -126,7 +128,7 @@ func (db *DB) GetProjectsByName(name string) ([]*Project, error) {
 
 // ListProjects returns all registered projects.
 func (db *DB) ListProjects() ([]*Project, error) {
-	rows, err := db.Query(`SELECT id, path, name, default_priority, created_at FROM projects ORDER BY id ASC`)
+	rows, err := db.Query(`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +138,7 @@ func (db *DB) ListProjects() ([]*Project, error) {
 	for rows.Next() {
 		var p Project
 		var defaultPriority sql.NullString
-		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt); err != nil {
 			return nil, err
 		}
 		if defaultPriority.Valid {
@@ -147,4 +149,10 @@ func (db *DB) ListProjects() ([]*Project, error) {
 		projects = append(projects, &p)
 	}
 	return projects, rows.Err()
+}
+
+// UpdateProjectDefaultWorktree updates the default worktree preference for a project.
+func (db *DB) UpdateProjectDefaultWorktree(id int64, worktree bool) error {
+	_, err := db.Exec(`UPDATE projects SET default_worktree = ? WHERE id = ?`, worktree, id)
+	return err
 }
