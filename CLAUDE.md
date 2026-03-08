@@ -5,20 +5,17 @@ Make decisions and implement them directly. If something is ambiguous, pick the 
 
 # Task
 
-Implement the following task on branch `sortie/8-add-optional-no-worktree-mode-for-tasks` (based on `main`).
+Implement the following task on branch `sortie/9-add-configurable-worktree-sync-paths-to` (based on `main`).
 
-## Task #8: Add optional no-worktree mode for tasks running in current directory
+## Task #9: Add configurable worktree-sync-paths to copy files into new worktrees
 
-Let's add the ability to disable creating worktrees then the new task is created.
-- The "worktree mode" should be "on" by default (ensure that this is visible on "new task" screen)
-- "w" keybind toggles the worktree mode
-- The `--no-worktree` flag should be available in the CLI to override default behavior
-- The `Task` struct & db table should include a `worktree` boolean field
+We need to allow users to specify paths that would be automatically syncronized with the worktrees. Practical example from the current repo: CLAUDE.md is tracked by Git, while .claude/ dire that contains useful skills for feature development is not trackes, thus, worktree-mode tasks won't have access to those skills.
 
-When worktree is disalbed, the AI agent (Claude Code) is running directly in the current directory. Thus:
-- When user disables "worktree mode", the branch selector should become hidden, as we won't be switching to a new branch in the current directory automatically.
-
-So, our new "no worktree mode" is essentially a way to just manage claude code sessions that make changes to the "main thread". The user's *responsibility* is to ensure that multiple concurrently running tasks won't conflict.
+To solve this, we can implement a syncronization mechanism:
+- User specifies a list of paths in their configuration in .sortie.yml in `worktree-sync-paths` attribute - **globally or per-workflow**.
+- When a new task is created with a worktree, the system automatically copies the specified paths from the main project directory to the newly created worktree.
+- This synchronization should happen before the task execution begins to ensure the environment is fully prepared with all necessary context and tools.
+- The sync mechanism should handle both files and directories, preserving permissions where possible.
 
 ## Requirements
 - Follow existing code style and patterns in the codebase

@@ -24,6 +24,7 @@ type ProjectConfig struct {
 	Notifications            *NotificationsConfig `yaml:"notifications,omitempty"`
 	TmuxNestedAttachBehavior string               `yaml:"tmux_nested_attach_behavior"`
 	SystemPrompt             string               `yaml:"system_prompt"`
+	WorktreeSyncPaths        []string             `yaml:"worktree-sync-paths"`
 }
 
 // ProjectWorkflows is the consolidated workflows section in .sortie.yml.
@@ -75,11 +76,12 @@ type GitConfig struct {
 }
 
 type WorkflowConfig struct {
-	Name             string       `yaml:"name"`
-	Description      string       `yaml:"description,omitempty"`
-	Tmux             bool         `yaml:"tmux,omitempty"`
-	Steps            []StepConfig `yaml:"steps"`
-	SummarizerPrompt string       `yaml:"summarizer_prompt"`
+	Name              string       `yaml:"name"`
+	Description       string       `yaml:"description,omitempty"`
+	Tmux              bool         `yaml:"tmux,omitempty"`
+	Steps             []StepConfig `yaml:"steps"`
+	SummarizerPrompt  string       `yaml:"summarizer_prompt"`
+	WorktreeSyncPaths []string     `yaml:"worktree-sync-paths,omitempty"`
 }
 
 type StepConfig struct {
@@ -251,6 +253,9 @@ type Config struct {
 
 	// System prompt preamble for generated CLAUDE.md files
 	SystemPrompt string
+
+	// Paths to sync from project root into new worktrees
+	WorktreeSyncPaths []string
 
 	// From global config
 	Notifications            NotificationsConfig
@@ -505,6 +510,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if proj.SystemPrompt != "" {
 		cfg.SystemPrompt = proj.SystemPrompt
 	}
+	if len(proj.WorktreeSyncPaths) > 0 {
+		cfg.WorktreeSyncPaths = proj.WorktreeSyncPaths
+	}
 
 	// Handle workflows section: supports three formats:
 	// 1. New structured: workflows: { one-off: [...], tasks: [...], init: [...] }
@@ -757,6 +765,14 @@ func (c *Config) GetInitWorkflow(name string) *WorkflowConfig {
 		}
 	}
 	return nil
+}
+
+// GetWorktreeSyncPaths returns the sync paths for a workflow, falling back to the global config.
+func (c *Config) GetWorktreeSyncPaths(wf *WorkflowConfig) []string {
+	if wf != nil && len(wf.WorktreeSyncPaths) > 0 {
+		return wf.WorktreeSyncPaths
+	}
+	return c.WorktreeSyncPaths
 }
 
 // GetWorkflowSteps returns configured steps or the default single step.

@@ -84,6 +84,16 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		t.WorktreePath = e.repoRoot
 	}
 
+	// Sync configured paths from project root into the worktree
+	if t.Worktree {
+		syncPaths := e.cfg.GetWorktreeSyncPaths(wf)
+		if len(syncPaths) > 0 {
+			if err := SyncPathsToWorktree(e.repoRoot, t.WorktreePath, syncPaths); err != nil {
+				log.Printf("Warning: failed to sync paths to worktree: %v", err)
+			}
+		}
+	}
+
 	// Ensure .sortie directories exist in worktree
 	if err := EnsureWorkDirs(t.WorktreePath); err != nil {
 		return fmt.Errorf("failed to create sortie dirs: %w", err)

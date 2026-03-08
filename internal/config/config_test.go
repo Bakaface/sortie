@@ -1427,3 +1427,139 @@ func contains(s, substr string) bool {
 	}
 	return false
 }
+
+func TestWorktreeSyncPathsParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+worktree-sync-paths:
+  - .claude
+  - .env.example
+  - scripts/setup.sh
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cfg.WorktreeSyncPaths) != 3 {
+		t.Fatalf("expected 3 sync paths, got %d", len(cfg.WorktreeSyncPaths))
+	}
+	if cfg.WorktreeSyncPaths[0] != ".claude" {
+		t.Errorf("expected first path '.claude', got %q", cfg.WorktreeSyncPaths[0])
+	}
+	if cfg.WorktreeSyncPaths[1] != ".env.example" {
+		t.Errorf("expected second path '.env.example', got %q", cfg.WorktreeSyncPaths[1])
+	}
+	if cfg.WorktreeSyncPaths[2] != "scripts/setup.sh" {
+		t.Errorf("expected third path 'scripts/setup.sh', got %q", cfg.WorktreeSyncPaths[2])
+	}
+}
+
+func TestWorktreeSyncPathsProjectOverridesGlobal(t *testing.T) {
+	globalDir := t.TempDir()
+	globalPath := filepath.Join(globalDir, ".sortie.yml")
+	os.WriteFile(globalPath, []byte(`
+worktree-sync-paths:
+  - .claude
+  - .env
+`), 0644)
+
+	projectDir := t.TempDir()
+	projectPath := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectPath, []byte(`
+worktree-sync-paths:
+  - .vscode
+`), 0644)
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(globalPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WorktreeSyncPaths) != 2 {
+		t.Fatalf("expected 2 sync paths from global, got %d", len(cfg.WorktreeSyncPaths))
+	}
+
+	if err := loadProjectConfig(projectPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WorktreeSyncPaths) != 1 {
+		t.Fatalf("expected 1 sync path after project override, got %d", len(cfg.WorktreeSyncPaths))
+	}
+	if cfg.WorktreeSyncPaths[0] != ".vscode" {
+		t.Errorf("expected '.vscode', got %q", cfg.WorktreeSyncPaths[0])
+	}
+}
+
+func TestWorktreeSyncPathsPerWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+worktree-sync-paths:
+  - .claude
+workflows:
+  tasks:
+    - name: custom
+      worktree-sync-paths:
+        - .claude
+        - .vscode
+      steps:
+        - name: implementing
+          prompt: "Implement"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	// Global level
+	if len(cfg.WorktreeSyncPaths) != 1 {
+		t.Fatalf("expected 1 global sync path, got %d", len(cfg.WorktreeSyncPaths))
+	}
+
+	// Per-workflow override
+	wf := cfg.GetWorkflow("custom")
+	paths := cfg.GetWorktreeSyncPaths(wf)
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 per-workflow sync paths, got %d", len(paths))
+	}
+	if paths[0] != ".claude" || paths[1] != ".vscode" {
+		t.Errorf("expected [.claude, .vscode], got %v", paths)
+	}
+}
+
+func TestGetWorktreeSyncPathsFallsBackToGlobal(t *testing.T) {
+	cfg := &Config{
+		WorktreeSyncPaths: []string{".claude", ".env"},
+	}
+
+	// Workflow without override should fall back to global
+	wf := &WorkflowConfig{Name: "default"}
+	paths := cfg.GetWorktreeSyncPaths(wf)
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 paths from global fallback, got %d", len(paths))
+	}
+
+	// Nil workflow should fall back to global
+	paths = cfg.GetWorktreeSyncPaths(nil)
+	if len(paths) != 2 {
+		t.Fatalf("expected 2 paths from nil workflow fallback, got %d", len(paths))
+	}
+}
+
+func TestWorktreeSyncPathsDefaultEmpty(t *testing.T) {
+	cfg := defaultConfig()
+	if len(cfg.WorktreeSyncPaths) != 0 {
+		t.Errorf("expected empty sync paths by default, got %v", cfg.WorktreeSyncPaths)
+	}
+}
