@@ -12,9 +12,7 @@ SQLite with WAL mode, single writer (`MaxOpenConns=1`), foreign keys enabled. Sc
 
 ## Schema
 
-See [references/schema.md](references/schema.md) for full table definitions and migration history.
-
-**Core tables:** `projects`, `tasks`, `task_dependencies`
+Read `internal/db/schema.sql` for the canonical table definitions. Core tables: `projects`, `tasks`, `task_dependencies`. Migrations are in the `migrations` slice in `db.go` — append with the next version number; auto-applied on startup via `ensureSchema()`.
 
 ## Key Query Patterns
 
