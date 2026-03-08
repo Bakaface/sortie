@@ -12,6 +12,16 @@ depends = ["build"]
 description = "Open SQLite database console"
 run = "sqlite3 $(git rev-parse --show-toplevel)/.sortie/tasks.db"
 
+[tasks.test]
+alias = "t"
+description = "Run unit tests"
+run = "go test ./..."
+
+[tasks."test:integration"]
+alias = "ti"
+description = "Run all tests including integration tests"
+run = "go test -tags integration ./..."
+
 [tasks.e2e-test]
 description = "Run end-to-end test via Claude Code"
 run = "claude --dangerously-skip-permissions 'Run the /e2e-test command'"

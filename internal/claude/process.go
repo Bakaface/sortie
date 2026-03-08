@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -59,6 +60,23 @@ func (p *Process) SetEnv(env map[string]string) {
 	}
 }
 
+// buildEnv returns the environment for the child process, filtering out
+// CLAUDECODE to prevent "cannot launch inside another session" errors.
+func (p *Process) buildEnv() []string {
+	base := p.env
+	if base == nil {
+		base = os.Environ()
+	}
+	env := make([]string, 0, len(base))
+	for _, e := range base {
+		if strings.HasPrefix(e, "CLAUDECODE=") {
+			continue
+		}
+		env = append(env, e)
+	}
+	return env
+}
+
 // StartWithPrompt runs Claude Code with -p flag (one-shot mode).
 // The process exits automatically when the task is complete.
 // systemPrompt, if non-empty, is passed via --system-prompt to override
@@ -72,9 +90,7 @@ func (p *Process) StartWithPrompt(prompt string, systemPrompt ...string) error {
 
 	p.cmd = exec.Command(p.cfg.Command, args...)
 	p.cmd.Dir = p.WorkDir
-	if p.env != nil {
-		p.cmd.Env = p.env
-	}
+	p.cmd.Env = p.buildEnv()
 
 	// Create raw output file for debugging (raw NDJSON + stderr)
 	outFile, err := os.Create(p.OutputFile)
