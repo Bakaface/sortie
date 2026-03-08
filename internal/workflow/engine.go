@@ -162,7 +162,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			artifactPath := filepath.Join(artifactsDir, step.Name+".md")
 			resolvedPrompt += fmt.Sprintf("\n\n---\n\nIMPORTANT: When you are done, write a summary of what you did to `%s`. Include: files changed, decisions made, and any issues encountered. This artifact is required for subsequent workflow steps.", artifactPath)
 		}
-		if err := InjectClaudeMD(t.WorktreePath, resolvedPrompt, imageRelPaths); err != nil {
+		if err := InjectClaudeMD(t.WorktreePath, resolvedPrompt, e.cfg.SystemPrompt, imageRelPaths); err != nil {
 			return fmt.Errorf("failed to inject CLAUDE.md: %w", err)
 		}
 
@@ -229,7 +229,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 					// Build retry prompt
 					retryPrompt := buildArtifactRetryPrompt(logContent, artifactPath)
 
-					if err := InjectClaudeMD(t.WorktreePath, retryPrompt, nil); err != nil {
+					if err := InjectClaudeMD(t.WorktreePath, retryPrompt, e.cfg.SystemPrompt, nil); err != nil {
 						log.Printf("Warning: failed to inject CLAUDE.md for artifact retry: %v", err)
 						break
 					}
@@ -628,7 +628,7 @@ func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFil
 	sb.WriteString("6. Verify the code compiles after resolving conflicts (run `go build ./...` or equivalent)\n")
 	prompt := sb.String()
 
-	if err := InjectClaudeMD(t.WorktreePath, prompt, nil); err != nil {
+	if err := InjectClaudeMD(t.WorktreePath, prompt, e.cfg.SystemPrompt, nil); err != nil {
 		return fmt.Errorf("failed to inject CLAUDE.md for conflict resolution: %w", err)
 	}
 

@@ -23,6 +23,7 @@ type ProjectConfig struct {
 	Tasks                    []TaskConfig         `yaml:"tasks"`    // deprecated, use workflows.one-off
 	Notifications            *NotificationsConfig `yaml:"notifications,omitempty"`
 	TmuxNestedAttachBehavior string               `yaml:"tmux_nested_attach_behavior"`
+	SystemPrompt             string               `yaml:"system_prompt"`
 }
 
 // ProjectWorkflows is the consolidated workflows section in .sortie.yml.
@@ -247,6 +248,9 @@ type Config struct {
 	TaskWorkflows    []WorkflowConfig // "tasks" workflows (for "n" new task menu)
 	OneOff           []WorkflowConfig // "one-off" workflows (for "r" run menu)
 	InitWorkflows    []WorkflowConfig // "init" workflows (for "i" init menu)
+
+	// System prompt preamble for generated CLAUDE.md files
+	SystemPrompt string
 
 	// From global config
 	Notifications            NotificationsConfig
@@ -497,6 +501,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.TmuxNestedAttachBehavior != "" {
 		cfg.TmuxNestedAttachBehavior = proj.TmuxNestedAttachBehavior
+	}
+	if proj.SystemPrompt != "" {
+		cfg.SystemPrompt = proj.SystemPrompt
 	}
 
 	// Handle workflows section: supports three formats:

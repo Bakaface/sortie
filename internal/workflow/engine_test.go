@@ -258,7 +258,7 @@ func TestInjectClaudeMDWithImages(t *testing.T) {
 	dir := t.TempDir()
 	images := []string{".sortie/images/screenshot.png", ".sortie/images/diagram.jpg"}
 
-	err := InjectClaudeMD(dir, "Implement the feature", images)
+	err := InjectClaudeMD(dir, "Implement the feature", "", images)
 	if err != nil {
 		t.Fatalf("InjectClaudeMD failed: %v", err)
 	}
@@ -278,12 +278,16 @@ func TestInjectClaudeMDWithImages(t *testing.T) {
 	if !strings.Contains(s, ".sortie/images/diagram.jpg") {
 		t.Error("expected CLAUDE.md to reference diagram.jpg")
 	}
+	// Verify default system prompt is used when empty
+	if !strings.Contains(s, "autonomous coding agent") {
+		t.Error("expected CLAUDE.md to contain default system prompt")
+	}
 }
 
 func TestInjectClaudeMDWithoutImages(t *testing.T) {
 	dir := t.TempDir()
 
-	err := InjectClaudeMD(dir, "Implement the feature", nil)
+	err := InjectClaudeMD(dir, "Implement the feature", "", nil)
 	if err != nil {
 		t.Fatalf("InjectClaudeMD failed: %v", err)
 	}
@@ -295,6 +299,35 @@ func TestInjectClaudeMDWithoutImages(t *testing.T) {
 
 	if strings.Contains(string(content), "Attached Images") {
 		t.Error("expected CLAUDE.md to NOT contain 'Attached Images' section when no images")
+	}
+}
+
+func TestInjectClaudeMDWithCustomSystemPrompt(t *testing.T) {
+	dir := t.TempDir()
+	customPrompt := "You are a careful code reviewer. Never make changes without tests."
+
+	err := InjectClaudeMD(dir, "Review the code", customPrompt, nil)
+	if err != nil {
+		t.Fatalf("InjectClaudeMD failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("failed to read CLAUDE.md: %v", err)
+	}
+
+	s := string(content)
+	if !strings.Contains(s, customPrompt) {
+		t.Error("expected CLAUDE.md to contain custom system prompt")
+	}
+	if strings.Contains(s, "autonomous coding agent") {
+		t.Error("expected CLAUDE.md to NOT contain default system prompt when custom is provided")
+	}
+	if !strings.Contains(s, "# Task") {
+		t.Error("expected CLAUDE.md to contain task section")
+	}
+	if !strings.Contains(s, "Review the code") {
+		t.Error("expected CLAUDE.md to contain resolved prompt")
 	}
 }
 

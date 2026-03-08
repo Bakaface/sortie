@@ -1,55 +1,45 @@
-# CRITICAL: Autonomous Execution Mode
+# Sortie
 
-You are an autonomous coding agent. Work autonomously: **Do NOT ask for user input.**
-Do NOT describe what you would do — actually do it. Do NOT ask clarifying questions.
-Make decisions and implement them. If something is ambiguous, pick the best option and proceed.
+A daemon that orchestrates Claude Code agents to work through tasks in parallel.
+Each task runs in an isolated git worktree through a configurable multi-step workflow.
 
-**You MUST make actual code changes. Do NOT just describe what you would do.**
-**Do NOT exit without writing code. An empty output is a failure.**
+## Architecture
 
----
+```
+cmd/sortie/          CLI entry points (daemon, tui, task CRUD)
+internal/
+  config/            .sortie.yml parsing, project type detection
+  daemon/            Background daemon that schedules and runs tasks
+  workflow/          Task execution engine, CLAUDE.md generation, template resolution
+  claude/            Claude Code process spawning and output parsing
+  tui/               BubbleTea terminal UI for monitoring and approval
+  db/                SQLite persistence for tasks and projects
+  git/               Git worktree and merge operations
+  agent/             Agent state management
+  task/              Task lifecycle and state transitions
+  tmux/              Tmux session management for interactive tasks
+  notify/            Notification support
+  client/            Client for daemon communication
+claude-code-plugin/  Claude Code plugin with sortie-config skill
+```
 
-# Task
+## Key Concepts
 
-Implement the following task on branch `sortie/7-fix-retry-keybind-for-stale-tmux-and-com` (based on `main`).
+- **Workflow steps** are defined in `.sortie.yml` with templated prompts (`{{task.id}}`, `{{task.title}}`, etc.)
+- **`InjectClaudeMD()`** in `internal/workflow/claudemd.go` generates a CLAUDE.md in each task's worktree to instruct the spawned Claude agent
+- **Template resolution** (`internal/workflow/template.go`) interpolates task variables and prior step artifacts into prompts
+- **Git worktrees** isolate each task so parallel agents don't conflict
 
-## Task #7: Fix retry keybind for stale tmux and completed tasks
+## Development
 
-There's a known problematic state of the task.
-- Task is running in a Tmux mode, tmux session exists
-- User restarts the machine, or manually closes Tmux session
-- Task still in Tmux state, but connecting to it gives an error indicating the session no longer exists.
+```bash
+go build ./...        # Build
+go test ./...         # Test
+go build -o sortie ./cmd/sortie  # Build binary
+```
 
-I see that we already have the keybind for "retrying" the task ("r"), it appears that it doesn't work: when I press "r" on the task that is hanging in "tmux" state without "[T]" (existing tmux session indicator), nothing happens. Also, pressing "r" "completed" task also doens't seem to initiate any action.
+## Code Style
 
-Expected behavior: when user presses "r", the task should "restart", according to the workflow. We can skip the "initializing" step in this case as the task is already initialized and proceed with spinning up the workflow user selected. Keep in mind that in some cases (such as "tmux" tasks), the *branch* and *worktree* will already exist, thus we can "reuse" it.
-
-## Requirements
-- Follow existing code style and patterns in the codebase
-- Write tests for any new or changed functionality
-- Ensure `go build ./...` and `go test ./...` pass before finishing
-- Commit your changes with a clear, conventional commit message
-
-
----
-
-# Workflow
-
-Follow these phases in order:
-
-## Phase 1: Analyze
-Read the codebase to understand the architecture, patterns, and relevant files.
-
-## Phase 2: Plan
-Decide what changes to make. Identify which files to create or modify.
-
-## Phase 3: Implement
-Make the code changes. Follow existing code style and patterns.
-
-## Phase 4: Verify
-Run the build command (e.g. `go build ./...`) and fix any errors.
-Run tests if they exist and are relevant.
-
-## Phase 5: Commit
-Stage and commit your changes with a clear commit message.
-
+- Follow existing patterns in the codebase
+- Keep changes minimal and focused
+- Use BubbleTea/Lip Gloss conventions for TUI code (see `/bubbletea` skill)

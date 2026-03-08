@@ -1,5 +1,17 @@
 # Sortie Configuration Complete Reference
 
+## System Prompt
+
+```yaml
+system_prompt: |
+  You are an autonomous coding agent. Work autonomously without asking for user input.
+  Make decisions and implement them directly. If something is ambiguous, pick the best option and proceed.
+```
+
+Controls the preamble written to each task worktree's `CLAUDE.md`. When omitted, a minimal default is used that instructs Claude to work autonomously. Override this to customize agent behavior across all tasks.
+
+---
+
 ## Git Section
 
 ```yaml
@@ -209,6 +221,9 @@ default_priority: medium
 yolo: true
 validate_artifact: true
 tmux_nested_attach_behavior: switch
+system_prompt: |
+  You are an autonomous coding agent. Work autonomously without asking for user input.
+  Make decisions and implement them directly. If something is ambiguous, pick the best option and proceed.
 
 verification:
   artifact_retry: true
