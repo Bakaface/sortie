@@ -156,11 +156,21 @@ func (s *Server) handleGetTask(conn net.Conn, req GetTaskRequest) {
 }
 
 func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
+	// Kill any stale tmux sessions for this task
+	agentID := fmt.Sprintf("%d", req.TaskID)
+	if err := tmux.KillSessionsForTask(agentID); err != nil {
+		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", req.TaskID, err)
+	}
+
+	// Stop any running agent for this task
+	_ = s.manager.StopAgent(agentID)
+
 	if err := s.database.ResetTaskForRetry(req.TaskID); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
 		return
 	}
 
+	s.broadcastTaskUpdate(req.TaskID)
 	s.sendMessage(conn, MsgOK, OKResponse{Message: "task reset for retry"})
 }
 

@@ -1163,6 +1163,68 @@ func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
 	}
 }
 
+func TestHandleListKey_RRetriesTmuxTask(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false, ""),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			OneOff: []config.WorkflowConfig{
+				{Name: "Housekeeping", Description: "Clean up code"},
+			},
+		},
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 3, Title: "Stale tmux task", Status: "tmux"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Should retry, not show task selection
+	if updated.selectingTask {
+		t.Error("expected selectingTask to be false when retrying tmux task")
+	}
+	if cmd == nil {
+		t.Error("expected retry command, got nil")
+	}
+}
+
+func TestHandleListKey_RRetriesCompletedTask(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false, ""),
+		detail:      newDetailView(),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			OneOff: []config.WorkflowConfig{
+				{Name: "Housekeeping", Description: "Clean up code"},
+			},
+		},
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 7, Title: "Completed task", Status: "completed"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Should retry, not show task selection
+	if updated.selectingTask {
+		t.Error("expected selectingTask to be false when retrying completed task")
+	}
+	if cmd == nil {
+		t.Error("expected retry command, got nil")
+	}
+}
+
 func TestHandleListKey_RRefreshesWithNoTasks(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),

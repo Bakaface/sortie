@@ -262,6 +262,58 @@ func TestCreateTaskWithBranchName(t *testing.T) {
 	}
 }
 
+func TestResetTaskForRetryPreservesWorktree(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a tmux task with worktree and branch set
+	created, err := database.CreateTask(proj.ID, "Tmux task", "Description", "tmux-task", "", "", task.StatusTmux, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set worktree path and branch
+	if err := database.UpdateTaskWorktreePath(created.ID, "/tmp/worktree/tmux-task"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.FinalizeTaskIdentity(created.ID, "Tmux task", "tmux-task", "sortie/tmux-task"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reset for retry
+	if err := database.ResetTaskForRetry(created.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := database.GetTask(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if updated.Status != task.StatusPending {
+		t.Errorf("expected status 'pending', got %q", updated.Status)
+	}
+	if updated.StepIndex != 0 {
+		t.Errorf("expected step_index 0, got %d", updated.StepIndex)
+	}
+	// worktree_path and branch should be preserved
+	if updated.WorktreePath != "/tmp/worktree/tmux-task" {
+		t.Errorf("expected worktree_path to be preserved, got %q", updated.WorktreePath)
+	}
+	if updated.Branch != "sortie/tmux-task" {
+		t.Errorf("expected branch to be preserved, got %q", updated.Branch)
+	}
+}
+
 func TestResetTaskForRetryFromStep(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := Open(dbPath)

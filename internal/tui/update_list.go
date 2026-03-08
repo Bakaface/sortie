@@ -222,9 +222,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
-		// Retry if selected task is failed
+		// Retry if selected task is failed, completed, or stale tmux
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "failed" {
+			if task.Status == "failed" || task.Status == "completed" || task.Status == "tmux" {
 				return m, m.retryTask(task.ID)
 			}
 		}

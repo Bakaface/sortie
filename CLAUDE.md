@@ -11,13 +11,18 @@ Make decisions and implement them. If something is ambiguous, pick the best opti
 
 # Task
 
-Implement the following task on branch `sortie/6-dim-project-indicator-to-grey-text-with` (based on `main`).
+Implement the following task on branch `sortie/7-fix-retry-keybind-for-stale-tmux-and-com` (based on `main`).
 
-## Task #6: Dim project indicator to grey text with transparent background
+## Task #7: Fix retry keybind for stale tmux and completed tasks
 
-CUrrently the right-size project indicator has blue background and white bold font. We want to make it less prominent:
-- Background should be transparent
-- The text should be grey
+There's a known problematic state of the task.
+- Task is running in a Tmux mode, tmux session exists
+- User restarts the machine, or manually closes Tmux session
+- Task still in Tmux state, but connecting to it gives an error indicating the session no longer exists.
+
+I see that we already have the keybind for "retrying" the task ("r"), it appears that it doesn't work: when I press "r" on the task that is hanging in "tmux" state without "[T]" (existing tmux session indicator), nothing happens. Also, pressing "r" "completed" task also doens't seem to initiate any action.
+
+Expected behavior: when user presses "r", the task should "restart", according to the workflow. We can skip the "initializing" step in this case as the task is already initialized and proceed with spinning up the workflow user selected. Keep in mind that in some cases (such as "tmux" tasks), the *branch* and *worktree* will already exist, thus we can "reuse" it.
 
 ## Requirements
 - Follow existing code style and patterns in the codebase
