@@ -1,0 +1,95 @@
+---
+name: client
+description: >
+  Sortie's IPC client: Unix socket connection to daemon, request-response RPC,
+  subscription-based event streaming, and agent output consumption. Use when editing
+  files in internal/client/, working on daemon communication, task/agent RPC methods,
+  or event subscription handling.
+---
+
+# Client (TUI-to-Daemon Bridge)
+
+`internal/client/` provides the sole IPC interface between the TUI (or any consumer) and the background daemon.
+
+## Client Struct
+
+```go
+type Client struct {
+    cfg       *config.Config
+    conn      net.Conn
+    respChan  chan *daemon.Message  // Request-response messages
+    subChan   chan *daemon.Message  // Subscription broadcast messages
+    errChan   chan error
+    done      chan struct{}
+}
+
+New(cfg *config.Config) *Client
+Connect() error
+Close() error
+```
+
+## Connection Lifecycle
+
+1. `New(cfg)` — creates client with config (socket path from `cfg.SocketPath`)
+2. `Connect()` — dials Unix socket, starts background reader goroutine that routes messages to `respChan` or `subChan`
+3. Use RPC methods for request-response
+4. `Subscribe()` / `Unsubscribe()` to receive broadcast events via `Messages()`
+5. `Close()` — shuts down connection and channels
+
+## RPC Methods
+
+### Agent Operations
+```go
+ListAgents() ([]daemon.AgentInfo, error)
+StartAgent(taskID int64) error
+StopAgent(agentID string) error
+GetOutput(agentID string, fromLine int) ([]string, int, error)
+SendInput(agentID, input string) error
+```
+
+### Task Operations
+```go
+ListTasks() ([]daemon.TaskInfo, error)
+ListTasksFiltered(projectID int64) ([]daemon.TaskInfo, error)
+ListTasksByProjectName(name string) ([]daemon.TaskInfo, error)
+GetTask(id int64) (*daemon.TaskInfo, error)
+CreateTask(description, workflow, branchName, projectPath string, worktree bool, images []string) (*daemon.TaskInfo, error)
+CreateTaskWithOptions(req daemon.CreateTaskRequest) (*daemon.TaskInfo, error)
+RetryTask(id int64) error
+ContinueTask(id int64, workflow, prompt string) error
+FinalizeTask(id int64) error
+UpdateTaskPriority(id int64, priority string) error
+UpdateTaskField(id int64, field, value string) error
+DeleteTask(id int64) error
+StopTask(id int64) error
+GetLogs(id int64, step string, tail int) ([]string, error)
+```
+
+### System
+```go
+Ping() error
+Subscribe() error
+Unsubscribe() error
+```
+
+## Event Streaming
+
+```go
+Messages() <-chan *daemon.Message   // Broadcast events (agent_update, task_update, output_chunk)
+Errors() <-chan error               // Connection errors
+```
+
+After `Subscribe()`, daemon pushes real-time events. Use `ParseAgentUpdate()` to decode agent state changes:
+
+```go
+// Package-level helper
+ParseAgentUpdate(msg *daemon.Message) (*daemon.AgentInfo, error)
+```
+
+## Patterns
+
+- All RPC methods are synchronous: send request, wait on `respChan` for response
+- Subscription events arrive on `subChan`, consumed via `Messages()`
+- Background reader goroutine routes messages by type (broadcast types -> `subChan`, others -> `respChan`)
+- `Close()` uses `sync.Once` to prevent double-close panics
+- Error channel signals connection failures to consumer

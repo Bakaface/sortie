@@ -14,11 +14,24 @@ Two files: `operations.go` (core git commands) and `worktree.go` (worktree lifec
 ## Worktree Management
 
 ```go
-CreateWorktree(repoRoot, worktreePath, branchName, baseBranch)  // git worktree add -b
-RemoveWorktree(repoRoot, worktreePath)                          // force remove + os.RemoveAll
-ListWorktrees(repoRoot)                                         // filters "sortie-*" prefix
-CleanupWorktrees(repoRoot)                                      // git worktree prune
+const WorktreePrefix = "sortie-task-"
+
+type Worktree struct {
+    Path        string
+    Branch      string
+    RepoRoot    string
+    WorktreeDir string
+}
+
+CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string) (*Worktree, error)
+RemoveWorktree(repoRoot, worktreePath string) error
+ListWorktrees(repoRoot string) ([]string, error)   // Filters "sortie-*" prefix paths
+CleanupWorktrees(repoRoot string) error             // git worktree prune
+IsGitRepo(path string) bool
+GetRepoRoot(path string) (string, error)
 ```
+
+Worktree path convention: `<repoRoot>/.sortie/worktrees/<branchName-with-slashes-as-dashes>`
 
 `CreateWorktree` handles "already exists" by falling back to plain checkout.
 
@@ -31,6 +44,8 @@ CleanupWorktrees(repoRoot)                                      // git worktree 
 | `MergeBranch(repoRoot, base, branch, msg)` | Checkout base -> `merge --squash` -> commit |
 | `RebaseBranch(dir, baseBranch)` | Rebase with auto-abort on failure |
 | `DiffStat(dir, baseBranch)` | merge-base -> `diff --stat` |
+| `GetCurrentBranch(dir)` | Current branch name |
+| `HasChanges(dir)` | Whether working tree has uncommitted changes |
 
 ## Conflict Resolution
 
@@ -43,10 +58,18 @@ AbortMerge(dir)                  // git merge --abort
 
 Used by workflow engine's `resolveConflicts()` which spawns Claude to fix conflict markers.
 
+## Branch Operations
+
+```go
+DeleteBranch(repoRoot, branch string) error       // Normal delete
+ForceDeleteBranch(repoRoot, branch string) error   // Force delete
+GetLastCommitMessage(workDir string) (string, error)
+```
+
 ## Commit Message Utilities
 
 - `ConventionalCommitFromTitle(title)` — freeform text -> conventional commit format
-- `GetSquashCommitMessage(dir, baseBranch)` — search branch commits for conventional format, fallback to first subject
+- `GetSquashCommitMessage(repoRoot, baseBranch, branch, fallback)` — search branch commits for conventional format, fallback to first subject
 
 ## Patterns
 

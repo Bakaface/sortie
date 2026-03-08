@@ -41,6 +41,43 @@ See [references/protocol.md](references/protocol.md) for all message types and p
 
 JSON + newline framing, 10MB scanner buffer. `Message{Type, Payload}` structure.
 
+Key message types include `MsgShutdown` for graceful daemon shutdown.
+
+## Protocol Types
+
+### AgentInfo (protocol-facing, simplified)
+```go
+type AgentInfo struct {
+    ID          string
+    TaskID      int64
+    Description string
+    WorkDir     string
+    State       AgentState  // pending|starting|running|waiting_for_input|completed|failed|stopped
+    StartedAt   time.Time
+    Error       string
+}
+```
+
+Note: `AgentInfo` in protocol does NOT have `PID`, `CurrentStep`, `StepIndex`, or `Duration`. Those fields exist only on `agent.Agent` internally.
+
+### TaskInfo
+```go
+type TaskInfo struct {
+    ID, ProjectID                           int64
+    ProjectName, ProjectPath                string    // Populated from project lookup
+    Title, Description, Slug, Workflow      string
+    Status, Priority                        string
+    StepIndex, LoopIteration                int
+    CurrentStep, BranchName, Branch         string
+    Worktree                                bool
+    WorktreePath, ErrorMessage, Context     string
+    BlockedBy                               []int64
+    Images                                  []string
+    CreatedAt                               time.Time
+    StartedAt, CompletedAt                  *time.Time
+}
+```
+
 ## Handler Patterns
 
 - Handlers receive `(conn, payload)`, respond via `sendMessage()` or `sendError()`

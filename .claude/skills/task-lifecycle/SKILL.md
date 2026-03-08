@@ -15,8 +15,9 @@ description: >
 type Task struct {
     ID, ProjectID             int64
     Title, Description, Slug  string
-    Workflow, Status           string
-    Priority                   string    // low|medium|high|urgent
+    Workflow                   string
+    Status                     Status    // typed string enum
+    Priority                   Priority  // typed string enum
     StepIndex                  int
     CurrentStep                string
     LoopIteration              int
@@ -46,7 +47,12 @@ pending -> init -> running -+-> awaiting-approval -> running (resumed)
 ```
 
 **Terminal:** `completed`, `failed`
-**Waiting:** `awaiting-approval`, `tmux`, `artifact-missing`
+**Active:** `running`, `awaiting-approval`, `tmux`, `finalizing`, `summarizing`, `merge-blocked`, `artifact-missing`
+
+```go
+func (s Status) IsTerminal() bool  // completed, failed
+func (s Status) IsActive() bool    // running, awaiting-approval, tmux, finalizing, summarizing, merge-blocked, artifact-missing
+```
 
 ## Priority
 
@@ -57,11 +63,17 @@ pending -> init -> running -+-> awaiting-approval -> running (resumed)
 | medium   | 2     | Default |
 | low      | 1     | Last |
 
+```go
+func (p Priority) Value() int          // Returns numeric value (1-4, default 2)
+func ValidPriorities() []Priority      // [low, medium, high, urgent]
+func IsValidPriority(s string) bool    // Checks against valid list
+```
+
 `GetClaimableTasks()` orders by priority desc, then `created_at` asc.
 
 ## Title Handling
 
-- `SanitizeTitle()`: first line, collapse whitespace, strip control chars, max 80 chars
+- `SanitizeTitle()`: first line, collapse whitespace, strip control chars, max 80 chars (`MaxTitleLength`)
 - `Slugify()`: lowercase, non-alphanumeric -> hyphens, trim, max 40 chars
 
 ## Patterns
