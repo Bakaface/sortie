@@ -158,8 +158,12 @@ func (s *Server) handleGetTask(conn net.Conn, req GetTaskRequest) {
 func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 	// Kill any stale tmux sessions for this task
 	agentID := fmt.Sprintf("%d", req.TaskID)
-	if err := tmux.KillSessionsForTask(agentID); err != nil {
-		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", req.TaskID, err)
+	if t, err := s.database.GetTask(req.TaskID); err == nil {
+		if pc, err := s.getProjectContext(t.ProjectID); err == nil {
+			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
+				log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", req.TaskID, err)
+			}
+		}
 	}
 
 	// Stop any running agent for this task
@@ -183,8 +187,10 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 
 	if t.Status == task.StatusAwaitingApproval || t.Status == task.StatusTmux {
 		agentID := fmt.Sprintf("%d", t.ID)
-		if err := tmux.KillSessionsForTask(agentID); err != nil {
-			log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+		if pc, err := s.getProjectContext(t.ProjectID); err == nil {
+			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
+				log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+			}
 		}
 
 		origStatus := t.Status
@@ -302,7 +308,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 
 	taskID := fmt.Sprintf("%d", t.ID)
-	session := tmux.NewStepSession(taskID, "continue", t.WorktreePath)
+	session := tmux.NewSession(pc.cfg.Project.Name, taskID, t.WorktreePath)
 
 	if session.Exists() {
 		session.Kill()
@@ -353,16 +359,16 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 		return
 	}
 
-	// Kill tmux sessions
-	agentID := fmt.Sprintf("%d", t.ID)
-	if err := tmux.KillSessionsForTask(agentID); err != nil {
-		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
-	}
-
 	pc, err := s.getProjectContext(t.ProjectID)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to get project context: %v", err))
 		return
+	}
+
+	// Kill tmux sessions
+	agentID := fmt.Sprintf("%d", t.ID)
+	if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
+		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
 	}
 
 	// Fast-track: if no meaningful changes were made, skip full finalization
@@ -696,8 +702,10 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 	agentID := fmt.Sprintf("%d", t.ID)
 	_ = s.manager.StopAgent(agentID)
 
-	if err := tmux.KillSessionsForTask(agentID); err != nil {
-		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+	if pc, err := s.getProjectContext(t.ProjectID); err == nil {
+		if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
+			log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+		}
 	}
 
 	repoRoot := s.getProjectRepoRoot(t)

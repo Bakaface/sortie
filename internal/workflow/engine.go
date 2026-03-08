@@ -846,7 +846,7 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 	}
 
 	taskID := fmt.Sprintf("%d", t.ID)
-	session := tmux.NewStepSession(taskID, step.Name, t.WorktreePath)
+	session := tmux.NewSession(e.cfg.Project.Name, taskID, t.WorktreePath)
 
 	// Kill stale session if exists (handles retries)
 	if session.Exists() {
@@ -906,8 +906,8 @@ exec bash
 		outputFn(logLines)
 	}
 
-	log.Printf("Tmux session %q started for task #%d step %q (attach with: sortie attach %s %s)",
-		session.Name, t.ID, step.Name, taskID, step.Name)
+	log.Printf("Tmux session %q started for task #%d step %q (attach with: sortie attach %s)",
+		session.Name, t.ID, step.Name, taskID)
 
 	// Fire-and-forget: return immediately, workflow will pause at approval gate
 	return 0, "", nil
@@ -920,7 +920,7 @@ func writeTmuxLogMessage(logPath string, taskID int64, stepName, sessionName, ta
 	lines := []string{
 		fmt.Sprintf("[%s] === Step: %s (task #%d) ===", ts, stepName, taskID),
 		fmt.Sprintf("[%s] Tmux session %q initiated", ts, sessionName),
-		fmt.Sprintf("[%s] Attach with: sortie attach %s %s", ts, taskIDStr, stepName),
+		fmt.Sprintf("[%s] Attach with: sortie attach %s", ts, taskIDStr),
 	}
 
 	logFile, err := os.Create(logPath)

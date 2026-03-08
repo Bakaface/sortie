@@ -8,24 +8,19 @@ import (
 	"strings"
 )
 
-const SessionPrefix = "sortie-"
+// SessionPrefix returns the tmux session name prefix for a given project.
+func SessionPrefix(projectName string) string {
+	return projectName + "-"
+}
 
 type Session struct {
 	Name    string
 	WorkDir string
 }
 
-func NewSession(taskID, workDir string) *Session {
+func NewSession(projectName, taskID, workDir string) *Session {
 	return &Session{
-		Name:    SessionPrefix + taskID,
-		WorkDir: workDir,
-	}
-}
-
-// NewStepSession creates a session with name format: sortie-<taskID>-<stepName>
-func NewStepSession(taskID, stepName, workDir string) *Session {
-	return &Session{
-		Name:    SessionPrefix + taskID + "-" + stepName,
+		Name:    SessionPrefix(projectName) + taskID,
 		WorkDir: workDir,
 	}
 }
@@ -166,14 +161,15 @@ func ListSessions(prefix string) ([]*Session, error) {
 }
 
 // ExtractTaskID extracts the task ID from a session name.
-// Handles both "sortie-<taskID>" and "sortie-<taskID>-<stepName>".
-func ExtractTaskID(sessionName string) string {
-	if !strings.HasPrefix(sessionName, SessionPrefix) {
+// Strips the projectName prefix, then returns the next numeric segment.
+func ExtractTaskID(projectName, sessionName string) string {
+	prefix := SessionPrefix(projectName)
+	if !strings.HasPrefix(sessionName, prefix) {
 		return sessionName
 	}
-	rest := sessionName[len(SessionPrefix):]
-	// rest is either "<taskID>" or "<taskID>-<stepName>"
-	// Task IDs are numeric, so split on first non-numeric dash
+	rest := sessionName[len(prefix):]
+	// rest is "<taskID>" — task IDs are numeric
+	// If there's a dash (legacy format), return only the numeric part
 	if idx := strings.Index(rest, "-"); idx > 0 {
 		return rest[:idx]
 	}
@@ -193,9 +189,9 @@ func (s *Session) PipePane(logFile string) error {
 	return nil
 }
 
-// KillSessionsForTask kills all tmux sessions matching sortie-<taskID>-*.
-func KillSessionsForTask(taskID string) error {
-	prefix := SessionPrefix + taskID + "-"
+// KillSessionsForTask kills the tmux session matching <projectName>-<taskID>.
+func KillSessionsForTask(projectName, taskID string) error {
+	prefix := SessionPrefix(projectName) + taskID
 	sessions, err := ListSessions(prefix)
 	if err != nil {
 		return err

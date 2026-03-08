@@ -357,23 +357,24 @@ func findLogFile(logsDir, currentStep string) (string, error) {
 
 func (m Model) attachTmuxSession(taskID int64) tea.Cmd {
 	taskIDStr := fmt.Sprintf("%d", taskID)
-	prefix := tmux.SessionPrefix + taskIDStr + "-"
-	sessions, err := tmux.ListSessions(prefix)
-	if err != nil {
-		return func() tea.Msg {
-			return errorMsg(fmt.Errorf("failed to list tmux sessions: %w", err))
-		}
+	projectName := ""
+	if m.cfg != nil {
+		projectName = m.cfg.Project.Name
 	}
-	if len(sessions) == 0 {
+	session := tmux.NewSession(projectName, taskIDStr, "")
+	if !session.Exists() {
 		return func() tea.Msg {
 			return errorMsg(fmt.Errorf("no tmux session found for task #%d", taskID))
 		}
 	}
 
-	sessionName := sessions[len(sessions)-1].Name
+	sessionName := session.Name
 
 	if tmux.IsInsideTmux() {
-		behavior := m.cfg.TmuxNestedAttachBehavior
+		behavior := ""
+		if m.cfg != nil {
+			behavior = m.cfg.TmuxNestedAttachBehavior
+		}
 		if behavior == "" {
 			behavior = "switch"
 		}
@@ -406,14 +407,18 @@ func (m Model) attachTmuxSession(taskID int64) tea.Cmd {
 }
 
 func (m Model) checkTmuxSessions() tea.Cmd {
+	projectName := ""
+	if m.cfg != nil {
+		projectName = m.cfg.Project.Name
+	}
 	return func() tea.Msg {
-		sessions, err := tmux.ListSessions(tmux.SessionPrefix)
+		sessions, err := tmux.ListSessions(tmux.SessionPrefix(projectName))
 		if err != nil {
 			return nil
 		}
 		result := make(map[int64]bool)
 		for _, s := range sessions {
-			taskIDStr := tmux.ExtractTaskID(s.Name)
+			taskIDStr := tmux.ExtractTaskID(projectName, s.Name)
 			if taskID, err := strconv.ParseInt(taskIDStr, 10, 64); err == nil {
 				result[taskID] = true
 			}

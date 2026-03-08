@@ -363,11 +363,15 @@ func (s *Server) Shutdown() {
 
 	s.manager.Shutdown(30 * time.Second)
 
-	if sessions, err := tmux.ListSessions(tmux.SessionPrefix); err == nil {
-		for _, sess := range sessions {
-			sess.Kill()
+	s.projectsMu.RLock()
+	for _, pc := range s.projects {
+		if sessions, err := tmux.ListSessions(tmux.SessionPrefix(pc.cfg.Project.Name)); err == nil {
+			for _, sess := range sessions {
+				sess.Kill()
+			}
 		}
 	}
+	s.projectsMu.RUnlock()
 
 	s.cancel()
 

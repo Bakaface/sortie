@@ -305,7 +305,7 @@ func TestWriteTmuxLogMessage(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "step.log")
 
-	lines := writeTmuxLogMessage(logPath, 42, "implement", "sortie-42-implement", "42")
+	lines := writeTmuxLogMessage(logPath, 42, "implement", "sortie-42", "42")
 
 	// Verify returned lines
 	if len(lines) != 3 {
@@ -314,10 +314,10 @@ func TestWriteTmuxLogMessage(t *testing.T) {
 	if !strings.Contains(lines[0], "=== Step: implement (task #42) ===") {
 		t.Errorf("expected step header in line 0, got: %s", lines[0])
 	}
-	if !strings.Contains(lines[1], `Tmux session "sortie-42-implement" initiated`) {
+	if !strings.Contains(lines[1], `Tmux session "sortie-42" initiated`) {
 		t.Errorf("expected tmux session initiated message in line 1, got: %s", lines[1])
 	}
-	if !strings.Contains(lines[2], "Attach with: sortie attach 42 implement") {
+	if !strings.Contains(lines[2], "Attach with: sortie attach 42") {
 		t.Errorf("expected attach instructions in line 2, got: %s", lines[2])
 	}
 
@@ -333,7 +333,7 @@ func TestWriteTmuxLogMessage(t *testing.T) {
 	if !strings.Contains(logContent, "Tmux session") {
 		t.Error("log file missing tmux session message")
 	}
-	if !strings.Contains(logContent, "sortie attach 42 implement") {
+	if !strings.Contains(logContent, "sortie attach 42") {
 		t.Error("log file missing attach instructions")
 	}
 }
@@ -347,7 +347,7 @@ func TestWriteTmuxLogMessageCallsOutputFn(t *testing.T) {
 		captured = append(captured, lines...)
 	}
 
-	lines := writeTmuxLogMessage(logPath, 7, "review", "sortie-7-review", "7")
+	lines := writeTmuxLogMessage(logPath, 7, "review", "sortie-7", "7")
 	outputFn(lines)
 
 	if len(captured) != 3 {

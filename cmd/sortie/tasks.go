@@ -492,9 +492,9 @@ func cleanupTask(database *db.DB, taskID int64) error {
 }
 
 var attachCmd = &cobra.Command{
-	Use:               "attach <task_id> [step]",
+	Use:               "attach <task_id>",
 	Short:             "Attach to a task's tmux session",
-	Args:              cobra.RangeArgs(1, 2),
+	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeTaskIDs(task.StatusRunning, task.StatusTmux),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID := args[0]
@@ -506,28 +506,12 @@ var attachCmd = &cobra.Command{
 			return fmt.Errorf("tmux is not installed or not in PATH")
 		}
 
-		var sessionName string
-
-		if len(args) == 2 {
-			step := args[1]
-			session := tmux.NewStepSession(taskID, step, "")
-			if !session.Exists() {
-				return fmt.Errorf("no tmux session found for task #%s step %q", taskID, step)
-			}
-			sessionName = session.Name
-		} else {
-			prefix := tmux.SessionPrefix + taskID + "-"
-			sessions, err := tmux.ListSessions(prefix)
-			if err != nil {
-				return fmt.Errorf("failed to list tmux sessions: %w", err)
-			}
-			if len(sessions) == 0 {
-				return fmt.Errorf("no tmux sessions found for task #%s", taskID)
-			}
-			sessionName = sessions[len(sessions)-1].Name
+		session := tmux.NewSession(cfg.Project.Name, taskID, "")
+		if !session.Exists() {
+			return fmt.Errorf("no tmux session found for task #%s", taskID)
 		}
 
-		attach := tmux.AttachCommand(sessionName)
+		attach := tmux.AttachCommand(session.Name)
 		attach.Stdin = os.Stdin
 		attach.Stdout = os.Stdout
 		attach.Stderr = os.Stderr

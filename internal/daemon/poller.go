@@ -166,7 +166,14 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 	}
 
 	taskID := fmt.Sprintf("%d", t.ID)
-	session := tmux.NewStepSession(taskID, "continue", t.WorktreePath)
+
+	pc, _ := s.getProjectContext(t.ProjectID)
+	projectName := ""
+	if pc != nil {
+		projectName = pc.cfg.Project.Name
+	}
+
+	session := tmux.NewSession(projectName, taskID, t.WorktreePath)
 
 	if session.Exists() {
 		log.Printf("Tmux session already exists for task #%d, skipping restore", t.ID)
@@ -179,7 +186,7 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 	}
 
 	claudeCmd := "claude"
-	if pc, err := s.getProjectContext(t.ProjectID); err == nil && pc.cfg.Claude.Yolo {
+	if pc != nil && pc.cfg.Claude.Yolo {
 		claudeCmd = "claude --dangerously-skip-permissions"
 	}
 

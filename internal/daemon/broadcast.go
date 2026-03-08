@@ -31,8 +31,10 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		if err := s.database.UpdateTaskStatus(a.Task.ID, task.StatusCompleted); err != nil {
 			log.Printf("Failed to update task status: %v", err)
 		}
-		if err := tmux.KillSessionsForTask(a.ID); err != nil {
-			log.Printf("Warning: failed to kill tmux sessions for task %s: %v", a.ID, err)
+		if pc, err := s.getProjectContext(a.Task.ProjectID); err == nil {
+			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, a.ID); err != nil {
+				log.Printf("Warning: failed to kill tmux sessions for task %s: %v", a.ID, err)
+			}
 		}
 		s.notifier.AgentCompleted(a.ID, taskTitle)
 
@@ -43,8 +45,10 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		if err := s.database.UpdateTaskError(a.Task.ID, a.Error); err != nil {
 			log.Printf("Failed to update task error: %v", err)
 		}
-		if err := tmux.KillSessionsForTask(a.ID); err != nil {
-			log.Printf("Warning: failed to kill tmux sessions for task %s: %v", a.ID, err)
+		if pc, err := s.getProjectContext(a.Task.ProjectID); err == nil {
+			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, a.ID); err != nil {
+				log.Printf("Warning: failed to kill tmux sessions for task %s: %v", a.ID, err)
+			}
 		}
 		s.notifier.AgentFailed(a.ID, taskTitle, a.Error)
 
