@@ -254,80 +254,50 @@ func TestTemplateTaskImagesEmpty(t *testing.T) {
 	}
 }
 
-func TestInjectClaudeMDWithImages(t *testing.T) {
-	dir := t.TempDir()
+func TestBuildSystemPromptWithImages(t *testing.T) {
 	images := []string{".sortie/images/screenshot.png", ".sortie/images/diagram.jpg"}
 
-	err := InjectClaudeMD(dir, "Implement the feature", "", images)
-	if err != nil {
-		t.Fatalf("InjectClaudeMD failed: %v", err)
-	}
+	s := BuildSystemPrompt("Implement the feature", "", images)
 
-	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if err != nil {
-		t.Fatalf("failed to read CLAUDE.md: %v", err)
-	}
-
-	s := string(content)
 	if !strings.Contains(s, "Attached Images") {
-		t.Error("expected CLAUDE.md to contain 'Attached Images' section")
+		t.Error("expected system prompt to contain 'Attached Images' section")
 	}
 	if !strings.Contains(s, ".sortie/images/screenshot.png") {
-		t.Error("expected CLAUDE.md to reference screenshot.png")
+		t.Error("expected system prompt to reference screenshot.png")
 	}
 	if !strings.Contains(s, ".sortie/images/diagram.jpg") {
-		t.Error("expected CLAUDE.md to reference diagram.jpg")
+		t.Error("expected system prompt to reference diagram.jpg")
 	}
 	// Verify default system prompt is used when empty
 	if !strings.Contains(s, "autonomous coding agent") {
-		t.Error("expected CLAUDE.md to contain default system prompt")
+		t.Error("expected system prompt to contain default system prompt")
 	}
 }
 
-func TestInjectClaudeMDWithoutImages(t *testing.T) {
-	dir := t.TempDir()
+func TestBuildSystemPromptWithoutImages(t *testing.T) {
+	s := BuildSystemPrompt("Implement the feature", "", nil)
 
-	err := InjectClaudeMD(dir, "Implement the feature", "", nil)
-	if err != nil {
-		t.Fatalf("InjectClaudeMD failed: %v", err)
-	}
-
-	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if err != nil {
-		t.Fatalf("failed to read CLAUDE.md: %v", err)
-	}
-
-	if strings.Contains(string(content), "Attached Images") {
-		t.Error("expected CLAUDE.md to NOT contain 'Attached Images' section when no images")
+	if strings.Contains(s, "Attached Images") {
+		t.Error("expected system prompt to NOT contain 'Attached Images' section when no images")
 	}
 }
 
-func TestInjectClaudeMDWithCustomSystemPrompt(t *testing.T) {
-	dir := t.TempDir()
+func TestBuildSystemPromptWithCustomSystemPrompt(t *testing.T) {
 	customPrompt := "You are a careful code reviewer. Never make changes without tests."
 
-	err := InjectClaudeMD(dir, "Review the code", customPrompt, nil)
-	if err != nil {
-		t.Fatalf("InjectClaudeMD failed: %v", err)
-	}
+	s := BuildSystemPrompt("Review the code", customPrompt, nil)
 
-	content, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if err != nil {
-		t.Fatalf("failed to read CLAUDE.md: %v", err)
-	}
-
-	s := string(content)
 	if !strings.Contains(s, customPrompt) {
-		t.Error("expected CLAUDE.md to contain custom system prompt")
+		t.Error("expected system prompt to contain custom system prompt")
 	}
 	if strings.Contains(s, "autonomous coding agent") {
-		t.Error("expected CLAUDE.md to NOT contain default system prompt when custom is provided")
+		t.Error("expected system prompt to NOT contain default system prompt when custom is provided")
 	}
 	if !strings.Contains(s, "# Task") {
-		t.Error("expected CLAUDE.md to contain task section")
+		t.Error("expected system prompt to contain task section")
 	}
 	if !strings.Contains(s, "Review the code") {
-		t.Error("expected CLAUDE.md to contain resolved prompt")
+		t.Error("expected system prompt to contain resolved prompt")
 	}
 }
 

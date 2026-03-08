@@ -251,7 +251,7 @@ type Config struct {
 	OneOff           []WorkflowConfig // "one-off" workflows (for "r" run menu)
 	InitWorkflows    []WorkflowConfig // "init" workflows (for "i" init menu)
 
-	// System prompt preamble for generated CLAUDE.md files
+	// System prompt preamble passed via --system-prompt to Claude agents
 	SystemPrompt string
 
 	// Paths to sync from project root into new worktrees

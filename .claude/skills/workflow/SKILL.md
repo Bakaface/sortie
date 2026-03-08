@@ -1,7 +1,7 @@
 ---
 name: workflow
 description: >
-  Sortie's workflow engine: task execution, template resolution, CLAUDE.md injection,
+  Sortie's workflow engine: task execution, template resolution, system prompt injection,
   artifact handling, and merge/conflict resolution. Use when editing files in
   internal/workflow/, working on step execution, prompt templates, artifact I/O,
   loop conditions, summarizer, or on_complete actions.
@@ -17,7 +17,7 @@ description: >
    - Collect artifacts from prior `artifact: true` steps
    - Build `TemplateContext`, resolve prompt via `ResolveTemplate()`
    - Append artifact instruction if `step.Artifact == true`
-   - `InjectClaudeMD()` writes CLAUDE.md in worktree
+   - `BuildSystemPrompt()` constructs system prompt string (passed via `--system-prompt` flag)
    - Spawn Claude (direct or tmux mode)
    - Validate meaningful code changes (skip for human/tmux)
    - Verify artifact written (retry if configured)
@@ -30,16 +30,16 @@ description: >
 |------|---------|
 | `engine.go` | Core orchestrator: `RunTask()`, `runClaudeStep()`, `runClaudeStepTmux()`, `executeOnComplete()`, `FinalizeTask()`, `ResumeAfterApproval()`, `resolveConflicts()`, `runSummarizer()` |
 | `template.go` | `{{placeholder}}` interpolation via `ResolveTemplate()` |
-| `claudemd.go` | `InjectClaudeMD()` — writes instruction file for spawned Claude agents |
+| `system-prompt.go` | `BuildSystemPrompt()` — builds system prompt string for spawned Claude agents |
 | `artifact.go` | Directory management, artifact read/write, image copying |
 
 ## Template System
 
 See [references/templates.md](references/templates.md) for supported placeholders and context struct.
 
-## CLAUDE.md Injection
+## System Prompt Injection
 
-`InjectClaudeMD(worktreePath, resolvedPrompt, systemPrompt, imageRelPaths)` writes:
+`BuildSystemPrompt(resolvedPrompt, systemPrompt, imageRelPaths)` returns a string containing:
 
 ```
 [systemPrompt or default autonomous agent prompt]
@@ -49,6 +49,9 @@ See [references/templates.md](references/templates.md) for supported placeholder
 ## Attached Images
 - image paths
 ```
+
+This string is passed to Claude via the `--system-prompt` flag rather than written to a file,
+preventing task-specific instructions from leaking into git history.
 
 ## Directory Structure
 

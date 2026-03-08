@@ -177,9 +177,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			artifactPath := filepath.Join(artifactsDir, step.Name+".md")
 			resolvedPrompt += fmt.Sprintf("\n\n---\n\nIMPORTANT: When you are done, write a summary of what you did to `%s`. Include: files changed, decisions made, and any issues encountered. This artifact is required for subsequent workflow steps.", artifactPath)
 		}
-		if err := InjectClaudeMD(t.WorktreePath, resolvedPrompt, e.cfg.SystemPrompt, imageRelPaths); err != nil {
-			return fmt.Errorf("failed to inject CLAUDE.md: %w", err)
-		}
+		sysPrompt := BuildSystemPrompt(resolvedPrompt, e.cfg.SystemPrompt, imageRelPaths)
 
 		// Set environment variables
 		env := map[string]string{
@@ -195,9 +193,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		var outputTail string
 		var err error
 		if useTmux {
-			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env, outputFn)
+			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
 		} else {
-			exitCode, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn)
+			exitCode, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
 		}
 		if err != nil {
 			e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
@@ -216,7 +214,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		// Validate that the step produced meaningful changes
 		// Skip for review steps and tmux steps (agent may still be working)
 		if !step.Human && !useTmux {
-			noiseFiles := []string{".claude-output.log", "CLAUDE.md"}
+			noiseFiles := []string{".claude-output.log"}
 			hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
 			if err != nil {
 				log.Printf("Warning: failed to check for changes in step %q: %v", step.Name, err)
@@ -244,10 +242,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 					// Build retry prompt
 					retryPrompt := buildArtifactRetryPrompt(logContent, artifactPath)
 
-					if err := InjectClaudeMD(t.WorktreePath, retryPrompt, e.cfg.SystemPrompt, nil); err != nil {
-						log.Printf("Warning: failed to inject CLAUDE.md for artifact retry: %v", err)
-						break
-					}
+					retrySysPrompt := BuildSystemPrompt(retryPrompt, e.cfg.SystemPrompt, nil)
 
 					retryStep := config.StepConfig{
 						Name:    step.Name + "-artifact-retry",
@@ -259,7 +254,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 						"SORTIE_WORKTREE": t.WorktreePath,
 					}
 
-					retryExit, _, retryErr := e.runClaudeStep(ctx, t, retryStep, retryPrompt, retryEnv, outputFn)
+					retryExit, _, retryErr := e.runClaudeStep(ctx, t, retryStep, retryPrompt, retryEnv, outputFn, retrySysPrompt)
 					if retryErr != nil {
 						log.Printf("Warning: artifact retry agent failed: %v", retryErr)
 						break
@@ -652,9 +647,7 @@ func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFil
 	sb.WriteString("6. Verify the code compiles after resolving conflicts (run `go build ./...` or equivalent)\n")
 	prompt := sb.String()
 
-	if err := InjectClaudeMD(t.WorktreePath, prompt, e.cfg.SystemPrompt, nil); err != nil {
-		return fmt.Errorf("failed to inject CLAUDE.md for conflict resolution: %w", err)
-	}
+	conflictSysPrompt := BuildSystemPrompt(prompt, e.cfg.SystemPrompt, nil)
 
 	step := config.StepConfig{
 		Name:    "resolve-conflicts",
@@ -667,7 +660,7 @@ func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFil
 		"SORTIE_WORKTREE": t.WorktreePath,
 	}
 
-	exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, prompt, env, outputFn)
+	exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, prompt, env, outputFn, conflictSysPrompt)
 	if err != nil {
 		return fmt.Errorf("conflict resolution claude process failed: %w", err)
 	}
@@ -687,7 +680,7 @@ func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn
 	return e.RunTask(ctx, t, outputFn)
 }
 
-func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string)) (int, string, error) {
+func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, error) {
 	proc := claude.NewProcess(fmt.Sprintf("%d", t.ID), t.WorktreePath, &e.cfg.Claude)
 
 	// Apply step timeout
@@ -746,7 +739,7 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	// Set environment on the child process (not the daemon's global env)
 	proc.SetEnv(envVars)
 
-	if err := proc.StartWithPrompt(prompt); err != nil {
+	if err := proc.StartWithPrompt(prompt, systemPrompt...); err != nil {
 		return 1, "", fmt.Errorf("failed to start claude: %w", err)
 	}
 
@@ -844,7 +837,7 @@ func buildArtifactRetryPrompt(logContent, artifactPath string) string {
 // immediately. The tmux session persists for the user to attach and interact with.
 // The workflow engine treats tmux steps as human steps, so the task will pause
 // at tmux status until the user manually approves.
-func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string)) (int, string, error) {
+func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, error) {
 	if !tmux.IsAvailable() {
 		return 1, "", fmt.Errorf("tmux is not installed or not in PATH (required for tmux mode)")
 	}
@@ -879,7 +872,15 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 	// Write wrapper script: run Claude interactively, then drop to bash for inspection
 	claudeCmd := "claude"
 	if e.cfg.Claude.Yolo {
-		claudeCmd = "claude --dangerously-skip-permissions"
+		claudeCmd += " --dangerously-skip-permissions"
+	}
+	if len(systemPrompt) > 0 && systemPrompt[0] != "" {
+		// Write system prompt to file to avoid shell quoting issues
+		sysPromptFile := filepath.Join(sortieDir, fmt.Sprintf("step-sysprompt-%s.txt", step.Name))
+		if err := os.WriteFile(sysPromptFile, []byte(systemPrompt[0]), 0644); err != nil {
+			return 1, "", fmt.Errorf("failed to write system prompt file: %w", err)
+		}
+		claudeCmd += fmt.Sprintf(" --system-prompt \"$(cat %q)\"", sysPromptFile)
 	}
 	script := fmt.Sprintf(`#!/bin/bash
 %sPROMPT=$(cat %q)

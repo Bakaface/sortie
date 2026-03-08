@@ -1,8 +1,6 @@
 package workflow
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -10,10 +8,11 @@ import (
 const DefaultSystemPrompt = `You are an autonomous coding agent. Work autonomously without asking for user input.
 Make decisions and implement them directly. If something is ambiguous, pick the best option and proceed.`
 
-// InjectClaudeMD writes a CLAUDE.md file in the worktree with the resolved prompt.
+// BuildSystemPrompt constructs the system prompt string from the configured preamble,
+// resolved task prompt, and optional image paths.
 // systemPrompt controls the preamble; if empty, DefaultSystemPrompt is used.
 // imageRelPaths are worktree-relative paths to attached images (may be nil).
-func InjectClaudeMD(worktreePath, resolvedPrompt, systemPrompt string, imageRelPaths []string) error {
+func BuildSystemPrompt(resolvedPrompt, systemPrompt string, imageRelPaths []string) string {
 	if systemPrompt == "" {
 		systemPrompt = DefaultSystemPrompt
 	}
@@ -36,6 +35,5 @@ func InjectClaudeMD(worktreePath, resolvedPrompt, systemPrompt string, imageRelP
 		sb.WriteString("\n")
 	}
 
-	claudeMDPath := filepath.Join(worktreePath, "CLAUDE.md")
-	return os.WriteFile(claudeMDPath, []byte(sb.String()), 0644)
+	return sb.String()
 }

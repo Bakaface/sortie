@@ -61,8 +61,13 @@ func (p *Process) SetEnv(env map[string]string) {
 
 // StartWithPrompt runs Claude Code with -p flag (one-shot mode).
 // The process exits automatically when the task is complete.
-func (p *Process) StartWithPrompt(prompt string) error {
+// systemPrompt, if non-empty, is passed via --system-prompt to override
+// the default Claude system prompt.
+func (p *Process) StartWithPrompt(prompt string, systemPrompt ...string) error {
 	args := append([]string{}, p.cfg.Args()...)
+	if len(systemPrompt) > 0 && systemPrompt[0] != "" {
+		args = append(args, "--system-prompt", systemPrompt[0])
+	}
 	args = append(args, "--verbose", "--output-format", "stream-json", "-p", prompt)
 
 	p.cmd = exec.Command(p.cfg.Command, args...)

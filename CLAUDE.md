@@ -1,26 +1,45 @@
-You are an autonomous coding agent. Work autonomously without asking for user input.
-Make decisions and implement them directly. If something is ambiguous, pick the best option and proceed.
+# Sortie
 
----
+A daemon that orchestrates Claude Code agents to work through tasks in parallel.
+Each task runs in an isolated git worktree through a configurable multi-step workflow.
 
-# Task
+## Architecture
 
-Implement the following task on branch `sortie/9-add-configurable-worktree-sync-paths-to` (based on `main`).
+```
+cmd/sortie/          CLI entry points (daemon, tui, task CRUD)
+internal/
+  config/            .sortie.yml parsing, project type detection
+  daemon/            Background daemon that schedules and runs tasks
+  workflow/          Task execution engine, system prompt injection, template resolution
+  claude/            Claude Code process spawning and output parsing
+  tui/               BubbleTea terminal UI for monitoring and approval
+  db/                SQLite persistence for tasks and projects
+  git/               Git worktree and merge operations
+  agent/             Agent state management
+  task/              Task lifecycle and state transitions
+  tmux/              Tmux session management for interactive tasks
+  notify/            Notification support
+  client/            Client for daemon communication
+claude-code-plugin/  Claude Code plugin with sortie-config skill
+```
 
-## Task #9: Add configurable worktree-sync-paths to copy files into new worktrees
+## Key Concepts
 
-We need to allow users to specify paths that would be automatically syncronized with the worktrees. Practical example from the current repo: CLAUDE.md is tracked by Git, while .claude/ dire that contains useful skills for feature development is not trackes, thus, worktree-mode tasks won't have access to those skills.
+- **Workflow steps** are defined in `.sortie.yml` with templated prompts (`{{task.id}}`, `{{task.title}}`, etc.)
+- **`BuildSystemPrompt()`** in `internal/workflow/system-prompt.go` constructs the system prompt passed to spawned Claude agents via `--system-prompt`
+- **Template resolution** (`internal/workflow/template.go`) interpolates task variables and prior step artifacts into prompts
+- **Git worktrees** isolate each task so parallel agents don't conflict
 
-To solve this, we can implement a syncronization mechanism:
-- User specifies a list of paths in their configuration in .sortie.yml in `worktree-sync-paths` attribute - **globally or per-workflow**.
-- When a new task is created with a worktree, the system automatically copies the specified paths from the main project directory to the newly created worktree.
-- This synchronization should happen before the task execution begins to ensure the environment is fully prepared with all necessary context and tools.
-- The sync mechanism should handle both files and directories, preserving permissions where possible.
+## Development
 
-## Requirements
-- Follow existing code style and patterns in the codebase
-- Write tests for any new or changed functionality
-- Ensure `go build ./...` and `go test ./...` pass before finishing
-- Commit your changes with a clear, conventional commit message
+```bash
+go build ./...        # Build
+go test ./...         # Test
+go build -o sortie ./cmd/sortie  # Build binary
+```
 
+## Code Style
 
+- Follow existing patterns in the codebase
+- Keep changes minimal and focused
+- Use BubbleTea/Lip Gloss conventions for TUI code (see `/bubbletea` skill)
