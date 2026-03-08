@@ -37,9 +37,10 @@ type Model struct {
 	err         error
 	quitting    bool
 	projectID   int64  // 0 = global mode (show all projects)
-	projectPath string // project directory path, empty in global mode
-	projectName string // repo basename for filtering in global mode
-	globalMode  bool
+	projectPath     string // project directory path, empty in global mode
+	projectName     string // repo basename for filtering in global mode
+	globalMode      bool
+	defaultWorktree bool   // per-project worktree preference
 
 	// Confirmation state
 	confirmAction string // "continue", "finalize", or "delete"; empty if no confirmation pending
@@ -137,19 +138,20 @@ type artifactLoadedMsg struct {
 	content string
 }
 
-func NewModel(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool) Model {
+func NewModel(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool) Model {
 	return Model{
-		cfg:         cfg,
-		keys:        newKeyMap(),
-		list:        newListView(globalMode, projectName),
-		detail:      newDetailView(),
-		taskInfo:    newTaskInfoView(),
-		prompt:      newPromptView(),
-		view:        viewList,
-		projectID:   projectID,
-		projectPath: projectPath,
-		projectName: projectName,
-		globalMode:  globalMode,
+		cfg:             cfg,
+		keys:            newKeyMap(),
+		list:            newListView(globalMode, projectName),
+		detail:          newDetailView(),
+		taskInfo:        newTaskInfoView(),
+		prompt:          newPromptView(defaultWorktree),
+		view:            viewList,
+		projectID:       projectID,
+		projectPath:     projectPath,
+		projectName:     projectName,
+		globalMode:      globalMode,
+		defaultWorktree: defaultWorktree,
 	}
 }
 
@@ -521,9 +523,9 @@ func (m Model) renderHelpOverlay() string {
 	return b.String()
 }
 
-func Run(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool) error {
+func Run(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool) error {
 	p := tea.NewProgram(
-		NewModel(cfg, projectID, projectPath, projectName, globalMode),
+		NewModel(cfg, projectID, projectPath, projectName, globalMode, defaultWorktree),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

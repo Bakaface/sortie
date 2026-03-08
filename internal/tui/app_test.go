@@ -1476,7 +1476,7 @@ func TestHandlePromptKey_CtrlGOpensEditor(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		prompt:      newPromptView(),
+		prompt:      newPromptView(true),
 		view:        viewPrompt,
 		projectPath: "/tmp/test",
 	}
@@ -1494,7 +1494,7 @@ func TestHandlePromptKey_EnterSubmitsTask(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		prompt:      newPromptView(),
+		prompt:      newPromptView(true),
 		view:        viewPrompt,
 		projectPath: "/tmp/test",
 	}
@@ -1517,7 +1517,7 @@ func TestHandlePromptKey_EnterEmptyDoesNothing(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		prompt: newPromptView(),
+		prompt: newPromptView(true),
 		view:   viewPrompt,
 	}
 	m.prompt.SetSize(80, 24)
@@ -1537,7 +1537,7 @@ func TestHandlePromptKey_EnterEmptyDoesNothing(t *testing.T) {
 func TestHandlePromptKey_EscCancels(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		prompt: newPromptView(),
+		prompt: newPromptView(true),
 		view:   viewPrompt,
 	}
 
@@ -1556,7 +1556,7 @@ func TestHandlePromptKey_EscCancels(t *testing.T) {
 func TestEditorPromptFinishedMsg_SetsTextareaValue(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		prompt: newPromptView(),
+		prompt: newPromptView(true),
 		view:   viewPrompt,
 	}
 	m.prompt.SetSize(80, 24)
@@ -1581,7 +1581,7 @@ func TestEditorPromptFinishedMsg_SetsTextareaValue(t *testing.T) {
 func TestEditorPromptFinishedMsg_EmptyFilePreservesTextarea(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		prompt: newPromptView(),
+		prompt: newPromptView(true),
 		view:   viewPrompt,
 	}
 	m.prompt.SetSize(80, 24)
@@ -1605,7 +1605,7 @@ func TestEditorPromptFinishedMsg_EmptyFilePreservesTextarea(t *testing.T) {
 }
 
 func TestPromptView_HelpShowsEditorShortcut(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(100, 24)
 
 	output := p.View()
@@ -1619,7 +1619,7 @@ func TestPromptView_HelpShowsEditorShortcut(t *testing.T) {
 }
 
 func TestPromptView_HelpShowsEnterAndCtrlJ(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(100, 24)
 
 	output := p.View()
@@ -1644,7 +1644,7 @@ func TestPromptView_HelpShowsEnterAndCtrlJ(t *testing.T) {
 func TestHandlePromptKey_CtrlJInsertsNewline(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		prompt: newPromptView(),
+		prompt: newPromptView(true),
 		view:   viewPrompt,
 	}
 	m.prompt.SetSize(80, 24)
@@ -1665,7 +1665,7 @@ func TestHandlePromptKey_CtrlJInsertsNewline(t *testing.T) {
 }
 
 func TestPromptView_WordJumpKeybindings(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 24)
 	p.textarea.SetValue("hello world foo")
 
@@ -3747,7 +3747,7 @@ func TestHandleListKey_NWithNoSearchCreatesNewTask(t *testing.T) {
 		keys:        newKeyMap(),
 		list:        newListView(false, ""),
 		detail:      newDetailView(),
-		prompt:      newPromptView(),
+		prompt:      newPromptView(true),
 		view:        viewList,
 		client:      &client.Client{},
 		projectPath: "/some/path",

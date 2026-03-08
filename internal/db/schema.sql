@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS projects (
     path TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL DEFAULT '',
     default_priority TEXT NOT NULL DEFAULT 'medium',
+    default_worktree INTEGER NOT NULL DEFAULT 1,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

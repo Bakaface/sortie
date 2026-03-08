@@ -305,6 +305,110 @@ func TestGetTasksByProjectName(t *testing.T) {
 	}
 }
 
+func TestProjectDefaultWorktree(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// New project should default to worktree=true
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proj.DefaultWorktree {
+		t.Error("expected default worktree to be true for new project")
+	}
+
+	// Update to false
+	if err := database.UpdateProjectDefaultWorktree(proj.ID, false); err != nil {
+		t.Fatalf("failed to update default worktree: %v", err)
+	}
+
+	// Re-fetch and verify
+	proj2, err := database.GetProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj2.DefaultWorktree {
+		t.Error("expected default worktree to be false after update")
+	}
+
+	// GetOrCreateProject should also return the updated value
+	proj3, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj3.DefaultWorktree {
+		t.Error("expected default worktree to be false from GetOrCreateProject")
+	}
+
+	// Update back to true
+	if err := database.UpdateProjectDefaultWorktree(proj.ID, true); err != nil {
+		t.Fatalf("failed to update default worktree: %v", err)
+	}
+	proj4, err := database.GetProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proj4.DefaultWorktree {
+		t.Error("expected default worktree to be true after re-enabling")
+	}
+}
+
+func TestProjectDefaultWorktree_ListAndGetByName(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// Create two projects
+	proj1, err := database.GetOrCreateProject("/home/user/project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = database.GetOrCreateProject("/home/user/project-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Disable worktree for first project only
+	if err := database.UpdateProjectDefaultWorktree(proj1.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	// ListProjects should reflect the different settings
+	projects, err := database.ListProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 2 {
+		t.Fatalf("expected 2 projects, got %d", len(projects))
+	}
+	if projects[0].DefaultWorktree {
+		t.Error("expected project-a default_worktree=false")
+	}
+	if !projects[1].DefaultWorktree {
+		t.Error("expected project-b default_worktree=true")
+	}
+
+	// GetProjectsByName should also work
+	byName, err := database.GetProjectsByName("project-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byName) != 1 {
+		t.Fatalf("expected 1 project, got %d", len(byName))
+	}
+	if byName[0].DefaultWorktree {
+		t.Error("expected project-a default_worktree=false via GetProjectsByName")
+	}
+}
+
 func TestMigration_FreshDBHasProjectsTable(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := Open(dbPath)

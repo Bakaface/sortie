@@ -11,7 +11,7 @@ import (
 )
 
 func TestPromptView_HasAirplanePrompt(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	if p.textarea.Prompt != PromptPrefix {
 		t.Errorf("expected textarea prompt to be %q, got %q", PromptPrefix, p.textarea.Prompt)
 	}
@@ -73,7 +73,7 @@ func TestPromptView_DetectImages(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := newPromptView()
+			p := newPromptView(true)
 			p.SetSize(80, 24)
 
 			// Set the textarea value
@@ -105,7 +105,7 @@ func TestPromptView_RemoveLastImage(t *testing.T) {
 	os.WriteFile(img1, []byte("fake"), 0644)
 	os.WriteFile(img2, []byte("fake"), 0644)
 
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 24)
 
 	// Add two images
@@ -133,7 +133,7 @@ func TestPromptView_Update(t *testing.T) {
 	testImage := filepath.Join(tmpDir, "test.png")
 	os.WriteFile(testImage, []byte("fake"), 0644)
 
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 24)
 
 	// Simulate typing a path
@@ -152,7 +152,7 @@ func TestPromptView_Update(t *testing.T) {
 }
 
 func TestPromptView_VisualLineCount(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 40)
 
 	// Empty textarea should show 1 visual line
@@ -168,7 +168,7 @@ func TestPromptView_VisualLineCount(t *testing.T) {
 }
 
 func TestPromptView_AutoGrow(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 40)
 
 	// Empty: view shows 1 line of textarea content
@@ -204,7 +204,7 @@ func TestPromptView_AutoGrow(t *testing.T) {
 }
 
 func TestPromptView_AutoGrowWrapping(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	// Set narrow width: content width = 30 - 4 - promptWidth
 	p.SetSize(30, 40)
 
@@ -230,7 +230,7 @@ func countTextareaLines(view string) int {
 }
 
 func TestVisualLineCount(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 40)
 
 	tests := []struct {
@@ -257,7 +257,7 @@ func TestVisualLineCount(t *testing.T) {
 }
 
 func TestPromptView_NewlinePreservesFirstLine(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 40)
 
 	// Type "hello" one character at a time via Update, calling View after each
@@ -286,7 +286,7 @@ func TestPromptView_NewlinePreservesFirstLine(t *testing.T) {
 // TestPromptView_NewlineViaParentModel tests the exact flow through the parent
 // Model, mimicking how bubbletea routes messages.
 func TestPromptView_NewlineViaParentModel(t *testing.T) {
-	m := NewModel(nil, 0, "/tmp/test", "", false)
+	m := NewModel(nil, 0, "/tmp/test", "", false, true)
 	// Simulate window size
 	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
 	m = result.(Model)
@@ -321,7 +321,7 @@ func TestPromptView_NewlineViaParentModel(t *testing.T) {
 func TestPromptView_NewlinePreservesFirstLine_SmallTerminal(t *testing.T) {
 	for _, termHeight := range []int{8, 10, 12, 20, 40} {
 		t.Run(fmt.Sprintf("height=%d", termHeight), func(t *testing.T) {
-			p := newPromptView()
+			p := newPromptView(true)
 			p.SetSize(80, termHeight)
 
 			for _, ch := range "hello world" {
@@ -345,7 +345,7 @@ func TestPromptView_NewlinePreservesFirstLine_SmallTerminal(t *testing.T) {
 // TestPromptView_NewlineWithInterleaved tests with non-key messages between
 // keystrokes, simulating cursor blink and tick messages in the real runtime.
 func TestPromptView_NewlineWithInterleaved(t *testing.T) {
-	m := NewModel(nil, 0, "/tmp/test", "", false)
+	m := NewModel(nil, 0, "/tmp/test", "", false, true)
 	result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 40})
 	m = result.(Model)
 
@@ -380,7 +380,7 @@ func TestPromptView_NewlineWithInterleaved(t *testing.T) {
 }
 
 func TestPromptView_NewlineAfterLongLine(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(40, 20) // Narrow terminal to force wrapping
 
 	// Type a long line that will wrap
@@ -405,7 +405,7 @@ func TestPromptView_NewlineAfterLongLine(t *testing.T) {
 }
 
 func TestPromptView_MultipleNewlines(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 40)
 
 	// Type first line
@@ -437,7 +437,7 @@ func TestPromptView_MultipleNewlines(t *testing.T) {
 }
 
 func TestPromptView_ViewPadding(t *testing.T) {
-	p := newPromptView()
+	p := newPromptView(true)
 	p.SetSize(80, 24)
 
 	view := p.View()
@@ -445,6 +445,56 @@ func TestPromptView_ViewPadding(t *testing.T) {
 	// The view should contain the title and textarea — verify it renders
 	if view == "" {
 		t.Error("expected non-empty view")
+	}
+}
+
+func TestPromptView_DefaultWorktreeTrue(t *testing.T) {
+	p := newPromptView(true)
+	if !p.Worktree() {
+		t.Error("expected worktree to be true when initialized with true")
+	}
+}
+
+func TestPromptView_DefaultWorktreeFalse(t *testing.T) {
+	p := newPromptView(false)
+	if p.Worktree() {
+		t.Error("expected worktree to be false when initialized with false")
+	}
+}
+
+func TestPromptView_ResetPreservesWorktreeState(t *testing.T) {
+	// Start with worktree on, toggle off, then reset — should stay off
+	p := newPromptView(true)
+	p.SetSize(80, 24)
+	p.ToggleWorktree()
+	if p.Worktree() {
+		t.Error("expected worktree to be false after toggle")
+	}
+
+	p.textarea.SetValue("some task")
+	p.Reset()
+
+	if p.Worktree() {
+		t.Error("expected worktree to remain false after Reset()")
+	}
+	if p.Value() != "" {
+		t.Error("expected textarea to be cleared after Reset()")
+	}
+}
+
+func TestPromptView_ResetPreservesWorktreeOn(t *testing.T) {
+	// Start with worktree off, toggle on, then reset — should stay on
+	p := newPromptView(false)
+	p.SetSize(80, 24)
+	p.ToggleWorktree()
+	if !p.Worktree() {
+		t.Error("expected worktree to be true after toggle")
+	}
+
+	p.Reset()
+
+	if !p.Worktree() {
+		t.Error("expected worktree to remain true after Reset()")
 	}
 }
 

@@ -551,9 +551,14 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		priority = proj.DefaultPriority
 	}
 
-	worktree := true
+	worktree := proj.DefaultWorktree
 	if req.Worktree != nil {
 		worktree = *req.Worktree
+	}
+
+	// Persist worktree preference for this project
+	if err := s.database.UpdateProjectDefaultWorktree(proj.ID, worktree); err != nil {
+		log.Printf("Failed to update default worktree for project %d: %v", proj.ID, err)
 	}
 
 	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", task.StatusInit, priority, worktree, req.Images)
