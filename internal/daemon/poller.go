@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aface/sortie/internal/agent"
 	"github.com/aface/sortie/internal/task"
+	"github.com/aface/sortie/internal/tmux"
 )
 
 func (s *Server) taskPollerLoop() {
@@ -106,6 +109,8 @@ func (s *Server) recoverOrphanedTasks() error {
 	if err != nil {
 		return nil
 	}
+	var tmuxTasksToRestore []*task.Task
+
 	for _, t := range allTasks {
 		if t.Status == task.StatusInit {
 			log.Printf("Recovering task #%d stuck in init, resetting to pending", t.ID)
@@ -117,6 +122,8 @@ func (s *Server) recoverOrphanedTasks() error {
 			log.Printf("Recovering task #%d stuck in finalizing, resetting to tmux", t.ID)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusTmux); err != nil {
 				log.Printf("Failed to reset task #%d: %v", t.ID, err)
+			} else {
+				tmuxTasksToRestore = append(tmuxTasksToRestore, t)
 			}
 		}
 		if t.Status == task.StatusSummarizing || t.Status == task.StatusMergeBlocked {
@@ -129,11 +136,61 @@ func (s *Server) recoverOrphanedTasks() error {
 			log.Printf("Task #%d is awaiting approval (use 'continue' command)", t.ID)
 		}
 		if t.Status == task.StatusTmux {
-			log.Printf("Task #%d has tmux session running (use 'continue' command)", t.ID)
+			tmuxTasksToRestore = append(tmuxTasksToRestore, t)
 		}
 		if t.Status == task.StatusArtifactMissing {
 			log.Printf("Task #%d has missing artifact (use 'continue' command to skip)", t.ID)
 		}
+	}
+
+	// Restore tmux sessions for tasks that had active tmux sessions before daemon restart
+	if len(tmuxTasksToRestore) > 0 && tmux.IsAvailable() {
+		for _, t := range tmuxTasksToRestore {
+			if err := s.restoreTmuxSession(t); err != nil {
+				log.Printf("Failed to restore tmux session for task #%d: %v", t.ID, err)
+			} else {
+				log.Printf("Restored tmux session for task #%d (use /resume in claude to restore chat)", t.ID)
+			}
+		}
+	}
+
+	return nil
+}
+
+// restoreTmuxSession recreates a tmux session for a task whose session was
+// lost during a daemon restart. It spawns an empty Claude Code session in
+// the task's worktree — the user can restore their previous chat via /resume.
+func (s *Server) restoreTmuxSession(t *task.Task) error {
+	if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
+		return fmt.Errorf("worktree path does not exist: %s", t.WorktreePath)
+	}
+
+	taskID := fmt.Sprintf("%d", t.ID)
+	session := tmux.NewStepSession(taskID, "continue", t.WorktreePath)
+
+	if session.Exists() {
+		log.Printf("Tmux session already exists for task #%d, skipping restore", t.ID)
+		return nil
+	}
+
+	sortieDir := filepath.Join(t.WorktreePath, ".sortie")
+	if err := os.MkdirAll(sortieDir, 0755); err != nil {
+		return fmt.Errorf("failed to create sortie dir: %w", err)
+	}
+
+	claudeCmd := "claude"
+	if pc, err := s.getProjectContext(t.ProjectID); err == nil && pc.cfg.Claude.Yolo {
+		claudeCmd = "claude --dangerously-skip-permissions"
+	}
+
+	scriptFile := filepath.Join(sortieDir, "run-restore.sh")
+	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", claudeCmd)
+	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
+		return fmt.Errorf("failed to write wrapper script: %w", err)
+	}
+
+	if err := session.Create("bash", scriptFile); err != nil {
+		return fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
 	return nil
