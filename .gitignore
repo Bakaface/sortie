@@ -14,5 +14,5 @@ bin/
 .claude-output.log
 
 # Local-only Claude Code agents and skills
-.claude/agents/local-*
-.claude/skills/local-*
+.claude/agents/_*
+.claude/skills/_*
