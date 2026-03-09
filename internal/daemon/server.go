@@ -25,9 +25,10 @@ import (
 )
 
 type projectContext struct {
-	cfg      *config.Config
-	engine   *workflow.Engine
-	repoRoot string
+	cfg           *config.Config
+	engine        *workflow.Engine
+	repoRoot      string
+	configModTime time.Time // zero = no .sortie.yml at load time
 }
 
 type Server struct {
@@ -71,9 +72,28 @@ func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 	s.projectsMu.RLock()
 	if pc, ok := s.projects[projectID]; ok {
 		s.projectsMu.RUnlock()
-		return pc, nil
+
+		// Check if .sortie.yml has changed since we cached
+		configPath := filepath.Join(pc.repoRoot, ".sortie.yml")
+		info, statErr := os.Stat(configPath)
+		fresh := false
+		switch {
+		case statErr == nil && !pc.configModTime.IsZero():
+			fresh = info.ModTime().Equal(pc.configModTime)
+		case statErr != nil && pc.configModTime.IsZero():
+			fresh = true // was absent, still absent
+		}
+		if fresh {
+			return pc, nil
+		}
+		// Config changed — evict and fall through to reload
+		s.projectsMu.Lock()
+		delete(s.projects, projectID)
+		s.projectsMu.Unlock()
+		log.Printf("Config changed for project %d (%s), reloading", projectID, pc.repoRoot)
+	} else {
+		s.projectsMu.RUnlock()
 	}
-	s.projectsMu.RUnlock()
 
 	proj, err := s.database.GetProject(projectID)
 	if err != nil {
@@ -86,12 +106,20 @@ func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 		projCfg = s.cfg
 	}
 
+	// Stat config file for future invalidation checks
+	var modTime time.Time
+	configPath := filepath.Join(proj.Path, ".sortie.yml")
+	if info, err := os.Stat(configPath); err == nil {
+		modTime = info.ModTime()
+	}
+
 	engine := workflow.NewEngine(projCfg, s.database, s.notifier, proj.Path)
 
 	pc := &projectContext{
-		cfg:      projCfg,
-		engine:   engine,
-		repoRoot: proj.Path,
+		cfg:           projCfg,
+		engine:        engine,
+		repoRoot:      proj.Path,
+		configModTime: modTime,
 	}
 
 	s.projectsMu.Lock()

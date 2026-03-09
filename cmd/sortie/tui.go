@@ -58,5 +58,5 @@ func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, p
 		return 0, repoRoot, "", false, true
 	}
 
-	return proj.ID, repoRoot, "", false, proj.DefaultWorktree
+	return proj.ID, repoRoot, filepath.Base(repoRoot), false, proj.DefaultWorktree
 }
