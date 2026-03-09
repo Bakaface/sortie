@@ -40,9 +40,10 @@ type Server struct {
 	projectsMu sync.RWMutex
 	projects   map[int64]*projectContext
 
-	mu          sync.RWMutex
-	clients     map[net.Conn]bool
-	subscribers map[net.Conn]bool
+	mu           sync.RWMutex
+	clients      map[net.Conn]bool
+	subscribers  map[net.Conn]bool
+	tmuxActivity map[int64]string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -58,8 +59,9 @@ func NewServer(cfg *config.Config, database *db.DB) *Server {
 		manager:     agent.NewManager(cfg.Agents.MaxConcurrent, cfg.Agents.OutputBufferLines),
 		notifier:    notifier,
 		projects:    make(map[int64]*projectContext),
-		clients:     make(map[net.Conn]bool),
-		subscribers: make(map[net.Conn]bool),
+		clients:      make(map[net.Conn]bool),
+		subscribers:  make(map[net.Conn]bool),
+		tmuxActivity: make(map[int64]string),
 		ctx:         ctx,
 		cancel:      cancel,
 	}
@@ -158,6 +160,9 @@ func (s *Server) Start(foreground bool) error {
 
 	s.wg.Add(1)
 	go s.taskPollerLoop()
+
+	s.wg.Add(1)
+	go s.tmuxMonitorLoop()
 
 	log.Printf("Daemon started, listening on %s", s.cfg.Daemon.SocketPath)
 

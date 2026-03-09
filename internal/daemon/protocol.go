@@ -35,7 +35,8 @@ const (
 	MsgOK           MessageType = "ok"
 	MsgPing         MessageType = "ping"
 	MsgPong         MessageType = "pong"
-	MsgShutdown     MessageType = "shutdown"
+	MsgShutdown       MessageType = "shutdown"
+	MsgTmuxActivity   MessageType = "tmux_activity"
 )
 
 type Message struct {
@@ -191,6 +192,7 @@ type TaskInfo struct {
 	CreatedAt    time.Time  `json:"created_at"`
 	StartedAt    *time.Time `json:"started_at,omitempty"`
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	TmuxActivity string     `json:"tmux_activity,omitempty"`
 }
 
 type TaskListResponse struct {
@@ -223,6 +225,11 @@ type GetLogsResponse struct {
 	TaskID int64    `json:"task_id"`
 	Step   string   `json:"step"`
 	Lines  []string `json:"lines"`
+}
+
+type TmuxActivityResponse struct {
+	TaskID   int64  `json:"task_id"`
+	Activity string `json:"activity"`
 }
 
 type ErrorResponse struct {

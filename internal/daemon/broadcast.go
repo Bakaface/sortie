@@ -159,5 +159,11 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		info.ProjectPath = proj.Path
 	}
 
+	s.mu.RLock()
+	if activity, ok := s.tmuxActivity[t.ID]; ok {
+		info.TmuxActivity = activity
+	}
+	s.mu.RUnlock()
+
 	return info
 }
