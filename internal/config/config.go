@@ -390,6 +390,10 @@ func Load() (*Config, error) {
 	cfg.computePaths()
 	cfg.syncCompat()
 
+	if cfg.ProjectDir != "" {
+		cfg.ApplyDetectedProject(cfg.ProjectDir)
+	}
+
 	return cfg, nil
 }
 
@@ -425,6 +429,7 @@ func LoadForProject(projectDir string) (*Config, error) {
 	cfg.ProjectDir = projectDir
 	cfg.computePaths()
 	cfg.syncCompat()
+	cfg.ApplyDetectedProject(cfg.ProjectDir)
 
 	return cfg, nil
 }

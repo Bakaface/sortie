@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type ProjectType string
@@ -107,9 +108,16 @@ func detectGo(dir string) *DetectedProject {
 		}
 	}
 
+	// Use base name of the module path (e.g. "sortie" from "github.com/Bakaface/sortie")
+	// to produce a clean, tmux-safe project name.
+	name := modName
+	if idx := strings.LastIndex(modName, "/"); idx >= 0 {
+		name = modName[idx+1:]
+	}
+
 	p := &DetectedProject{
 		Type:     ProjectTypeGo,
-		Name:     modName,
+		Name:     name,
 		Commands: CommandsConfig{
 			Test: "go test ./...",
 			Lint: "golangci-lint run --fix",
