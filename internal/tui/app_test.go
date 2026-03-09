@@ -4259,9 +4259,41 @@ func newTestModelWithWorkflows(n int) Model {
 		keys:              newKeyMap(),
 		list:              newListView(false, ""),
 		detail:            newDetailView(),
+		prompt:            newPromptView(true),
 		view:              viewList,
 		selectingWorkflow: true,
 		workflowCursor:    0,
+	}
+}
+
+func TestWorkflowSelect_EnterSetsWorkflowNameOnPrompt(t *testing.T) {
+	m := newTestModelWithWorkflows(3)
+	m.workflowCursor = 1
+
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ := m.handleWorkflowSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewPrompt {
+		t.Errorf("expected view to be viewPrompt, got %d", updated.view)
+	}
+	if updated.prompt.workflowName != "workflow-2" {
+		t.Errorf("expected prompt workflowName to be 'workflow-2', got %q", updated.prompt.workflowName)
+	}
+}
+
+func TestWorkflowSelect_NumberKeySetsWorkflowNameOnPrompt(t *testing.T) {
+	m := newTestModelWithWorkflows(3)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}}
+	result, _ := m.handleWorkflowSelectKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewPrompt {
+		t.Errorf("expected view to be viewPrompt, got %d", updated.view)
+	}
+	if updated.prompt.workflowName != "workflow-3" {
+		t.Errorf("expected prompt workflowName to be 'workflow-3', got %q", updated.prompt.workflowName)
 	}
 }
 

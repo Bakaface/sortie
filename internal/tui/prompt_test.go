@@ -498,6 +498,57 @@ func TestPromptView_ResetPreservesWorktreeOn(t *testing.T) {
 	}
 }
 
+func TestPromptView_WorkflowNameDisplayed(t *testing.T) {
+	p := newPromptView(true)
+	p.SetSize(80, 24)
+	p.workflowName = "deploy"
+
+	view := p.View()
+
+	if !strings.Contains(view, "[deploy]") {
+		t.Errorf("expected workflow name [deploy] in view, got:\n%s", view)
+	}
+}
+
+func TestPromptView_WorkflowNameNotDisplayedWhenEmpty(t *testing.T) {
+	p := newPromptView(true)
+	p.SetSize(80, 24)
+	p.workflowName = ""
+
+	view := p.View()
+
+	// Should not contain any bracket indicators
+	lines := strings.Split(view, "\n")
+	titleLine := lines[0]
+	if strings.Contains(titleLine, "[") {
+		t.Errorf("expected no bracket indicator in title when workflow is empty, got:\n%s", titleLine)
+	}
+}
+
+func TestPromptView_WorkflowNameRightAligned(t *testing.T) {
+	p := newPromptView(true)
+	p.SetSize(80, 24)
+	p.workflowName = "review"
+
+	view := p.View()
+	lines := strings.Split(view, "\n")
+	titleLine := lines[0]
+
+	// The workflow indicator should appear after the title
+	titleIdx := strings.Index(titleLine, "New Task")
+	workflowIdx := strings.Index(titleLine, "[review]")
+
+	if titleIdx == -1 {
+		t.Fatal("expected 'New Task' in title line")
+	}
+	if workflowIdx == -1 {
+		t.Fatal("expected '[review]' in title line")
+	}
+	if workflowIdx <= titleIdx {
+		t.Errorf("expected workflow indicator to appear after title, title at %d, workflow at %d", titleIdx, workflowIdx)
+	}
+}
+
 func TestIsImagePath(t *testing.T) {
 	testCases := []struct {
 		input    string

@@ -29,13 +29,14 @@ const (
 )
 
 type promptView struct {
-	textarea   textarea.Model
-	branchInput textinput.Model
-	focusField promptField
-	worktree   bool
-	images     []string
-	width      int
-	height     int
+	textarea     textarea.Model
+	branchInput  textinput.Model
+	focusField   promptField
+	worktree     bool
+	images       []string
+	workflowName string
+	width        int
+	height       int
 }
 
 func newPromptView(defaultWorktree bool) promptView {
@@ -284,8 +285,18 @@ func isImagePath(s string) bool {
 func (p *promptView) View() string {
 	var b strings.Builder
 
-	// Title
-	b.WriteString(titleStyle.Render(" New Task "))
+	// Title with optional workflow indicator (right-aligned, like project indicator in list view)
+	title := titleStyle.Render(" New Task ")
+	if p.workflowName != "" && p.width > 0 {
+		workflowWidget := projectIndicatorStyle.Render("[" + p.workflowName + "]")
+		gap := p.width - lipgloss.Width(title) - lipgloss.Width(workflowWidget)
+		if gap < 0 {
+			gap = 0
+		}
+		b.WriteString(title + strings.Repeat(" ", gap) + workflowWidget)
+	} else {
+		b.WriteString(title)
+	}
 	b.WriteString("\n\n")
 
 	// Pre-expand textarea to max height so its internal viewport doesn't

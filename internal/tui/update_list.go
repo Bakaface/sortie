@@ -273,6 +273,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.continueSelectedWorkflow = "default"
 					m.view = viewPrompt
 					m.prompt.Reset()
+					m.prompt.workflowName = "default"
 					m.prompt.Focus()
 					return m, nil
 				}
@@ -327,6 +328,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectedWorkflow = ""
 		m.view = viewPrompt
 		m.prompt.Reset()
+		m.prompt.workflowName = ""
 		m.prompt.Focus()
 		return m, nil
 
@@ -487,6 +489,7 @@ func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.selectingWorkflow = false
 		m.view = viewPrompt
 		m.prompt.Reset()
+		m.prompt.workflowName = m.selectedWorkflow
 		m.prompt.Focus()
 		return m, nil
 	case "esc", "q":
@@ -502,6 +505,7 @@ func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.selectingWorkflow = false
 			m.view = viewPrompt
 			m.prompt.Reset()
+			m.prompt.workflowName = m.selectedWorkflow
 			m.prompt.Focus()
 			return m, nil
 		}
@@ -771,6 +775,7 @@ func (m Model) handleContinueWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.C
 		// Don't zero continueTaskID - prompt view needs it
 		m.view = viewPrompt
 		m.prompt.Reset()
+		m.prompt.workflowName = workflow
 		m.prompt.Focus()
 		return m, nil
 	case "esc", "q":
@@ -789,6 +794,7 @@ func (m Model) handleContinueWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.C
 			// Don't zero continueTaskID - prompt view needs it
 			m.view = viewPrompt
 			m.prompt.Reset()
+			m.prompt.workflowName = workflow
 			m.prompt.Focus()
 			return m, nil
 		}
