@@ -38,6 +38,28 @@ go test ./...         # Test
 go build -o sortie ./cmd/sortie  # Build binary
 ```
 
+## Domain Skills — MUST load before editing
+
+Before modifying any package, you MUST invoke the corresponding skill using the Skill tool.
+This is not optional — these skills contain critical architectural context, conventions, and
+file maps that prevent mistakes.
+
+| Package path | Skill to load |
+|---|---|
+| `cmd/sortie/` | `/cli` |
+| `internal/config/` | `/config` |
+| `internal/daemon/` | `/daemon` |
+| `internal/workflow/` | `/workflow` |
+| `internal/claude/`, `internal/agent/` | `/claude-process` |
+| `internal/tui/` | `/tui` |
+| `internal/db/` | `/database` |
+| `internal/git/` | `/git-operations` |
+| `internal/task/` | `/task-lifecycle` |
+| `internal/tmux/` | `/tmux` |
+| `internal/client/` | `/client` |
+
+If a task touches multiple packages, load all relevant skills.
+
 ## Code Style
 
 - Follow existing patterns in the codebase
