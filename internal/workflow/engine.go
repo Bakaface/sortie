@@ -346,19 +346,37 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
 		log.Printf("Warning: failed to set summarizing status for task #%d: %v", t.ID, err)
 	}
-	if err := e.runSummarizer(ctx, t, wf); err != nil {
+
+	// Open summarizer log file so TUI can show progress
+	summarizerLogPath := ProjectLogPath(e.dataDir, t.ID, "summarizer")
+	summarizerLogFile, summarizerLogErr := os.OpenFile(summarizerLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if summarizerLogErr != nil {
+		log.Printf("Warning: failed to open summarizer log for task #%d: %v", t.ID, summarizerLogErr)
+	}
+	summarizerLogFn := func(format string, args ...any) {
+		msg := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
+		if summarizerLogFile != nil {
+			summarizerLogFile.WriteString(msg + "\n")
+		}
+	}
+
+	if err := e.runSummarizer(ctx, t, wf, summarizerLogFn); err != nil {
 		log.Printf("Warning: summarizer failed for task #%d: %v", t.ID, err)
 	}
 
 	// Retry summarizer once if verify_summarizer is enabled and context is empty
 	if e.cfg.Verification.VerifySummarizer && strings.TrimSpace(t.Context) == "" {
 		log.Printf("Task #%d: summarizer produced empty output, retrying", t.ID)
-		if err := e.runSummarizer(ctx, t, wf); err != nil {
+		if err := e.runSummarizer(ctx, t, wf, summarizerLogFn); err != nil {
 			log.Printf("Warning: summarizer retry failed for task #%d: %v", t.ID, err)
 		}
 		if strings.TrimSpace(t.Context) == "" {
 			log.Printf("Warning: summarizer still empty after retry for task #%d", t.ID)
 		}
+	}
+
+	if summarizerLogFile != nil {
+		summarizerLogFile.Close()
 	}
 
 	// All steps completed — execute on_complete action
@@ -611,7 +629,7 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 			logFn("Warning: failed to set summarizing status: %v", err)
 		}
 		logFn("Running summarizer...")
-		if err := e.runSummarizer(ctx, t, wf); err != nil {
+		if err := e.runSummarizer(ctx, t, wf, logFn); err != nil {
 			logFn("Warning: summarizer failed: %v", err)
 		} else {
 			logFn("Summarizer completed")
@@ -938,7 +956,14 @@ func writeTmuxLogMessage(logPath string, taskID int64, stepName, sessionName, ta
 }
 
 // runSummarizer generates a summary of all artifacts and stores it as the task's context.
-func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.WorkflowConfig) error {
+// logFn is optional; when provided, progress messages are written to it (e.g. finalize log).
+func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.WorkflowConfig, logFn func(string, ...any)) error {
+	logMsg := func(format string, args ...any) {
+		log.Printf(format, args...)
+		if logFn != nil {
+			logFn(format, args...)
+		}
+	}
 	// Collect step names that produce artifacts
 	var stepNames []string
 	for _, s := range wf.Steps {
@@ -960,15 +985,15 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 		var err error
 		diffStat, err = gitpkg.DiffStat(t.WorktreePath, baseBranch)
 		if err != nil {
-			log.Printf("Warning: failed to get diff stat for task #%d: %v", t.ID, err)
+			logMsg("Warning: failed to get diff stat for task #%d: %v", t.ID, err)
 		}
 		if diffStat == "" {
-			log.Printf("No artifacts or changes found for task #%d, skipping summarizer", t.ID)
+			logMsg("No artifacts or changes found for task #%d, skipping summarizer", t.ID)
 			return nil
 		}
 	}
 
-	// Build the prompt
+	// Build the prompt and log the summarization approach
 	var prompt string
 	if wf.SummarizerPrompt != "" {
 		// Use the configured summarizer prompt with template resolution
@@ -987,20 +1012,28 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 			},
 		}
 		prompt = ResolveTemplate(wf.SummarizerPrompt, tmplCtx)
+		var names []string
+		for name := range artifacts {
+			names = append(names, name)
+		}
+		logMsg("%s", summarizationDescription(t.ID, true, names, false))
 	} else if len(artifacts) > 0 {
 		// Build default prompt with all artifacts
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("Summarize the progress made on task #%d: %s\n\n", t.ID, t.Title))
 		sb.WriteString("Use the context from the following task artifacts:\n\n")
+		var artifactNames []string
 		for _, name := range stepNames {
 			if content, ok := artifacts[name]; ok {
 				sb.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", name, content))
+				artifactNames = append(artifactNames, name)
 			}
 		}
 		sb.WriteString("Provide a concise but comprehensive summary of what was accomplished, ")
 		sb.WriteString("any decisions made, and the current state of the implementation. ")
 		sb.WriteString("This summary will be used as context for future work on this task.")
 		prompt = sb.String()
+		logMsg("%s", summarizationDescription(t.ID, false, artifactNames, false))
 	} else {
 		// No artifacts — use git diff stat and instruct Claude to read the actual changes
 		var sb strings.Builder
@@ -1015,9 +1048,10 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 		sb.WriteString("Provide a concise summary of what was accomplished. ")
 		sb.WriteString("This summary will be used as context for future work on this task.")
 		prompt = sb.String()
+		logMsg("%s", summarizationDescription(t.ID, false, nil, true))
 	}
 
-	log.Printf("Running summarizer for task #%d", t.ID)
+	logMsg("Running summarizer for task #%d", t.ID)
 
 	// Run Claude synchronously to capture the summary text
 	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath)
@@ -1027,7 +1061,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
-		log.Printf("Summarizer produced empty output for task #%d", t.ID)
+		logMsg("Summarizer produced empty output for task #%d", t.ID)
 		return nil
 	}
 
@@ -1037,8 +1071,26 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 	}
 
 	t.Context = summary
-	log.Printf("Summarizer completed for task #%d (%d chars)", t.ID, len(summary))
+	logMsg("Summarizer completed for task #%d (%d chars)", t.ID, len(summary))
 	return nil
+}
+
+// summarizationDescription returns a human-readable description of the summarization
+// approach being used for a task, suitable for logging.
+func summarizationDescription(taskID int64, hasCustomPrompt bool, artifactNames []string, useDiffStat bool) string {
+	if hasCustomPrompt {
+		if len(artifactNames) > 0 {
+			return fmt.Sprintf("Summarizing task #%d with custom prompt and artifacts: %s", taskID, strings.Join(artifactNames, ", "))
+		}
+		return fmt.Sprintf("Summarizing task #%d with custom prompt", taskID)
+	}
+	if len(artifactNames) > 0 {
+		return fmt.Sprintf("Summarizing task #%d with artifacts: %s", taskID, strings.Join(artifactNames, ", "))
+	}
+	if useDiffStat {
+		return fmt.Sprintf("Summarizing task #%d via git diff", taskID)
+	}
+	return fmt.Sprintf("Summarizing task #%d", taskID)
 }
 
 // runClaudeSync runs Claude Code synchronously and captures its stdout output.

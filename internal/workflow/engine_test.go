@@ -2,12 +2,15 @@ package workflow
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aface/sortie/internal/config"
+	"github.com/aface/sortie/internal/db"
+	"github.com/aface/sortie/internal/task"
 )
 
 func TestCollectArtifactsOnlyFromArtifactSteps(t *testing.T) {
@@ -539,6 +542,169 @@ func TestTemplateLoopVarsZero(t *testing.T) {
 	expected := "Iteration 0 of 0"
 	if result != expected {
 		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+func TestSummarizationDescription(t *testing.T) {
+	tests := []struct {
+		name            string
+		taskID          int64
+		hasCustomPrompt bool
+		artifactNames   []string
+		useDiffStat     bool
+		expected        string
+	}{
+		{
+			name:            "custom prompt with artifacts",
+			taskID:          42,
+			hasCustomPrompt: true,
+			artifactNames:   []string{"implement", "review"},
+			expected:        "Summarizing task #42 with custom prompt and artifacts: implement, review",
+		},
+		{
+			name:            "custom prompt without artifacts",
+			taskID:          7,
+			hasCustomPrompt: true,
+			artifactNames:   nil,
+			expected:        "Summarizing task #7 with custom prompt",
+		},
+		{
+			name:          "default prompt with artifacts",
+			taskID:        10,
+			artifactNames: []string{"implement"},
+			expected:      "Summarizing task #10 with artifacts: implement",
+		},
+		{
+			name:        "git diff fallback",
+			taskID:      5,
+			useDiffStat: true,
+			expected:    "Summarizing task #5 via git diff",
+		},
+		{
+			name:     "no context",
+			taskID:   1,
+			expected: "Summarizing task #1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := summarizationDescription(tt.taskID, tt.hasCustomPrompt, tt.artifactNames, tt.useDiffStat)
+			if result != tt.expected {
+				t.Errorf("got %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSummarizerLogFnCalledWithArtifacts(t *testing.T) {
+	// Create a fake Claude script that echoes a summary
+	script := filepath.Join(t.TempDir(), "fake-claude.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\necho 'task summary output'\n"), 0755)
+
+	dir := t.TempDir()
+	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
+	os.MkdirAll(artifactsDir, 0755)
+	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("Added feature X"), 0644)
+
+	// Create a real SQLite database for the test
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	// Create a project and task so UpdateTaskContext works
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	taskObj, err := database.CreateTask(project.ID, "Test task", "A test task", "test-task", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+	taskObj.WorktreePath = dir
+
+	cfg := &config.Config{
+		Claude: config.ClaudeConfig{Command: script},
+	}
+	engine := NewEngine(cfg, database, nil, dir)
+
+	wf := &config.WorkflowConfig{
+		Steps: []config.StepConfig{
+			{Name: "implement", Artifact: true},
+		},
+	}
+
+	var logMessages []string
+	logFn := func(format string, args ...any) {
+		logMessages = append(logMessages, fmt.Sprintf(format, args...))
+	}
+
+	ctx := context.Background()
+	err = engine.runSummarizer(ctx, taskObj, wf, logFn)
+	if err != nil {
+		t.Fatalf("runSummarizer failed: %v", err)
+	}
+
+	// Verify that the log messages contain the artifact description
+	found := false
+	for _, msg := range logMessages {
+		if strings.Contains(msg, "Summarizing task #") && strings.Contains(msg, "with artifacts: implement") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected log message about summarizing with artifacts, got: %v", logMessages)
+	}
+}
+
+func TestSummarizerLogFnCalledWithNilLogFn(t *testing.T) {
+	// Verify runSummarizer doesn't panic when logFn is nil
+	script := filepath.Join(t.TempDir(), "fake-claude.sh")
+	os.WriteFile(script, []byte("#!/bin/sh\necho 'summary'\n"), 0755)
+
+	dir := t.TempDir()
+	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
+	os.MkdirAll(artifactsDir, 0755)
+	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("notes"), 0644)
+
+	// Create a real SQLite database for the test
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	taskObj, err := database.CreateTask(project.ID, "Test", "A test", "test", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+	taskObj.WorktreePath = dir
+
+	cfg := &config.Config{
+		Claude: config.ClaudeConfig{Command: script},
+	}
+	engine := NewEngine(cfg, database, nil, dir)
+
+	wf := &config.WorkflowConfig{
+		Steps: []config.StepConfig{
+			{Name: "implement", Artifact: true},
+		},
+	}
+
+	ctx := context.Background()
+	// Should not panic with nil logFn
+	err = engine.runSummarizer(ctx, taskObj, wf, nil)
+	if err != nil {
+		t.Fatalf("runSummarizer with nil logFn failed: %v", err)
 	}
 }
 
