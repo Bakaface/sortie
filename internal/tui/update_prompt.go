@@ -7,7 +7,20 @@ import (
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keyStr := msg.String()
 
+	// When help overlay is showing, only allow closing it
+	if m.prompt.showHelp {
+		if keyStr == "ctrl+h" || keyStr == "esc" {
+			m.prompt.showHelp = false
+			return m, nil
+		}
+		return m, nil
+	}
+
 	switch keyStr {
+	case "ctrl+h":
+		m.prompt.showHelp = true
+		return m, nil
+
 	case "enter":
 		description := m.prompt.Value()
 		// Continue mode: send continue request with prompt

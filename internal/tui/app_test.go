@@ -1604,17 +1604,22 @@ func TestEditorPromptFinishedMsg_EmptyFilePreservesTextarea(t *testing.T) {
 	}
 }
 
-func TestPromptView_HelpShowsEditorShortcut(t *testing.T) {
-	p := newPromptView(true)
-	p.SetSize(100, 24)
+func TestPromptView_HelpShowsEditorShortcutInFullHelp(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		prompt: newPromptView(true),
+		view:   viewPrompt,
+	}
 
-	output := p.View()
+	output := m.renderPromptHelpOverlay()
 
 	if !strings.Contains(output, "ctrl+g") {
-		t.Error("expected prompt help to contain 'ctrl+g'")
+		t.Error("expected prompt full help to contain 'ctrl+g'")
 	}
 	if !strings.Contains(output, "editor") {
-		t.Error("expected prompt help to contain 'editor'")
+		t.Error("expected prompt full help to contain 'editor'")
 	}
 }
 
@@ -5212,5 +5217,230 @@ func TestHandleDetailKey_EWithNoTask(t *testing.T) {
 
 	if cmd != nil {
 		t.Error("expected nil command when no task is selected")
+	}
+}
+
+func TestPromptHelpToggle(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		prompt: newPromptView(true),
+		view:   viewPrompt,
+	}
+
+	// Press "ctrl+h" to open help
+	msg := tea.KeyMsg{Type: tea.KeyCtrlH}
+	result, cmd := m.handlePromptKey(msg)
+	updated := result.(Model)
+
+	if !updated.prompt.showHelp {
+		t.Error("expected showHelp to be true after 'ctrl+h'")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+
+	// Press "ctrl+h" again to close help
+	result, cmd = updated.handlePromptKey(msg)
+	updated = result.(Model)
+
+	if updated.prompt.showHelp {
+		t.Error("expected showHelp to be false after second 'ctrl+h'")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestPromptHelpCloseWithEsc(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		prompt: newPromptView(true),
+		view:   viewPrompt,
+	}
+	m.prompt.showHelp = true
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, cmd := m.handlePromptKey(msg)
+	updated := result.(Model)
+
+	if updated.prompt.showHelp {
+		t.Error("expected showHelp to be false after esc")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestPromptHelpConsumesKeys(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		prompt: newPromptView(true),
+		view:   viewPrompt,
+	}
+	m.prompt.showHelp = true
+
+	// Press a regular key while help is shown — should be consumed
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
+	result, cmd := m.handlePromptKey(msg)
+	updated := result.(Model)
+
+	if !updated.prompt.showHelp {
+		t.Error("expected showHelp to remain true")
+	}
+	if cmd != nil {
+		t.Error("expected no command, got non-nil")
+	}
+}
+
+func TestViewRendersPromptHelpOverlay(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		prompt: newPromptView(true),
+		view:   viewPrompt,
+	}
+	m.prompt.showHelp = true
+
+	output := m.View()
+
+	// Should show the prompt help overlay title
+	if !strings.Contains(output, "New Task Help") {
+		t.Error("expected help overlay to contain 'New Task Help'")
+	}
+
+	// Should contain prompt-specific group names
+	if !strings.Contains(output, "Input") {
+		t.Error("expected help overlay to contain 'Input' group")
+	}
+	if !strings.Contains(output, "Actions") {
+		t.Error("expected help overlay to contain 'Actions' group")
+	}
+
+	// Should contain prompt-specific bindings
+	if !strings.Contains(output, "submit") {
+		t.Error("expected help overlay to contain 'submit'")
+	}
+	if !strings.Contains(output, "worktree") {
+		t.Error("expected help overlay to contain 'worktree'")
+	}
+	if !strings.Contains(output, "editor") {
+		t.Error("expected help overlay to contain 'editor'")
+	}
+
+	// Should NOT contain list-view-specific bindings
+	if strings.Contains(output, "new task") {
+		t.Error("expected help overlay NOT to contain list-specific 'new task' binding")
+	}
+	if strings.Contains(output, "run task") {
+		t.Error("expected help overlay NOT to contain list-specific 'run task' binding")
+	}
+
+	// Should contain close hint
+	if !strings.Contains(output, "Press ctrl+h or esc to close") {
+		t.Error("expected help overlay to contain close hint")
+	}
+}
+
+func TestPromptShortHelpContainsHelpBinding(t *testing.T) {
+	keys := newPromptKeyMap()
+	bindings := keys.ShortHelp()
+
+	found := false
+	for _, b := range bindings {
+		if b.Help().Key == "ctrl+h" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected prompt ShortHelp to contain 'ctrl+h' help binding")
+	}
+}
+
+func TestPromptShortHelpShowsOnlyEssentialBindings(t *testing.T) {
+	keys := newPromptKeyMap()
+	bindings := keys.ShortHelp()
+
+	// ShortHelp should only show a few essential bindings (submit, cancel, newline, help)
+	if len(bindings) > 5 {
+		t.Errorf("expected ShortHelp to show at most 5 bindings, got %d", len(bindings))
+	}
+
+	// Should contain the essential bindings
+	helpKeys := make(map[string]bool)
+	for _, b := range bindings {
+		helpKeys[b.Help().Key] = true
+	}
+	for _, expected := range []string{"enter", "esc", "ctrl+h"} {
+		if !helpKeys[expected] {
+			t.Errorf("expected ShortHelp to contain %q", expected)
+		}
+	}
+}
+
+func TestPromptFullHelpContainsAllBindings(t *testing.T) {
+	keys := newPromptKeyMap()
+	groups := keys.FullHelp()
+
+	// Collect all binding descriptions
+	allDescs := make(map[string]bool)
+	for _, group := range groups {
+		for _, b := range group {
+			allDescs[b.Help().Desc] = true
+		}
+	}
+
+	// FullHelp should contain all prompt bindings
+	for _, expected := range []string{"submit", "cancel", "switch field", "newline", "worktree", "editor", "remove last image", "help"} {
+		if !allDescs[expected] {
+			t.Errorf("expected FullHelp to contain binding for %q", expected)
+		}
+	}
+}
+
+func TestPromptHelpOverlayIsSeparateFromListHelp(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		prompt: newPromptView(true),
+		view:   viewPrompt,
+	}
+
+	// Render prompt help overlay
+	promptHelp := m.renderPromptHelpOverlay()
+
+	// Render list help overlay
+	listHelp := m.renderHelpOverlay()
+
+	// They should have different titles
+	if !strings.Contains(promptHelp, "New Task Help") {
+		t.Error("expected prompt help to contain 'New Task Help'")
+	}
+	if !strings.Contains(listHelp, " Help ") {
+		t.Error("expected list help to contain ' Help '")
+	}
+
+	// Prompt help should NOT contain list-specific bindings
+	if strings.Contains(promptHelp, "new task") {
+		t.Error("prompt help should not contain 'new task'")
+	}
+	if strings.Contains(promptHelp, "logs") {
+		t.Error("prompt help should not contain 'logs'")
+	}
+
+	// List help should NOT contain prompt-specific bindings
+	if strings.Contains(listHelp, "switch field") {
+		t.Error("list help should not contain 'switch field'")
+	}
+	if strings.Contains(listHelp, "newline") {
+		t.Error("list help should not contain 'newline'")
 	}
 }

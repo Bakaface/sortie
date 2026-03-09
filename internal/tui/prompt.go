@@ -37,6 +37,7 @@ type promptView struct {
 	workflowName string
 	width        int
 	height       int
+	showHelp     bool
 }
 
 func newPromptView(defaultWorktree bool) promptView {
@@ -361,29 +362,24 @@ func (p *promptView) View() string {
 
 	// Help
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("  "))
-	b.WriteString(dimStyle.Render("enter"))
-	b.WriteString(helpStyle.Render(" submit"))
-	b.WriteString(helpStyle.Render(" | "))
-	b.WriteString(dimStyle.Render("tab"))
-	b.WriteString(helpStyle.Render(" switch field"))
-	b.WriteString(helpStyle.Render(" | "))
-	b.WriteString(dimStyle.Render("ctrl+j"))
-	b.WriteString(helpStyle.Render(" newline"))
-	b.WriteString(helpStyle.Render(" | "))
-	b.WriteString(dimStyle.Render("esc"))
-	b.WriteString(helpStyle.Render(" cancel"))
-	if len(p.images) > 0 {
-		b.WriteString(helpStyle.Render(" | "))
-		b.WriteString(dimStyle.Render("ctrl+x"))
-		b.WriteString(helpStyle.Render(" remove last image"))
-	}
-	b.WriteString(helpStyle.Render(" | "))
-	b.WriteString(dimStyle.Render("alt+w"))
-	b.WriteString(helpStyle.Render(" worktree"))
-	b.WriteString(helpStyle.Render(" | "))
-	b.WriteString(dimStyle.Render("ctrl+g"))
-	b.WriteString(helpStyle.Render(" editor"))
+	b.WriteString(p.renderHelp())
 
 	return b.String()
+}
+
+func (p *promptView) renderHelp() string {
+	var help strings.Builder
+	help.WriteString(helpStyle.Render("  "))
+
+	bindings := cachedPromptKeyMap.ShortHelp()
+	for i, binding := range bindings {
+		if i > 0 {
+			help.WriteString(helpStyle.Render(" | "))
+		}
+		help.WriteString(dimStyle.Render(binding.Help().Key))
+		help.WriteString(helpStyle.Render(" "))
+		help.WriteString(helpStyle.Render(binding.Help().Desc))
+	}
+
+	return help.String()
 }

@@ -430,8 +430,69 @@ func (k taskInfoKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.YankDesc, k.YankContext, k.Back}
 }
 
+type promptKeyMap struct {
+	Submit      key.Binding
+	SwitchField key.Binding
+	Newline     key.Binding
+	Cancel      key.Binding
+	RemoveImage key.Binding
+	Worktree    key.Binding
+	Editor      key.Binding
+	Help        key.Binding
+}
+
+func newPromptKeyMap() promptKeyMap {
+	return promptKeyMap{
+		Submit: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "submit"),
+		),
+		SwitchField: key.NewBinding(
+			key.WithKeys("tab"),
+			key.WithHelp("tab", "switch field"),
+		),
+		Newline: key.NewBinding(
+			key.WithKeys("ctrl+j"),
+			key.WithHelp("ctrl+j", "newline"),
+		),
+		Cancel: key.NewBinding(
+			key.WithKeys("esc"),
+			key.WithHelp("esc", "cancel"),
+		),
+		RemoveImage: key.NewBinding(
+			key.WithKeys("ctrl+x"),
+			key.WithHelp("ctrl+x", "remove last image"),
+		),
+		Worktree: key.NewBinding(
+			key.WithKeys("alt+w"),
+			key.WithHelp("alt+w", "worktree"),
+		),
+		Editor: key.NewBinding(
+			key.WithKeys("ctrl+g"),
+			key.WithHelp("ctrl+g", "editor"),
+		),
+		Help: key.NewBinding(
+			key.WithKeys("ctrl+h"),
+			key.WithHelp("ctrl+h", "help"),
+		),
+	}
+}
+
+func (k promptKeyMap) ShortHelp() []key.Binding {
+	return []key.Binding{k.Submit, k.Cancel, k.Newline, k.Help}
+}
+
+func (k promptKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Submit, k.Cancel, k.SwitchField, k.Newline},
+		{k.Worktree, k.Editor, k.RemoveImage},
+		{k.Help},
+	}
+}
+
 // Pre-allocated key maps to avoid allocations on every renderHelp() call.
 var (
 	cachedDetailFollowKeyMap = newDetailFollowKeyMap()
 	cachedDetailNormalKeyMap = newDetailNormalKeyMap()
+	cachedPromptKeyMap       = newPromptKeyMap()
 )

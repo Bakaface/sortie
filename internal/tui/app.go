@@ -323,6 +323,11 @@ func (m Model) View() string {
 		return m.renderHelpOverlay()
 	}
 
+	// Show prompt help overlay
+	if m.prompt.showHelp && m.view == viewPrompt {
+		return m.renderPromptHelpOverlay()
+	}
+
 	// Show priority selection as its own screen
 	if m.selectingPriority {
 		priorities := []string{"low", "medium", "high", "urgent"}
@@ -508,6 +513,31 @@ func (m Model) renderHelpOverlay() string {
 
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(" Help ") + "\n\n")
+
+	for i, group := range groups {
+		if i < len(groupNames) {
+			b.WriteString("  " + headingStyle.Render(groupNames[i]) + "\n")
+		}
+		for _, binding := range group {
+			fmt.Fprintf(&b, "    %-12s %s\n", dimStyle.Render(binding.Help().Key), helpStyle.Render(binding.Help().Desc))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(dimStyle.Render("  Press ctrl+h or esc to close"))
+	return b.String()
+}
+
+func (m Model) renderPromptHelpOverlay() string {
+	keys := newPromptKeyMap()
+	groups := keys.FullHelp()
+
+	groupNames := []string{"Input", "Actions", "General"}
+
+	headingStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(" New Task Help ") + "\n\n")
 
 	for i, group := range groups {
 		if i < len(groupNames) {
