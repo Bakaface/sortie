@@ -129,6 +129,18 @@ func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 	return pc, nil
 }
 
+// projectLogPrefix returns a "[projectname] " prefix for log messages.
+// If the project name cannot be resolved, it returns an empty string.
+func (s *Server) projectLogPrefix(projectID int64) string {
+	if pc, err := s.getProjectContext(projectID); err == nil && pc.cfg.Project.Name != "" {
+		return "[" + pc.cfg.Project.Name + "] "
+	}
+	if proj, err := s.database.GetProject(projectID); err == nil && proj.Name != "" {
+		return "[" + proj.Name + "] "
+	}
+	return ""
+}
+
 func (s *Server) getProjectDataDir(t *task.Task) string {
 	pc, err := s.getProjectContext(t.ProjectID)
 	if err != nil {
@@ -386,9 +398,9 @@ func (s *Server) Shutdown() {
 		runningTasks, err := s.database.GetRunningTasks()
 		if err == nil {
 			for _, t := range runningTasks {
-				log.Printf("Marking task #%d as failed (daemon shutdown)", t.ID)
+				log.Printf("%sMarking task #%d as failed (daemon shutdown)", s.projectLogPrefix(t.ProjectID), t.ID)
 				if err := s.database.UpdateTaskError(t.ID, "daemon shutdown"); err != nil {
-					log.Printf("Failed to mark task #%d as failed: %v", t.ID, err)
+					log.Printf("%sFailed to mark task #%d as failed: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 				}
 			}
 		}

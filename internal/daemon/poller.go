@@ -47,9 +47,9 @@ func (s *Server) checkPendingTasks() {
 		if title == "" {
 			title = t.Description
 		}
-		log.Printf("Starting agent for task #%d: %s", t.ID, title)
+		log.Printf("%sStarting agent for task #%d: %s", s.projectLogPrefix(t.ProjectID), t.ID, title)
 		if err := s.startTaskAgent(t); err != nil {
-			log.Printf("Failed to start agent for task #%d: %v", t.ID, err)
+			log.Printf("%sFailed to start agent for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}
 }
@@ -99,9 +99,9 @@ func (s *Server) recoverOrphanedTasks() error {
 	}
 
 	for _, t := range runningTasks {
-		log.Printf("Recovering orphaned task #%d, resetting to pending", t.ID)
+		log.Printf("%sRecovering orphaned task #%d, resetting to pending", s.projectLogPrefix(t.ProjectID), t.ID)
 		if err := s.database.ResetTaskForRetry(t.ID); err != nil {
-			log.Printf("Failed to reset task #%d: %v", t.ID, err)
+			log.Printf("%sFailed to reset task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}
 
@@ -112,44 +112,46 @@ func (s *Server) recoverOrphanedTasks() error {
 	var tmuxTasksToRestore []*task.Task
 
 	for _, t := range allTasks {
+		prefix := s.projectLogPrefix(t.ProjectID)
 		if t.Status == task.StatusInit {
-			log.Printf("Recovering task #%d stuck in init, resetting to pending", t.ID)
+			log.Printf("%sRecovering task #%d stuck in init, resetting to pending", prefix, t.ID)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
-				log.Printf("Failed to reset task #%d: %v", t.ID, err)
+				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
 			}
 		}
 		if t.Status == task.StatusFinalizing {
-			log.Printf("Recovering task #%d stuck in finalizing, resetting to tmux", t.ID)
+			log.Printf("%sRecovering task #%d stuck in finalizing, resetting to tmux", prefix, t.ID)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusTmux); err != nil {
-				log.Printf("Failed to reset task #%d: %v", t.ID, err)
+				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
 			} else {
 				tmuxTasksToRestore = append(tmuxTasksToRestore, t)
 			}
 		}
 		if t.Status == task.StatusSummarizing || t.Status == task.StatusMergeBlocked {
-			log.Printf("Recovering task #%d stuck in %s, resetting to pending", t.ID, t.Status)
+			log.Printf("%sRecovering task #%d stuck in %s, resetting to pending", prefix, t.ID, t.Status)
 			if err := s.database.ResetTaskForRetry(t.ID); err != nil {
-				log.Printf("Failed to reset task #%d: %v", t.ID, err)
+				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
 			}
 		}
 		if t.Status == task.StatusAwaitingApproval {
-			log.Printf("Task #%d is awaiting approval (use 'continue' command)", t.ID)
+			log.Printf("%sTask #%d is awaiting approval (use 'continue' command)", prefix, t.ID)
 		}
 		if t.Status == task.StatusTmux {
 			tmuxTasksToRestore = append(tmuxTasksToRestore, t)
 		}
 		if t.Status == task.StatusArtifactMissing {
-			log.Printf("Task #%d has missing artifact (use 'continue' command to skip)", t.ID)
+			log.Printf("%sTask #%d has missing artifact (use 'continue' command to skip)", prefix, t.ID)
 		}
 	}
 
 	// Restore tmux sessions for tasks that had active tmux sessions before daemon restart
 	if len(tmuxTasksToRestore) > 0 && tmux.IsAvailable() {
 		for _, t := range tmuxTasksToRestore {
+			prefix := s.projectLogPrefix(t.ProjectID)
 			if err := s.restoreTmuxSession(t); err != nil {
-				log.Printf("Failed to restore tmux session for task #%d: %v", t.ID, err)
+				log.Printf("%sFailed to restore tmux session for task #%d: %v", prefix, t.ID, err)
 			} else {
-				log.Printf("Restored tmux session for task #%d (use /resume in claude to restore chat)", t.ID)
+				log.Printf("%sRestored tmux session for task #%d (use /resume in claude to restore chat)", prefix, t.ID)
 			}
 		}
 	}
@@ -176,7 +178,7 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 	session := tmux.NewSession(projectName, taskID, t.WorktreePath)
 
 	if session.Exists() {
-		log.Printf("Tmux session already exists for task #%d, skipping restore", t.ID)
+		log.Printf("%sTmux session already exists for task #%d, skipping restore", s.projectLogPrefix(t.ProjectID), t.ID)
 		return nil
 	}
 

@@ -13,6 +13,7 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 	info := agentToInfo(a)
 	s.broadcastToSubscribers(MsgAgentUpdate, AgentUpdateResponse{Agent: info})
 
+	prefix := s.projectLogPrefix(a.Task.ProjectID)
 	taskTitle := a.Task.Title
 	if taskTitle == "" {
 		taskTitle = a.Task.Description
@@ -22,18 +23,18 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 	case agent.StateCompleted:
 		refreshedTask, err := s.database.GetTask(a.Task.ID)
 		if err == nil && (refreshedTask.Status == task.StatusAwaitingApproval || refreshedTask.Status == task.StatusTmux || refreshedTask.Status == task.StatusArtifactMissing) {
-			log.Printf("Agent %s paused task #%d for approval", a.ID, a.Task.ID)
+			log.Printf("%sAgent %s paused task #%d for approval", prefix, a.ID, a.Task.ID)
 			s.notifier.AgentWaitingForInput(a.ID, taskTitle)
 			return
 		}
 
-		log.Printf("Agent %s completed task #%d", a.ID, a.Task.ID)
+		log.Printf("%sAgent %s completed task #%d", prefix, a.ID, a.Task.ID)
 		if err := s.database.UpdateTaskStatus(a.Task.ID, task.StatusCompleted); err != nil {
-			log.Printf("Failed to update task status: %v", err)
+			log.Printf("%sFailed to update task status: %v", prefix, err)
 		}
 		if pc, err := s.getProjectContext(a.Task.ProjectID); err == nil {
 			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, a.ID); err != nil {
-				log.Printf("Warning: failed to kill tmux sessions for task %s: %v", a.ID, err)
+				log.Printf("%sWarning: failed to kill tmux sessions for task %s: %v", prefix, a.ID, err)
 			}
 		}
 		s.notifier.AgentCompleted(a.ID, taskTitle)
@@ -41,13 +42,13 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		s.checkProjectTasksDone(a.Task.ProjectID)
 
 	case agent.StateFailed:
-		log.Printf("Agent %s failed task #%d: %s", a.ID, a.Task.ID, a.Error)
+		log.Printf("%sAgent %s failed task #%d: %s", prefix, a.ID, a.Task.ID, a.Error)
 		if err := s.database.UpdateTaskError(a.Task.ID, a.Error); err != nil {
-			log.Printf("Failed to update task error: %v", err)
+			log.Printf("%sFailed to update task error: %v", prefix, err)
 		}
 		if pc, err := s.getProjectContext(a.Task.ProjectID); err == nil {
 			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, a.ID); err != nil {
-				log.Printf("Warning: failed to kill tmux sessions for task %s: %v", a.ID, err)
+				log.Printf("%sWarning: failed to kill tmux sessions for task %s: %v", prefix, a.ID, err)
 			}
 		}
 		s.notifier.AgentFailed(a.ID, taskTitle, a.Error)
@@ -70,7 +71,7 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 			return
 		}
 	}
-	log.Printf("All tasks completed for project %d", projectID)
+	log.Printf("%sAll tasks completed for project %d", s.projectLogPrefix(projectID), projectID)
 	s.notifier.AllTasksCompleted()
 }
 

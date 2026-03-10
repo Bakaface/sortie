@@ -161,7 +161,7 @@ func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 	if t, err := s.database.GetTask(req.TaskID); err == nil {
 		if pc, err := s.getProjectContext(t.ProjectID); err == nil {
 			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
-				log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", req.TaskID, err)
+				log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), req.TaskID, err)
 			}
 		}
 	}
@@ -189,7 +189,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		agentID := fmt.Sprintf("%d", t.ID)
 		if pc, err := s.getProjectContext(t.ProjectID); err == nil {
 			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
-				log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+				log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			}
 		}
 
@@ -220,7 +220,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 			return
 		}
 		s.broadcastTaskUpdate(t.ID)
-		log.Printf("Task #%d continued past artifact-missing at step %d", t.ID, t.StepIndex)
+		log.Printf("%sTask #%d continued past artifact-missing at step %d", s.projectLogPrefix(t.ProjectID), t.ID, t.StepIndex)
 		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d continued past missing artifact", t.ID)})
 		return
 	}
@@ -238,7 +238,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 			return
 		}
 		s.broadcastTaskUpdate(t.ID)
-		log.Printf("Task #%d continuing with workflow %q", t.ID, req.Workflow)
+		log.Printf("%sTask #%d continuing with workflow %q", s.projectLogPrefix(t.ProjectID), t.ID, req.Workflow)
 		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d continuing with workflow %q", t.ID, req.Workflow)})
 		return
 	}
@@ -250,7 +250,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 			return
 		}
 		s.broadcastTaskUpdate(t.ID)
-		log.Printf("Task #%d retrying from step %d", t.ID, t.StepIndex)
+		log.Printf("%sTask #%d retrying from step %d", s.projectLogPrefix(t.ProjectID), t.ID, t.StepIndex)
 		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d retrying from step %d", t.ID, t.StepIndex)})
 		return
 	}
@@ -284,7 +284,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		}
 		t.WorktreePath = worktree.Path
 		if err := s.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
-			log.Printf("Warning: failed to update worktree path: %v", err)
+			log.Printf("%sWarning: failed to update worktree path: %v", s.projectLogPrefix(t.ProjectID), err)
 		}
 	}
 
@@ -343,7 +343,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 
 	s.broadcastTaskUpdate(t.ID)
 
-	log.Printf("Continue session started for task #%d (tmux: %s)", t.ID, session.Name)
+	log.Printf("%sContinue session started for task #%d (tmux: %s)", s.projectLogPrefix(t.ProjectID), t.ID, session.Name)
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("continue session started for task #%d", t.ID)})
 }
 
@@ -368,7 +368,7 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 	// Kill tmux sessions
 	agentID := fmt.Sprintf("%d", t.ID)
 	if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
-		log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+		log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 	}
 
 	// Fast-track: if no meaningful changes were made, skip full finalization
@@ -377,26 +377,26 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 		noiseFiles := []string{".claude-output.log", "CLAUDE.md"}
 		hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
 		if err != nil {
-			log.Printf("Warning: failed to check for meaningful changes for task #%d: %v", t.ID, err)
+			log.Printf("%sWarning: failed to check for meaningful changes for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		} else if !hasChanges {
-			log.Printf("Task #%d: no meaningful changes detected, fast-tracking to completed", t.ID)
+			log.Printf("%sTask #%d: no meaningful changes detected, fast-tracking to completed", s.projectLogPrefix(t.ProjectID), t.ID)
 			repoRoot := pc.repoRoot
 			if repoRoot != "" {
 				if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
-					log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, rmErr)
+					log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
 				}
 				gitpkg.CleanupWorktrees(repoRoot)
 				if err := s.database.ClearWorktreePath(t.ID); err != nil {
-					log.Printf("Warning: failed to clear worktree path for task #%d: %v", t.ID, err)
+					log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 				}
 			}
 			if t.Branch != "" && repoRoot != "" {
 				if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
-					log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, rmErr)
+					log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
 				}
 			}
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
-				log.Printf("Error: failed to mark task #%d as completed: %v", t.ID, err)
+				log.Printf("%sError: failed to mark task #%d as completed: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			}
 			s.broadcastTaskUpdate(t.ID)
 			s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d fast-tracked to completed (no changes)", t.ID)})
@@ -406,7 +406,7 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 
 	// Set finalizing status while we run summarizer + on_complete
 	if err := s.database.UpdateTaskStatus(t.ID, task.StatusFinalizing); err != nil {
-		log.Printf("Warning: failed to set finalizing status for task #%d: %v", t.ID, err)
+		log.Printf("%sWarning: failed to set finalizing status for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 	}
 	s.broadcastTaskUpdate(t.ID)
 
@@ -420,33 +420,33 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 	repoRoot := s.getProjectRepoRoot(t)
 	if err := pc.engine.FinalizeTask(s.ctx, t); err != nil {
-		log.Printf("Warning: finalize failed for task #%d: %v", t.ID, err)
+		log.Printf("%sWarning: finalize failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		// Don't fail the whole operation — still mark as completed.
 		// Best-effort cleanup of worktree and branch so they don't linger.
 		if t.Worktree && t.WorktreePath != "" && repoRoot != "" {
 			if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
-				log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, rmErr)
+				log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
 			}
 			gitpkg.CleanupWorktrees(repoRoot)
 			if err := s.database.ClearWorktreePath(t.ID); err != nil {
-				log.Printf("Warning: failed to clear worktree path for task #%d: %v", t.ID, err)
+				log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			}
 		}
 		if t.Worktree && t.Branch != "" && repoRoot != "" {
 			if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
-				log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, rmErr)
+				log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
 			}
 		}
 	}
 
 	// Mark task as completed
 	if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
-		log.Printf("Error: failed to mark task #%d as completed: %v", t.ID, err)
+		log.Printf("%sError: failed to mark task #%d as completed: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		return
 	}
 
 	s.broadcastTaskUpdate(t.ID)
-	log.Printf("Task #%d finalized from tmux continue session", t.ID)
+	log.Printf("%sTask #%d finalized from tmux continue session", s.projectLogPrefix(t.ProjectID), t.ID)
 }
 
 func dirExists(path string) bool {
@@ -564,7 +564,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	// Persist worktree preference for this project
 	if err := s.database.UpdateProjectDefaultWorktree(proj.ID, worktree); err != nil {
-		log.Printf("Failed to update default worktree for project %d: %v", proj.ID, err)
+		log.Printf("%sFailed to update default worktree for project %d: %v", s.projectLogPrefix(proj.ID), proj.ID, err)
 	}
 
 	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", task.StatusInit, priority, worktree, req.Images)
@@ -591,9 +591,9 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, wor
 
 	title, err := s.generateTitle(ctx, description, &projCfg.Claude)
 	if err != nil {
-		log.Printf("Failed to generate AI title for task #%d: %v", taskID, err)
+		log.Printf("%sFailed to generate AI title for task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
 		if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
-			log.Printf("Failed to transition task #%d to pending: %v", taskID, err)
+			log.Printf("%sFailed to transition task #%d to pending: %v", s.projectLogPrefix(projectID), taskID, err)
 		}
 		s.broadcastTaskUpdate(taskID)
 		return
@@ -612,21 +612,21 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, wor
 	}
 
 	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {
-		log.Printf("Failed to update title for task #%d: %v", taskID, err)
+		log.Printf("%sFailed to update title for task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
 		if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
-			log.Printf("Failed to transition task #%d to pending: %v", taskID, err)
+			log.Printf("%sFailed to transition task #%d to pending: %v", s.projectLogPrefix(projectID), taskID, err)
 		}
 		s.broadcastTaskUpdate(taskID)
 		return
 	}
 
 	if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
-		log.Printf("Failed to transition task #%d to pending: %v", taskID, err)
+		log.Printf("%sFailed to transition task #%d to pending: %v", s.projectLogPrefix(projectID), taskID, err)
 		return
 	}
 
 	s.broadcastTaskUpdate(taskID)
-	log.Printf("AI title for task #%d: %s (branch: %s)", taskID, title, branch)
+	log.Printf("%sAI title for task #%d: %s (branch: %s)", s.projectLogPrefix(projectID), taskID, title, branch)
 }
 
 func (s *Server) generateTitle(ctx context.Context, description string, claude *config.ClaudeConfig) (string, error) {
@@ -704,7 +704,7 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 
 	if pc, err := s.getProjectContext(t.ProjectID); err == nil {
 		if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
-			log.Printf("Warning: failed to kill tmux sessions for task #%d: %v", t.ID, err)
+			log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}
 
@@ -712,20 +712,20 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 
 	if t.Worktree && t.WorktreePath != "" && repoRoot != "" {
 		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
-			log.Printf("Warning: failed to remove worktree for task #%d: %v", t.ID, err)
+			log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}
 
 	if t.Worktree && t.Branch != "" && repoRoot != "" {
 		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
-			log.Printf("Warning: failed to delete branch for task #%d: %v", t.ID, err)
+			log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}
 
 	dataDir := s.getProjectDataDir(t)
 	logDir := workflow.ProjectLogsDir(dataDir, t.ID)
 	if err := os.RemoveAll(logDir); err != nil {
-		log.Printf("Warning: failed to remove log dir for task #%d: %v", t.ID, err)
+		log.Printf("%sWarning: failed to remove log dir for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 	}
 
 	if err := s.database.DeleteTask(t.ID); err != nil {

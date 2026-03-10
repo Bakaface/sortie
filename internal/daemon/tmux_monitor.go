@@ -61,7 +61,7 @@ func (s *Server) checkTmuxActivity(monitor *tmux.Monitor) {
 		}
 
 		activityStr := string(activity)
-		log.Printf("Task #%d tmux activity changed to: %s", t.ID, activityStr)
+		log.Printf("%sTask #%d tmux activity changed to: %s", s.projectLogPrefix(t.ProjectID), t.ID, activityStr)
 
 		s.mu.Lock()
 		s.tmuxActivity[t.ID] = activityStr
