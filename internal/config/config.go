@@ -893,12 +893,17 @@ func (c *Config) ApplyDetectedProject(dir string) {
 	}
 
 	detected := DetectProject(dir)
-	if detected.Type == ProjectTypeUnknown {
-		return
-	}
 
 	if c.Project.Name == "" {
-		c.Project.Name = detected.Name
+		if detected.Name != "" {
+			c.Project.Name = detected.Name
+		} else {
+			c.Project.Name = filepath.Base(dir)
+		}
+	}
+
+	if detected.Type == ProjectTypeUnknown {
+		return
 	}
 	if c.Project.Commands.Test == "" {
 		c.Project.Commands.Test = detected.Commands.Test
