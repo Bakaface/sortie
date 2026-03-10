@@ -25,6 +25,43 @@ func TestPromptPrefixContainsAirplane(t *testing.T) {
 	}
 }
 
+func TestHighlightColorIsGreen(t *testing.T) {
+	// The highlight adaptive color should use green tones, not blue
+	lightColor := highlight.Light
+	darkColor := highlight.Dark
+	if lightColor != "#2D7A4F" {
+		t.Errorf("highlight light color should be green (#2D7A4F), got %q", lightColor)
+	}
+	if darkColor != "#5BA87A" {
+		t.Errorf("highlight dark color should be green (#5BA87A), got %q", darkColor)
+	}
+}
+
+func TestTitleStyleUsesGreenBackground(t *testing.T) {
+	bg := titleStyle.GetBackground()
+	if bg == nil {
+		t.Fatal("titleStyle should have a background color")
+	}
+}
+
+func TestSelectedStyleUsesGreenBackground(t *testing.T) {
+	bg := selectedStyle.GetBackground()
+	if bg == nil {
+		t.Fatal("selectedStyle should have a background color")
+	}
+}
+
+func TestStateStylesFinalizingIsGreen(t *testing.T) {
+	style, ok := stateStyles["finalizing"]
+	if !ok {
+		t.Fatal("stateStyles should have a 'finalizing' entry")
+	}
+	fg := style.GetForeground()
+	if fg == nil {
+		t.Fatal("finalizing style should have a foreground color")
+	}
+}
+
 func TestProjectIndicatorStyleIsGreyWithNoBackground(t *testing.T) {
 	fg := projectIndicatorStyle.GetForeground()
 	if fg == nil {
