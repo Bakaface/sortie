@@ -76,6 +76,33 @@ func HasChanges(workDir string) (bool, error) {
 	return strings.TrimSpace(stdout.String()) != "", nil
 }
 
+// CleanRepoState forcibly restores a repository's working tree and index to a
+// clean state. It aborts any in-progress merge, then hard-resets to HEAD.
+// Returns an error only if the repo is still dirty after cleanup.
+func CleanRepoState(repoRoot string) error {
+	// Abort any in-progress merge first (handles conflicted/half-merged index)
+	abortCmd := exec.Command("git", "merge", "--abort")
+	abortCmd.Dir = repoRoot
+	abortCmd.Run() // ignore error — no merge in progress is fine
+
+	// Hard reset index and working tree
+	resetCmd := exec.Command("git", "reset", "--hard", "HEAD")
+	resetCmd.Dir = repoRoot
+	if err := resetCmd.Run(); err != nil {
+		return fmt.Errorf("git reset --hard failed: %w", err)
+	}
+
+	// Verify the cleanup actually worked
+	dirty, err := HasChanges(repoRoot)
+	if err != nil {
+		return fmt.Errorf("failed to verify clean state: %w", err)
+	}
+	if dirty {
+		return fmt.Errorf("repo still dirty after cleanup")
+	}
+	return nil
+}
+
 func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	// Checkout base branch
 	checkoutCmd := exec.Command("git", "checkout", baseBranch)
@@ -85,6 +112,7 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	checkoutCmd.Stderr = &stderr
 
 	if err := checkoutCmd.Run(); err != nil {
+		CleanRepoState(repoRoot) // best-effort cleanup
 		return fmt.Errorf("git checkout %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
 	}
 
@@ -95,12 +123,7 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	mergeCmd.Stderr = &stderr
 
 	if err := mergeCmd.Run(); err != nil {
-		// Clean up the failed merge so the working directory is not left dirty
-		// for the next merge operation. git reset --hard restores the index and
-		// working tree to the last commit on baseBranch.
-		resetCmd := exec.Command("git", "reset", "--hard", "HEAD")
-		resetCmd.Dir = repoRoot
-		resetCmd.Run() // best-effort cleanup
+		CleanRepoState(repoRoot) // abort merge + hard reset
 		return fmt.Errorf("git merge --squash failed: %w (stderr: %s)", err, stderr.String())
 	}
 
@@ -114,9 +137,7 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	commitCmd.Stderr = &stderr
 
 	if err := commitCmd.Run(); err != nil {
-		resetCmd := exec.Command("git", "reset", "--hard", "HEAD")
-		resetCmd.Dir = repoRoot
-		resetCmd.Run() // best-effort cleanup
+		CleanRepoState(repoRoot) // abort merge + hard reset
 		return fmt.Errorf("git commit after squash failed: %w (stderr: %s)", err, stderr.String())
 	}
 
