@@ -441,21 +441,32 @@ func (m Model) View() string {
 		return b.String()
 	}
 
-	// Count extra lines appended below the list view (search bar, command bar, etc.)
-	// so the list can reserve space and keep the help row visible.
-	extra := 0
+	// Build bottom bar lines (command bar, search bar, confirmation, status message).
+	// These are rendered at the very bottom of the terminal.
+	var bottomLines []string
 	if m.confirmAction != "" {
-		extra++
+		bottomLines = append(bottomLines, fmt.Sprintf("  %s task #%d? (y/n)", capitalize(m.confirmAction), m.confirmTaskID))
 	}
 	if m.commandMode {
-		extra++
+		bottomLines = append(bottomLines, fmt.Sprintf("  :%s█", m.commandInput))
 	}
 	if m.searchMode {
-		extra++
+		searchChar := "/"
+		if m.searchDirection < 0 {
+			searchChar = "?"
+		}
+		matchInfo := ""
+		if len(m.list.matchedIndices) > 0 {
+			matchInfo = fmt.Sprintf(" [%d/%d]", m.list.currentMatchIdx+1, len(m.list.matchedIndices))
+		}
+		bottomLines = append(bottomLines, fmt.Sprintf("%s%s█%s", searchChar, m.searchQuery, matchInfo))
 	}
 	if m.statusMessage != "" {
-		extra++
+		bottomLines = append(bottomLines, fmt.Sprintf("  %s", m.statusMessage))
 	}
+
+	// Count extra lines so views can reserve space for the bottom bar.
+	extra := len(bottomLines)
 	m.list.extraLines = extra
 
 	var content string
@@ -472,32 +483,18 @@ func (m Model) View() string {
 		content = m.list.View()
 	}
 
-	// Show confirmation bar if active
-	if m.confirmAction != "" {
-		content += fmt.Sprintf("\n  %s task #%d? (y/n)", capitalize(m.confirmAction), m.confirmTaskID)
-	}
-
-	// Show command bar if in command mode
-	if m.commandMode {
-		content += fmt.Sprintf("\n  :%s█", m.commandInput)
-	}
-
-	// Show search bar if in search mode
-	if m.searchMode {
-		searchChar := "/"
-		if m.searchDirection < 0 {
-			searchChar = "?"
+	// Append bottom bar lines, padded to the very bottom of the terminal.
+	if len(bottomLines) > 0 {
+		if m.height > 0 {
+			contentLines := strings.Count(content, "\n")
+			// Account for the trailing newline we add at the end
+			totalUsed := contentLines + 1 + len(bottomLines)
+			padding := m.height - totalUsed
+			if padding > 0 {
+				content += strings.Repeat("\n", padding)
+			}
 		}
-		matchInfo := ""
-		if len(m.list.matchedIndices) > 0 {
-			matchInfo = fmt.Sprintf(" [%d/%d]", m.list.currentMatchIdx+1, len(m.list.matchedIndices))
-		}
-		content += fmt.Sprintf("\n%s%s█%s", searchChar, m.searchQuery, matchInfo)
-	}
-
-	// Show status message (flash message, e.g. after yank)
-	if m.statusMessage != "" {
-		content += fmt.Sprintf("\n  %s", m.statusMessage)
+		content += "\n" + strings.Join(bottomLines, "\n")
 	}
 
 	return content + "\n"

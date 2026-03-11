@@ -4251,6 +4251,86 @@ func TestListView_OutputFitsTerminalHeight(t *testing.T) {
 	}
 }
 
+func TestBottomBar_PinnedToBottom(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false, ""),
+		view: viewList,
+	}
+	tasks := make([]daemon.TaskInfo, 5)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	m.list.SetTasks(tasks)
+	m.list.SetSize(100, 24)
+	m.width = 100
+	m.height = 24
+
+	// Command bar should appear on the last non-empty line
+	m.commandMode = true
+	m.commandInput = "set"
+	output := m.View()
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, ":set") {
+		t.Errorf("expected command bar on last line, got %q", lastLine)
+	}
+
+	// Status message should appear on the last non-empty line
+	m.commandMode = false
+	m.statusMessage = "Copied!"
+	output = m.View()
+	lines = strings.Split(strings.TrimRight(output, "\n"), "\n")
+	lastLine = lines[len(lines)-1]
+	if !strings.Contains(lastLine, "Copied!") {
+		t.Errorf("expected status message on last line, got %q", lastLine)
+	}
+
+	// Both command bar and status message: status on last, command on second-to-last
+	m.commandMode = true
+	m.commandInput = "42"
+	m.statusMessage = "Done"
+	output = m.View()
+	lines = strings.Split(strings.TrimRight(output, "\n"), "\n")
+	lastLine = lines[len(lines)-1]
+	secondToLast := lines[len(lines)-2]
+	if !strings.Contains(lastLine, "Done") {
+		t.Errorf("expected status message on last line, got %q", lastLine)
+	}
+	if !strings.Contains(secondToLast, ":42") {
+		t.Errorf("expected command bar on second-to-last line, got %q", secondToLast)
+	}
+}
+
+func TestBottomBar_OutputStillFitsTerminalHeight(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false, ""),
+		view: viewList,
+	}
+	tasks := make([]daemon.TaskInfo, 30)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	m.list.SetTasks(tasks)
+
+	// Test with command bar + status message at various heights
+	m.commandMode = true
+	m.commandInput = "test"
+	m.statusMessage = "Flash!"
+	for _, height := range []int{10, 15, 20, 30} {
+		m.list.SetSize(100, height)
+		m.width = 100
+		m.height = height
+
+		output := m.View()
+		lines := strings.Split(output, "\n")
+		if len(lines) > height+1 {
+			t.Errorf("height=%d with bottom bars: output has %d lines, expected <= %d", height, len(lines), height+1)
+		}
+	}
+}
+
 // --- Selection menu vim navigation tests ---
 
 func newTestModelWithWorkflows(n int) Model {
