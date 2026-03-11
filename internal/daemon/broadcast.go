@@ -149,6 +149,7 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		ErrorMessage:  t.ErrorMessage,
 		Context:       t.Context,
 		Images:        t.Images,
+		Commits:       t.Commits,
 		BlockedBy:     t.BlockedBy,
 		CreatedAt:     t.CreatedAt,
 		StartedAt:     t.StartedAt,

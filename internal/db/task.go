@@ -46,7 +46,7 @@ func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, 
 }
 
 const taskColumns = `id, project_id, title, description, slug, workflow, status, priority, step_index, current_step, loop_iteration,
-	branch_name, branch, worktree, worktree_path, exit_code, error_message, context, images,
+	branch_name, branch, worktree, worktree_path, exit_code, error_message, context, images, commits,
 	created_at, started_at, completed_at, updated_at`
 
 func (db *DB) GetTask(id int64) (*task.Task, error) {
@@ -368,6 +368,39 @@ func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
 	return err
 }
 
+func (db *DB) AppendTaskCommit(id int64, commitHash string) error {
+	t, err := db.GetTask(id)
+	if err != nil {
+		return err
+	}
+	commits := append(t.Commits, commitHash)
+	data, err := json.Marshal(commits)
+	if err != nil {
+		return fmt.Errorf("failed to marshal commits: %w", err)
+	}
+	_, err = db.Exec(
+		"UPDATE tasks SET commits = ?, updated_at = ? WHERE id = ?",
+		string(data), time.Now(), id,
+	)
+	return err
+}
+
+func (db *DB) GetTaskCommits(id int64) ([]string, error) {
+	var commitsJSON sql.NullString
+	err := db.QueryRow("SELECT commits FROM tasks WHERE id = ?", id).Scan(&commitsJSON)
+	if err != nil {
+		return nil, err
+	}
+	if !commitsJSON.Valid || commitsJSON.String == "" {
+		return nil, nil
+	}
+	var commits []string
+	if err := json.Unmarshal([]byte(commitsJSON.String), &commits); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal commits: %w", err)
+	}
+	return commits, nil
+}
+
 func (db *DB) DeleteTask(id int64) error {
 	_, err := db.Exec("DELETE FROM task_dependencies WHERE task_id = ? OR blocked_by = ?", id, id)
 	if err != nil {
@@ -390,6 +423,7 @@ func scanTaskRow(s scanner) (*task.Task, error) {
 	var currentStep, worktreePath, errorMessage sql.NullString
 	var taskContext sql.NullString
 	var imagesJSON sql.NullString
+	var commitsJSON sql.NullString
 	var exitCode sql.NullInt64
 	var worktreeInt int
 	var startedAt, completedAt sql.NullTime
@@ -398,7 +432,7 @@ func scanTaskRow(s scanner) (*task.Task, error) {
 	err := s.Scan(
 		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
 		&t.StepIndex, &currentStep, &t.LoopIteration,
-		&branchName, &branch, &worktreeInt, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON,
+		&branchName, &branch, &worktreeInt, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON, &commitsJSON,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 	)
 	if err != nil {
@@ -448,6 +482,11 @@ func scanTaskRow(s scanner) (*task.Task, error) {
 	if imagesJSON.Valid && imagesJSON.String != "" {
 		if err := json.Unmarshal([]byte(imagesJSON.String), &t.Images); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal images: %w", err)
+		}
+	}
+	if commitsJSON.Valid && commitsJSON.String != "" {
+		if err := json.Unmarshal([]byte(commitsJSON.String), &t.Commits); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal commits: %w", err)
 		}
 	}
 	if startedAt.Valid {

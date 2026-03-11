@@ -692,6 +692,48 @@ func (s *Server) handleUpdateField(conn net.Conn, req UpdateFieldRequest) {
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("%s updated", req.Field)})
 }
 
+func (s *Server) handleRevertTask(conn net.Conn, req RevertTaskRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	if !t.Status.IsTerminal() {
+		s.sendError(conn, fmt.Sprintf("task must be completed or failed to revert (status: %s)", t.Status))
+		return
+	}
+
+	commits, err := s.database.GetTaskCommits(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task commits: %v", err))
+		return
+	}
+
+	if len(commits) == 0 {
+		s.sendError(conn, "no commits found for this task")
+		return
+	}
+
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get project context: %v", err))
+		return
+	}
+
+	// Acquire merge mutex to prevent concurrent merge/revert operations
+	pc.engine.AcquireMergeLock()
+	defer pc.engine.ReleaseMergeLock()
+
+	if err := gitpkg.RevertCommits(pc.repoRoot, commits); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to revert commits: %v", err))
+		return
+	}
+
+	log.Printf("%sTask #%d reverted (%d commits)", s.projectLogPrefix(t.ProjectID), t.ID, len(commits))
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d reverted (%d commits)", t.ID, len(commits))})
+}
+
 func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 	t, err := s.database.GetTask(req.TaskID)
 	if err != nil {

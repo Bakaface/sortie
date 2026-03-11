@@ -23,6 +23,7 @@ type keyMap struct {
 	EditDesc       key.Binding
 	EditTitle      key.Binding
 	EditContext    key.Binding
+	Revert         key.Binding
 	Refresh        key.Binding
 	Back           key.Binding
 	Quit           key.Binding
@@ -112,9 +113,13 @@ func newKeyMap() keyMap {
 			key.WithKeys("e"),
 			key.WithHelp("ec", "edit context"),
 		),
-		Refresh: key.NewBinding(
+		Revert: key.NewBinding(
 			key.WithKeys("R"),
-			key.WithHelp("R", "refresh"),
+			key.WithHelp("R", "revert"),
+		),
+		Refresh: key.NewBinding(
+			key.WithKeys("ctrl+r"),
+			key.WithHelp("ctrl+r", "refresh"),
 		),
 		Back: key.NewBinding(
 			key.WithKeys("esc"),
@@ -174,7 +179,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.GotoTask, k.SearchForward, k.SearchBackward, k.NextMatch, k.PrevMatch, k.Enter, k.Logs},
-		{k.NewTask, k.RunTask, k.InitWorkflow, k.Stop, k.Retry, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
+		{k.NewTask, k.RunTask, k.InitWorkflow, k.Stop, k.Retry, k.Revert, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

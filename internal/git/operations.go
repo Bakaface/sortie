@@ -372,6 +372,30 @@ func AbortMerge(workDir string) error {
 	return nil
 }
 
+// GetLastCommitHash returns the SHA of the most recent commit on the current branch.
+func GetLastCommitHash(dir string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get last commit hash: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// RevertCommits performs git revert for each commit hash in reverse order (newest first).
+func RevertCommits(dir string, commits []string) error {
+	// Revert in reverse order (newest first) to avoid conflicts
+	for i := len(commits) - 1; i >= 0; i-- {
+		cmd := exec.Command("git", "revert", "--no-edit", commits[i])
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to revert commit %s: %w\n%s", commits[i], err, string(out))
+		}
+	}
+	return nil
+}
+
 func GetLastCommitMessage(workDir string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--pretty=%B")
 	cmd.Dir = workDir

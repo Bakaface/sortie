@@ -98,6 +98,7 @@ type Task struct {
 	Context      string
 	BlockedBy    []int64
 	Images       []string
+	Commits      []string
 	CreatedAt    time.Time
 	StartedAt    *time.Time
 	CompletedAt  *time.Time

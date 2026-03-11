@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (11)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (12)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -217,6 +217,18 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to add default_worktree column to projects: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 11`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 12: Add commits column to tasks
+	if version < 12 {
+		_, err := db.Exec(`ALTER TABLE tasks ADD COLUMN commits TEXT`)
+		if err != nil {
+			return fmt.Errorf("failed to add commits column: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 12`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}

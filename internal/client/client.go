@@ -360,6 +360,10 @@ func (c *Client) DeleteTask(id int64) error {
 	return c.requestOK(daemon.MsgDeleteTask, daemon.DeleteTaskRequest{TaskID: id})
 }
 
+func (c *Client) RevertTask(id int64) error {
+	return c.requestOK(daemon.MsgRevertTask, daemon.RevertTaskRequest{TaskID: id})
+}
+
 func (c *Client) GetLogs(id int64, step string, tail int) ([]string, error) {
 	msg, err := c.request(daemon.MsgGetLogs, daemon.GetLogsRequest{
 		TaskID: id,

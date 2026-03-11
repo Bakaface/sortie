@@ -664,6 +664,119 @@ func TestConventionalCommitFromTitle(t *testing.T) {
 	}
 }
 
+func TestGetLastCommitHash(t *testing.T) {
+	repo := initTestRepo(t)
+
+	hash, err := GetLastCommitHash(repo)
+	if err != nil {
+		t.Fatalf("GetLastCommitHash failed: %v", err)
+	}
+
+	// SHA-1 hash should be 40 hex characters
+	if len(hash) != 40 {
+		t.Errorf("expected 40 character hash, got %d chars: %q", len(hash), hash)
+	}
+
+	// Make another commit and verify hash changes
+	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "new commit")
+
+	hash2, err := GetLastCommitHash(repo)
+	if err != nil {
+		t.Fatalf("GetLastCommitHash failed: %v", err)
+	}
+
+	if hash == hash2 {
+		t.Error("expected different hash after new commit")
+	}
+}
+
+func TestRevertCommits(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create two commits with separate files
+	if err := os.WriteFile(filepath.Join(repo, "file1.txt"), []byte("file1 content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add file1")
+	hash1, err := GetLastCommitHash(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(repo, "file2.txt"), []byte("file2 content"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add file2")
+	hash2, err := GetLastCommitHash(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Both files should exist
+	if _, err := os.ReadFile(filepath.Join(repo, "file1.txt")); err != nil {
+		t.Fatal("file1.txt should exist before revert")
+	}
+	if _, err := os.ReadFile(filepath.Join(repo, "file2.txt")); err != nil {
+		t.Fatal("file2.txt should exist before revert")
+	}
+
+	// Revert both commits (newest first automatically)
+	if err := RevertCommits(repo, []string{hash1, hash2}); err != nil {
+		t.Fatalf("RevertCommits failed: %v", err)
+	}
+
+	// Both files should be removed after revert
+	if _, err := os.ReadFile(filepath.Join(repo, "file1.txt")); err == nil {
+		t.Error("file1.txt should not exist after revert")
+	}
+	if _, err := os.ReadFile(filepath.Join(repo, "file2.txt")); err == nil {
+		t.Error("file2.txt should not exist after revert")
+	}
+
+	// Verify repo is clean
+	statusOut := runGitOutput(t, repo, "status", "--porcelain")
+	if strings.TrimSpace(statusOut) != "" {
+		t.Errorf("expected clean working directory after revert, got:\n%s", statusOut)
+	}
+}
+
+func TestRevertCommits_EmptyList(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Reverting empty list should be a no-op
+	if err := RevertCommits(repo, []string{}); err != nil {
+		t.Fatalf("RevertCommits with empty list should succeed: %v", err)
+	}
+}
+
+func TestRevertCommits_SingleCommit(t *testing.T) {
+	repo := initTestRepo(t)
+
+	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("feature"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add feature")
+	hash, err := GetLastCommitHash(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RevertCommits(repo, []string{hash}); err != nil {
+		t.Fatalf("RevertCommits failed: %v", err)
+	}
+
+	if _, err := os.ReadFile(filepath.Join(repo, "feature.txt")); err == nil {
+		t.Error("feature.txt should not exist after revert")
+	}
+}
+
 // runGit is a test helper that runs a git command and fails on error.
 func runGit(t *testing.T, dir string, args ...string) {
 	t.Helper()

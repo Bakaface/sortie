@@ -379,6 +379,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleUpdateField(conn, req)
 
+	case MsgRevertTask:
+		var req RevertTaskRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleRevertTask(conn, req)
+
 	case MsgShutdown:
 		s.Shutdown()
 

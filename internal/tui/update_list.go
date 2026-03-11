@@ -60,6 +60,8 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.finalizeTask(taskID)
 			case "delete":
 				return m, m.deleteTask(taskID)
+			case "revert":
+				return m, m.revertTask(taskID)
 			default:
 				return m, nil
 			}
@@ -241,7 +243,14 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.refreshTasks()
 
 	case "R":
-		return m, m.refreshTasks()
+		if task := m.list.Selected(); task != nil && m.client != nil {
+			if task.Status == "completed" || task.Status == "failed" {
+				m.confirmAction = "revert"
+				m.confirmTaskID = task.ID
+				return m, nil
+			}
+		}
+		return m, nil
 
 	case "s":
 		if task := m.list.Selected(); task != nil && m.client != nil {

@@ -409,6 +409,14 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 			return err
 		}
 		logf("Commit completed")
+		// Track the commit hash
+		if commitHash, err := gitpkg.GetLastCommitHash(t.WorktreePath); err == nil {
+			if dbErr := e.database.AppendTaskCommit(t.ID, commitHash); dbErr != nil {
+				log.Printf("Warning: failed to record commit for task #%d: %v", t.ID, dbErr)
+			}
+		} else {
+			log.Printf("Warning: failed to get commit hash for task #%d: %v", t.ID, err)
+		}
 		return nil
 
 	case "merge":
@@ -419,6 +427,14 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 				return err
 			}
 			logf("Commit completed")
+			// Track the commit hash
+			if commitHash, err := gitpkg.GetLastCommitHash(t.WorktreePath); err == nil {
+				if dbErr := e.database.AppendTaskCommit(t.ID, commitHash); dbErr != nil {
+					log.Printf("Warning: failed to record commit for task #%d: %v", t.ID, dbErr)
+				}
+			} else {
+				log.Printf("Warning: failed to get commit hash for task #%d: %v", t.ID, err)
+			}
 			return nil
 		}
 		if t.Branch == "" {
@@ -459,6 +475,14 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 
 			if mergeErr == nil {
 				logf("Merge successful")
+				// Track the merge commit hash
+				if commitHash, err := gitpkg.GetLastCommitHash(e.repoRoot); err == nil {
+					if dbErr := e.database.AppendTaskCommit(t.ID, commitHash); dbErr != nil {
+						log.Printf("Warning: failed to record merge commit for task #%d: %v", t.ID, dbErr)
+					}
+				} else {
+					log.Printf("Warning: failed to get merge commit hash for task #%d: %v", t.ID, err)
+				}
 				break
 			}
 
@@ -694,6 +718,16 @@ func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFil
 	}
 
 	return nil
+}
+
+// AcquireMergeLock acquires the merge mutex for operations that modify the base branch.
+func (e *Engine) AcquireMergeLock() {
+	e.mergeMu.Lock()
+}
+
+// ReleaseMergeLock releases the merge mutex.
+func (e *Engine) ReleaseMergeLock() {
+	e.mergeMu.Unlock()
 }
 
 // ResumeAfterApproval resumes a task from its current step index.

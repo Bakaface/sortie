@@ -198,6 +198,9 @@ func printTaskDetail(t *daemon.TaskInfo) {
 	if len(t.BlockedBy) > 0 {
 		fmt.Printf("  Blocked by:  %v\n", t.BlockedBy)
 	}
+	if len(t.Commits) > 0 {
+		fmt.Printf("  Commits:     %v\n", t.Commits)
+	}
 	if t.ErrorMessage != "" {
 		fmt.Printf("  Error:       %s\n", t.ErrorMessage)
 	}
@@ -326,6 +329,32 @@ var retryCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Task #%d reset for retry\n", taskID)
+		return nil
+	},
+}
+
+var revertCmd = &cobra.Command{
+	Use:               "revert <task_id>",
+	Short:             "Revert all commits made by a task",
+	Args:              cobra.ExactArgs(1),
+	ValidArgsFunction: completeTaskIDs(task.StatusCompleted),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		taskID, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid task ID: %s", args[0])
+		}
+
+		c := client.New(cfg)
+		if err := c.Connect(); err != nil {
+			return fmt.Errorf("failed to connect to daemon: %w", err)
+		}
+		defer c.Close()
+
+		if err := c.RevertTask(taskID); err != nil {
+			return fmt.Errorf("failed to revert task: %w", err)
+		}
+
+		fmt.Printf("Task #%d reverted\n", taskID)
 		return nil
 	},
 }

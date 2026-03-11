@@ -37,6 +37,7 @@ const (
 	MsgPong         MessageType = "pong"
 	MsgShutdown       MessageType = "shutdown"
 	MsgTmuxActivity   MessageType = "tmux_activity"
+	MsgRevertTask     MessageType = "revert_task"
 )
 
 type Message struct {
@@ -141,6 +142,10 @@ type UpdateFieldRequest struct {
 	Value  string `json:"value"`
 }
 
+type RevertTaskRequest struct {
+	TaskID int64 `json:"task_id"`
+}
+
 type CreateTaskResponse struct {
 	Task TaskInfo `json:"task"`
 }
@@ -188,6 +193,7 @@ type TaskInfo struct {
 	ErrorMessage string     `json:"error_message,omitempty"`
 	Context      string     `json:"context,omitempty"`
 	Images       []string   `json:"images,omitempty"`
+	Commits      []string   `json:"commits,omitempty"`
 	BlockedBy    []int64    `json:"blocked_by,omitempty"`
 	CreatedAt    time.Time  `json:"created_at"`
 	StartedAt    *time.Time `json:"started_at,omitempty"`

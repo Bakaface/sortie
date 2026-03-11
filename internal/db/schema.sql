@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     error_message TEXT,
     context TEXT,
     images TEXT,
+    commits TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME,
     completed_at DATETIME,
