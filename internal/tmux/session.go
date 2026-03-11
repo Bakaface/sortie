@@ -8,9 +8,17 @@ import (
 	"strings"
 )
 
+// sanitizeSessionName replaces characters that tmux does not allow in session
+// names. Tmux silently converts dots to underscores, so we do the same
+// up-front to keep our prefix matching consistent with real session names.
+func sanitizeSessionName(name string) string {
+	return strings.ReplaceAll(name, ".", "_")
+}
+
 // SessionPrefix returns the tmux session name prefix for a given project.
+// The project name is sanitized to match tmux's own character replacements.
 func SessionPrefix(projectName string) string {
-	return projectName + "-"
+	return sanitizeSessionName(projectName) + "-"
 }
 
 type Session struct {
