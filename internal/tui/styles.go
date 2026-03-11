@@ -14,7 +14,7 @@ const PromptPrefix = "✈ "
 
 var (
 	subtle    = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#3A3A3A"}
-	highlight = lipgloss.AdaptiveColor{Light: "#2D7A4F", Dark: "#5BA87A"}
+	highlight = lipgloss.AdaptiveColor{Light: "#3D6E99", Dark: "#5F8AB3"}
 
 	titleStyle = lipgloss.NewStyle().
 			Bold(true).
@@ -48,8 +48,8 @@ var (
 		"waiting_for_input": lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
 		"awaiting-approval": lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")).Bold(true),
 		"tmux":              lipgloss.NewStyle().Foreground(lipgloss.Color("#B07AAD")).Bold(true),
-		"finalizing":        lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
-		"summarizing":       lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
+		"finalizing":        lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
+		"summarizing":       lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
 		"merge-blocked":     lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
 		"completed":         lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
 		"failed":            lipgloss.NewStyle().Foreground(lipgloss.Color("#D94F4F")),
@@ -59,7 +59,7 @@ var (
 
 	priorityStyles = map[string]lipgloss.Style{
 		"low":    lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B")),
-		"medium": lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
+		"medium": lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
 		"high":   lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")),
 		"urgent": lipgloss.NewStyle().Foreground(lipgloss.Color("#D94F4F")).Bold(true),
 	}
