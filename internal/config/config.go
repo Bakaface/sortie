@@ -886,6 +886,14 @@ func getProjectConfigPath() string {
 	return ""
 }
 
+// SanitizeProjectName replaces characters that are problematic for downstream
+// consumers (e.g. tmux silently converts dots to underscores, breaking session
+// prefix matching). Applied at project name creation time so all consumers get
+// a clean, consistent name.
+func SanitizeProjectName(name string) string {
+	return strings.ReplaceAll(name, ".", "_")
+}
+
 // ApplyDetectedProject applies auto-detected project settings.
 func (c *Config) ApplyDetectedProject(dir string) {
 	if !c.Project.AutoDetect {
@@ -896,9 +904,9 @@ func (c *Config) ApplyDetectedProject(dir string) {
 
 	if c.Project.Name == "" {
 		if detected.Name != "" {
-			c.Project.Name = detected.Name
+			c.Project.Name = SanitizeProjectName(detected.Name)
 		} else {
-			c.Project.Name = filepath.Base(dir)
+			c.Project.Name = SanitizeProjectName(filepath.Base(dir))
 		}
 	}
 

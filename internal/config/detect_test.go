@@ -75,6 +75,59 @@ func TestApplyDetectedProjectDoesNotOverrideExplicitName(t *testing.T) {
 	}
 }
 
+func TestSanitizeProjectName(t *testing.T) {
+	tests := []struct {
+		input, expected string
+	}{
+		{"myproject", "myproject"},
+		{".docs", "_docs"},
+		{"my.project.name", "my_project_name"},
+		{".", "_"},
+		{"sortie", "sortie"},
+		{"no-dots-here", "no-dots-here"},
+	}
+	for _, tt := range tests {
+		got := SanitizeProjectName(tt.input)
+		if got != tt.expected {
+			t.Errorf("SanitizeProjectName(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestApplyDetectedProjectSanitizesDots(t *testing.T) {
+	// Create a temp dir with a dot in the name to simulate a dotted project directory
+	parent := t.TempDir()
+	dir := filepath.Join(parent, ".my-project")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	cfg.syncCompat() // sets AutoDetect = true
+	cfg.ApplyDetectedProject(dir)
+
+	if cfg.Project.Name != "_my-project" {
+		t.Errorf("expected project name '_my-project', got %q", cfg.Project.Name)
+	}
+}
+
+func TestApplyDetectedProjectSanitizesDetectedName(t *testing.T) {
+	dir := t.TempDir()
+	pkgJSON := filepath.Join(dir, "package.json")
+	content := `{"name": "my.dotted.app", "scripts": {"test": "jest"}}`
+	if err := os.WriteFile(pkgJSON, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	cfg.syncCompat() // sets AutoDetect = true
+	cfg.ApplyDetectedProject(dir)
+
+	if cfg.Project.Name != "my_dotted_app" {
+		t.Errorf("expected project name 'my_dotted_app', got %q", cfg.Project.Name)
+	}
+}
+
 func TestDetectNodeProject(t *testing.T) {
 	dir := t.TempDir()
 	pkgJSON := filepath.Join(dir, "package.json")

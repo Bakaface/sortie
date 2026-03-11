@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/aface/sortie/internal/config"
 	"github.com/aface/sortie/internal/task"
 )
 
@@ -35,8 +36,9 @@ func (db *DB) GetOrCreateProject(projectPath string) (*Project, error) {
 		return nil, fmt.Errorf("failed to query project: %w", err)
 	}
 
-	// Create new project — derive name from directory basename
-	name := filepath.Base(absPath)
+	// Create new project — derive name from directory basename, sanitized
+	// to avoid issues with dots in tmux session names and other consumers.
+	name := config.SanitizeProjectName(filepath.Base(absPath))
 	result, err := db.Exec(
 		`INSERT INTO projects (path, name) VALUES (?, ?)`,
 		absPath, name,
