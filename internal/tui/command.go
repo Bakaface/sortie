@@ -21,6 +21,11 @@ type command struct {
 // commands is the registry of all available commands.
 var commands = []command{
 	{
+		match: matchQuit,
+		exec:  execQuit,
+		help:  "quit",
+	},
+	{
 		match: matchLineNumber,
 		exec:  execGotoLine,
 		help:  "go to line number",
@@ -45,6 +50,36 @@ var commands = []command{
 		exec:  execNoh,
 		help:  "clear search highlights",
 	},
+}
+
+// quitCommands lists all vim-style quit commands that close the TUI.
+var quitCommands = map[string]bool{
+	"q": true, "q!": true,
+	"qa": true, "qa!": true,
+	"qall": true, "qall!": true,
+	"wq": true, "wq!": true,
+	"wqa": true, "wqa!": true,
+	"x": true, "x!": true,
+	"xa": true, "xa!": true,
+	"xall": true, "xall!": true,
+}
+
+// matchQuit matches vim-style quit commands (q, q!, qa, wq, x, etc.).
+func matchQuit(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	if quitCommands[input] {
+		return input, true
+	}
+	return "", false
+}
+
+// execQuit closes the TUI, mirroring the behavior of the "q" keybinding.
+func execQuit(m Model, _ string) (tea.Model, tea.Cmd) {
+	m.quitting = true
+	if m.client != nil {
+		m.client.Close()
+	}
+	return m, tea.Quit
 }
 
 // matchLineNumber matches a bare positive number input (e.g. "3", "12").
