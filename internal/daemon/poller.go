@@ -127,10 +127,16 @@ func (s *Server) recoverOrphanedTasks() error {
 				tmuxTasksToRestore = append(tmuxTasksToRestore, t)
 			}
 		}
-		if t.Status == task.StatusSummarizing || t.Status == task.StatusMergeBlocked {
+		if t.Status == task.StatusSummarizing {
 			log.Printf("%sRecovering task #%d stuck in %s, resetting to pending", prefix, t.ID, t.Status)
 			if err := s.database.ResetTaskForRetry(t.ID); err != nil {
 				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
+			}
+		}
+		if t.Status == task.StatusMergeBlocked {
+			log.Printf("%sRecovering merge-blocked task #%d, restarting merge agent", prefix, t.ID)
+			if err := s.startTaskAgent(t); err != nil {
+				log.Printf("%sFailed to restart merge-blocked task #%d: %v", prefix, t.ID, err)
 			}
 		}
 		if t.Status == task.StatusAwaitingApproval {
