@@ -66,6 +66,10 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			} else {
 				t.Branch = e.cfg.ResolveBranchName(t.ID, t.Slug)
 			}
+			// Persist branch name to DB so it survives task re-fetches
+			if dbErr := e.database.UpdateTaskBranch(t.ID, t.Branch); dbErr != nil {
+				log.Printf("Warning: failed to persist branch name for task #%d: %v", t.ID, dbErr)
+			}
 		}
 
 		// Create worktree if not already set

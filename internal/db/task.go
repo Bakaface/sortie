@@ -249,6 +249,14 @@ func (db *DB) UpdateTaskWorktreePath(id int64, worktreePath string) error {
 	return err
 }
 
+func (db *DB) UpdateTaskBranch(id int64, branch string) error {
+	_, err := db.Exec(
+		"UPDATE tasks SET branch = ?, updated_at = ? WHERE id = ?",
+		branch, time.Now(), id,
+	)
+	return err
+}
+
 func (db *DB) ClearWorktreePath(id int64) error {
 	_, err := db.Exec(
 		"UPDATE tasks SET worktree_path = NULL, updated_at = ? WHERE id = ?",

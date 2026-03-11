@@ -187,9 +187,37 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 
 	if t.Status == task.StatusAwaitingApproval || t.Status == task.StatusTmux {
 		agentID := fmt.Sprintf("%d", t.ID)
-		if pc, err := s.getProjectContext(t.ProjectID); err == nil {
+		pc, pcErr := s.getProjectContext(t.ProjectID)
+		if pcErr == nil {
 			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
 				log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			}
+		}
+
+		// Ensure worktree exists for worktree tasks before continuing.
+		// The worktree may have been cleaned up after a previous completion/merge.
+		if t.Worktree && pcErr == nil {
+			if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
+				if t.Branch == "" {
+					if t.BranchName != "" {
+						t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
+					} else {
+						t.Branch = pc.cfg.ResolveBranchName(t.ID, t.Slug)
+					}
+					if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
+						log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+					}
+				}
+				worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, pc.cfg.Git.BaseBranch, t.Branch)
+				if err != nil {
+					s.sendError(conn, fmt.Sprintf("failed to create worktree for task #%d: %v", t.ID, err))
+					return
+				}
+				t.WorktreePath = worktree.Path
+				if err := s.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
+					log.Printf("%sWarning: failed to update worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+				}
+				log.Printf("%sRecreated worktree for task #%d at %s", s.projectLogPrefix(t.ProjectID), t.ID, worktree.Path)
 			}
 		}
 
@@ -275,6 +303,10 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 				t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
 			} else {
 				t.Branch = pc.cfg.ResolveBranchName(t.ID, t.Slug)
+			}
+			// Persist branch name so it survives task re-fetches
+			if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
+				log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			}
 		}
 		worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, pc.cfg.Git.BaseBranch, t.Branch)
