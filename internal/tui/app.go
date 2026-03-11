@@ -9,6 +9,7 @@ import (
 	"github.com/aface/sortie/internal/client"
 	"github.com/aface/sortie/internal/config"
 	"github.com/aface/sortie/internal/daemon"
+	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -159,6 +160,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.connectToDaemon(),
 		m.tickCmd(),
+		m.list.spinner.Tick,
 	)
 }
 
@@ -183,6 +185,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tasksLoadedMsg:
+		m.list.refreshing = false
 		m.list.SetTasks(msg)
 		return m, nil
 
@@ -231,6 +234,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.statusMessage = fmt.Sprintf("%s updated", label)
 		m.statusMessageTTL = 2
+		m.list.refreshing = true
 		return m, m.refreshTasks()
 
 	case artifactLoadedMsg:
@@ -239,6 +243,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tmuxDetachedMsg:
+		m.list.refreshing = true
 		return m, m.refreshTasks()
 
 	case tmuxSessionsMsg:
@@ -252,7 +257,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskCreatedMsg:
 		m.list.UpdateTask(daemon.TaskInfo(msg))
 		m.list.GotoTop()
-		return m, m.refreshTasks()
+		return m, nil
 
 	case outputLoadedMsg:
 		m.detail.SetOutput(msg.lines)
@@ -274,6 +279,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.client != nil {
+			m.list.refreshing = true
 			cmds = append(cmds, m.refreshTasks())
 		}
 
@@ -283,6 +289,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errorMsg:
 		m.err = msg
+		return m, nil
+
+	case spinner.TickMsg:
+		if m.list.loading {
+			cmd := m.list.Update(msg)
+			return m, cmd
+		}
 		return m, nil
 	}
 

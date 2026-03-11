@@ -7,6 +7,7 @@ import (
 
 	"github.com/aface/sortie/internal/daemon"
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -30,6 +31,9 @@ type listView struct {
 	scrollOffset       int  // index of first visible task row
 	extraLines         int  // extra lines reserved below the list (search bar, command bar, etc.)
 	hasScrollIndicator bool // true when not all tasks fit in the visible window
+	loading            bool           // true before the first successful task load
+	refreshing         bool           // true while a background refresh is in-flight
+	spinner            spinner.Model  // loading spinner for initial load
 }
 
 // safeKeyMap returns a table.KeyMap that only handles basic navigation.
@@ -60,6 +64,9 @@ func newListView(globalMode bool, projectName string) listView {
 	s.Cell = lipgloss.NewStyle()
 	s.Header = lipgloss.NewStyle()
 	t.SetStyles(s)
+	sp := spinner.New()
+	sp.Spinner = spinner.Dot
+	sp.Style = dimStyle
 	return listView{
 		table:           t,
 		tasks:           make([]daemon.TaskInfo, 0),
@@ -68,6 +75,8 @@ func newListView(globalMode bool, projectName string) listView {
 		showFinished:    true,
 		globalMode:      globalMode,
 		projectName:     projectName,
+		loading:         true,
+		spinner:         sp,
 	}
 }
 
@@ -134,6 +143,8 @@ func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
 	}
 	l.recomputeColumns()
 	l.ensureVisible()
+	l.loading = false
+	l.refreshing = false
 }
 
 // filterTasks returns tasks filtered according to display settings.
@@ -298,6 +309,11 @@ func (l *listView) recomputeColumns() {
 
 // Update delegates key messages to the table for navigation.
 func (l *listView) Update(msg tea.Msg) tea.Cmd {
+	if l.loading {
+		var cmd tea.Cmd
+		l.spinner, cmd = l.spinner.Update(msg)
+		return cmd
+	}
 	var cmd tea.Cmd
 	l.table, cmd = l.table.Update(msg)
 	return cmd
@@ -322,6 +338,9 @@ func (l *listView) View() string {
 		titleText = " " + AppTitle + " (Global) "
 	}
 	title := titleStyle.Render(titleText)
+	if l.refreshing && !l.loading {
+		title += " " + dimStyle.Render("⟳")
+	}
 
 	// Right-align the project name bracket widget on the same line
 	if !l.globalMode && l.projectName != "" && l.width > 0 {
@@ -336,7 +355,10 @@ func (l *listView) View() string {
 	}
 	b.WriteString("\n\n")
 
-	if len(l.tasks) == 0 {
+	if len(l.tasks) == 0 && l.loading {
+		b.WriteString("  " + l.spinner.View() + dimStyle.Render(" Loading tasks…"))
+		b.WriteString("\n")
+	} else if len(l.tasks) == 0 {
 		b.WriteString(dimStyle.Render("  No tasks found. Use 'sortie plan <PRD.md>' to create tasks."))
 		b.WriteString("\n")
 	} else {
