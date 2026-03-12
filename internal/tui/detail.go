@@ -23,6 +23,7 @@ type detailView struct {
 	ready      bool
 	followMode bool
 	pendingG   bool
+	loading    bool // true while waiting for initial output load after task switch
 
 	// Performance: track content state to avoid redundant re-wraps
 	contentLineCount int  // number of lines last set on viewport
@@ -37,11 +38,19 @@ func newDetailView() detailView {
 }
 
 func (d *detailView) SetTask(task *daemon.TaskInfo) {
+	// When switching to a different task, clear stale output and show loading state
+	if d.task == nil || d.task.ID != task.ID {
+		d.output = d.output[:0]
+		d.loading = true
+		d.contentDirty = true
+		d.contentLineCount = 0
+	}
 	d.task = task
 	d.recalcViewport()
 }
 
 func (d *detailView) SetOutput(lines []string) {
+	d.loading = false
 	// Skip expensive re-wrap if content hasn't changed
 	if len(lines) == d.contentLineCount && !d.contentDirty {
 		return
@@ -189,7 +198,9 @@ func (d *detailView) View() string {
 	b.WriteString("\n")
 
 	// Live logs viewport
-	if d.ready {
+	if d.loading && len(d.output) == 0 {
+		b.WriteString("  Loading logs...")
+	} else if d.ready {
 		vpContent := viewportStyle.Render(d.viewport.View())
 		b.WriteString(vpContent)
 	} else {

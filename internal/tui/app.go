@@ -287,7 +287,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadOutput(m.detail.task.ID))
 		}
 
-		if m.client != nil {
+		if m.client != nil && !m.list.refreshing {
 			m.list.refreshing = true
 			cmds = append(cmds, m.refreshTasks())
 		}

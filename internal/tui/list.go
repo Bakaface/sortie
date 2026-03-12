@@ -133,6 +133,16 @@ func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].ID > tasks[j].ID
 	})
+
+	wasLoading := l.loading
+
+	// Skip full rebuild if nothing meaningful changed
+	if !wasLoading && !l.tasksChanged(l.allTasks, tasks) {
+		l.loading = false
+		l.refreshing = false
+		return
+	}
+
 	l.allTasks = tasks
 	l.tasks = l.filterTasks(tasks)
 	l.table.SetRows(l.toRows())
@@ -145,6 +155,35 @@ func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
 	l.ensureVisible()
 	l.loading = false
 	l.refreshing = false
+}
+
+// tasksChanged returns true if the two task slices differ in any visible field.
+func (l *listView) tasksChanged(old, new []daemon.TaskInfo) bool {
+	if len(old) != len(new) {
+		return true
+	}
+	for i := range old {
+		a, b := old[i], new[i]
+		if a.ID != b.ID ||
+			a.Status != b.Status ||
+			a.Title != b.Title ||
+			a.CurrentStep != b.CurrentStep ||
+			a.Priority != b.Priority ||
+			a.LoopIteration != b.LoopIteration ||
+			a.TmuxActivity != b.TmuxActivity {
+			return true
+		}
+		// Compare blocked-by lists
+		if len(a.BlockedBy) != len(b.BlockedBy) {
+			return true
+		}
+		for j := range a.BlockedBy {
+			if a.BlockedBy[j] != b.BlockedBy[j] {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // filterTasks returns tasks filtered according to display settings.
