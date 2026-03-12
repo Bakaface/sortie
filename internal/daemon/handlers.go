@@ -605,6 +605,18 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		return
 	}
 
+	// Set task dependencies if provided
+	if len(req.BlockedBy) > 0 {
+		if err := s.database.SetTaskDependencies(t.ID, req.BlockedBy); err != nil {
+			log.Printf("%sFailed to set dependencies for task #%d: %v", s.projectLogPrefix(proj.ID), t.ID, err)
+		} else {
+			// Re-fetch task to include dependencies in response
+			if updated, err := s.database.GetTask(t.ID); err == nil {
+				t = updated
+			}
+		}
+	}
+
 	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
 
 	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
@@ -764,6 +776,47 @@ func (s *Server) handleRevertTask(conn net.Conn, req RevertTaskRequest) {
 
 	log.Printf("%sTask #%d reverted (%d commits)", s.projectLogPrefix(t.ProjectID), t.ID, len(commits))
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d reverted (%d commits)", t.ID, len(commits))})
+}
+
+func (s *Server) handleUpdateDependency(conn net.Conn, req UpdateDependencyRequest) {
+	// Validate both tasks exist
+	if _, err := s.database.GetTask(req.TaskID); err != nil {
+		s.sendError(conn, fmt.Sprintf("task #%d not found: %v", req.TaskID, err))
+		return
+	}
+	if _, err := s.database.GetTask(req.BlockedBy); err != nil {
+		s.sendError(conn, fmt.Sprintf("task #%d not found: %v", req.BlockedBy, err))
+		return
+	}
+
+	switch req.Action {
+	case "add":
+		// Check for circular dependency
+		circular, err := s.database.HasCircularDependency(req.TaskID, req.BlockedBy)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to check circular dependency: %v", err))
+			return
+		}
+		if circular {
+			s.sendError(conn, "adding this dependency would create a cycle")
+			return
+		}
+		if err := s.database.AddTaskDependency(req.TaskID, req.BlockedBy); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to add dependency: %v", err))
+			return
+		}
+	case "remove":
+		if err := s.database.RemoveTaskDependency(req.TaskID, req.BlockedBy); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to remove dependency: %v", err))
+			return
+		}
+	default:
+		s.sendError(conn, fmt.Sprintf("invalid action: %s (must be 'add' or 'remove')", req.Action))
+		return
+	}
+
+	s.broadcastTaskUpdate(req.TaskID)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("dependency updated for task #%d", req.TaskID)})
 }
 
 func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {

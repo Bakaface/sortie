@@ -174,6 +174,18 @@ func (m Model) updateTaskPriority(taskID int64, priority string) tea.Cmd {
 	}
 }
 
+func (m Model) addTaskDependency(taskID, blockedByID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+		if err := m.client.AddTaskDependency(taskID, blockedByID); err != nil {
+			return errorMsg(fmt.Errorf("failed to add dependency: %w", err))
+		}
+		return nil
+	}
+}
+
 func (m Model) createTaskWithPrompt(description, branchName string, worktree bool, images []string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {

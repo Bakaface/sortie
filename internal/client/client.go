@@ -364,6 +364,22 @@ func (c *Client) RevertTask(id int64) error {
 	return c.requestOK(daemon.MsgRevertTask, daemon.RevertTaskRequest{TaskID: id})
 }
 
+func (c *Client) AddTaskDependency(taskID, blockedByID int64) error {
+	return c.requestOK(daemon.MsgUpdateDependency, daemon.UpdateDependencyRequest{
+		TaskID:    taskID,
+		BlockedBy: blockedByID,
+		Action:    "add",
+	})
+}
+
+func (c *Client) RemoveTaskDependency(taskID, blockedByID int64) error {
+	return c.requestOK(daemon.MsgUpdateDependency, daemon.UpdateDependencyRequest{
+		TaskID:    taskID,
+		BlockedBy: blockedByID,
+		Action:    "remove",
+	})
+}
+
 func (c *Client) GetLogs(id int64, step string, tail int) ([]string, error) {
 	msg, err := c.request(daemon.MsgGetLogs, daemon.GetLogsRequest{
 		TaskID: id,

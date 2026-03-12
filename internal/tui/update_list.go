@@ -342,10 +342,32 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "N":
-		// Previous match (opposite direction)
+		// Previous match (opposite direction) if search is active
 		if len(m.list.matchedIndices) > 0 {
 			m.list.previousMatch(m.searchDirection)
+			return m, nil
 		}
+		// Otherwise, create a new task that blocks the selected task
+		if m.client == nil || m.projectPath == "" {
+			return m, nil
+		}
+		task := m.list.Selected()
+		if task == nil {
+			return m, nil
+		}
+		m.blockingTaskID = task.ID
+		workflows := m.cfg.ListWorkflowNames()
+		if len(workflows) > 1 {
+			m.selectingWorkflow = true
+			m.workflowCursor = 0
+			return m, nil
+		}
+		m.selectedWorkflow = ""
+		m.view = viewPrompt
+		m.prompt.Reset()
+		m.prompt.workflowName = ""
+		m.prompt.blockingTaskID = m.blockingTaskID
+		m.prompt.Focus()
 		return m, nil
 
 	case "ctrl+h":

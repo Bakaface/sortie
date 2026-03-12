@@ -37,7 +37,8 @@ const (
 	MsgPong         MessageType = "pong"
 	MsgShutdown       MessageType = "shutdown"
 	MsgTmuxActivity   MessageType = "tmux_activity"
-	MsgRevertTask     MessageType = "revert_task"
+	MsgRevertTask         MessageType = "revert_task"
+	MsgUpdateDependency   MessageType = "update_dependency"
 )
 
 type Message struct {
@@ -115,6 +116,7 @@ type CreateTaskRequest struct {
 	ProjectPath string   `json:"project_path,omitempty"` // resolved to project_id by daemon
 	Worktree    *bool    `json:"worktree,omitempty"`     // nil means default (true)
 	Images      []string `json:"images,omitempty"`
+	BlockedBy   []int64  `json:"blocked_by,omitempty"`   // task IDs that block this task
 }
 
 type ContinueTaskRequest struct {
@@ -144,6 +146,12 @@ type UpdateFieldRequest struct {
 
 type RevertTaskRequest struct {
 	TaskID int64 `json:"task_id"`
+}
+
+type UpdateDependencyRequest struct {
+	TaskID    int64  `json:"task_id"`
+	BlockedBy int64  `json:"blocked_by"`
+	Action    string `json:"action"` // "add" or "remove"
 }
 
 type CreateTaskResponse struct {

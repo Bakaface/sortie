@@ -43,6 +43,9 @@ type Model struct {
 	globalMode      bool
 	defaultWorktree bool   // per-project worktree preference
 
+	// Blocking task creation state
+	blockingTaskID int64 // when non-zero, the newly created task will block this task
+
 	// Confirmation state
 	confirmAction string // "continue", "finalize", or "delete"; empty if no confirmation pending
 	confirmTaskID int64
@@ -257,6 +260,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case taskCreatedMsg:
 		m.list.UpdateTask(daemon.TaskInfo(msg))
 		m.list.GotoTop()
+		if m.blockingTaskID != 0 {
+			blockedTaskID := m.blockingTaskID
+			newTaskID := msg.ID
+			m.blockingTaskID = 0
+			return m, m.addTaskDependency(blockedTaskID, newTaskID)
+		}
 		return m, nil
 
 	case outputLoadedMsg:

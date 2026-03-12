@@ -409,6 +409,87 @@ func (db *DB) GetTaskCommits(id int64) ([]string, error) {
 	return commits, nil
 }
 
+// AddTaskDependency adds a dependency: taskID is blocked by blockedByID.
+func (db *DB) AddTaskDependency(taskID, blockedByID int64) error {
+	_, err := db.Exec(`INSERT OR IGNORE INTO task_dependencies (task_id, blocked_by) VALUES (?, ?)`, taskID, blockedByID)
+	return err
+}
+
+// RemoveTaskDependency removes a dependency: taskID is no longer blocked by blockedByID.
+func (db *DB) RemoveTaskDependency(taskID, blockedByID int64) error {
+	_, err := db.Exec(`DELETE FROM task_dependencies WHERE task_id = ? AND blocked_by = ?`, taskID, blockedByID)
+	return err
+}
+
+// SetTaskDependencies replaces all dependencies for a task with the given list.
+func (db *DB) SetTaskDependencies(taskID int64, blockedBy []int64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM task_dependencies WHERE task_id = ?`, taskID); err != nil {
+		return err
+	}
+
+	for _, depID := range blockedBy {
+		if _, err := tx.Exec(`INSERT INTO task_dependencies (task_id, blocked_by) VALUES (?, ?)`, taskID, depID); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+// HasCircularDependency checks if adding an edge (taskID blocked by newBlockedByID)
+// would create a cycle. It does BFS from newBlockedByID through existing blocked_by
+// chains and returns true if taskID is reachable.
+func (db *DB) HasCircularDependency(taskID, newBlockedByID int64) (bool, error) {
+	// If taskID == newBlockedByID, it's trivially circular
+	if taskID == newBlockedByID {
+		return true, nil
+	}
+
+	// BFS: start from newBlockedByID and follow blocked_by edges
+	// (i.e., find what blocks newBlockedByID, then what blocks those, etc.)
+	// If we reach taskID, adding the edge would create a cycle.
+	visited := map[int64]bool{newBlockedByID: true}
+	queue := []int64{newBlockedByID}
+
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+
+		rows, err := db.Query(`SELECT blocked_by FROM task_dependencies WHERE task_id = ?`, current)
+		if err != nil {
+			return false, err
+		}
+
+		for rows.Next() {
+			var dep int64
+			if err := rows.Scan(&dep); err != nil {
+				rows.Close()
+				return false, err
+			}
+			if dep == taskID {
+				rows.Close()
+				return true, nil
+			}
+			if !visited[dep] {
+				visited[dep] = true
+				queue = append(queue, dep)
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return false, err
+		}
+	}
+
+	return false, nil
+}
+
 func (db *DB) DeleteTask(id int64) error {
 	_, err := db.Exec("DELETE FROM task_dependencies WHERE task_id = ? OR blocked_by = ?", id, id)
 	if err != nil {

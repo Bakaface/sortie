@@ -51,6 +51,7 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Cancel and return to list
 		m.continueTaskID = 0
 		m.continueSelectedWorkflow = ""
+		m.blockingTaskID = 0
 		m.view = viewList
 		return m, nil
 

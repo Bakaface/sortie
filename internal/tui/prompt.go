@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,15 +30,16 @@ const (
 )
 
 type promptView struct {
-	textarea     textarea.Model
-	branchInput  textinput.Model
-	focusField   promptField
-	worktree     bool
-	images       []string
-	workflowName string
-	width        int
-	height       int
-	showHelp     bool
+	textarea        textarea.Model
+	branchInput     textinput.Model
+	focusField      promptField
+	worktree        bool
+	images          []string
+	workflowName    string
+	blockingTaskID  int64 // when non-zero, new task blocks this task
+	width           int
+	height          int
+	showHelp        bool
 }
 
 func newPromptView(defaultWorktree bool) promptView {
@@ -127,6 +129,7 @@ func (p *promptView) Reset() {
 	p.branchInput.Reset()
 	// Keep worktree state — it persists across task creation within a session
 	p.images = make([]string, 0)
+	p.blockingTaskID = 0
 	p.focusField = promptFieldDescription
 	p.textarea.Focus()
 	p.branchInput.Blur()
@@ -286,8 +289,12 @@ func isImagePath(s string) bool {
 func (p *promptView) View() string {
 	var b strings.Builder
 
-	// Title with optional workflow indicator (right-aligned, like project indicator in list view)
-	title := titleStyle.Render(" New Task ")
+	// Title with optional blocking indicator and workflow indicator
+	titleText := " New Task "
+	if p.blockingTaskID != 0 {
+		titleText = fmt.Sprintf(" New Task (blocks #%d) ", p.blockingTaskID)
+	}
+	title := titleStyle.Render(titleText)
 	if p.workflowName != "" && p.width > 0 {
 		workflowWidget := projectIndicatorStyle.Render("[" + p.workflowName + "]")
 		gap := p.width - lipgloss.Width(title) - lipgloss.Width(workflowWidget)
