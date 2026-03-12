@@ -28,16 +28,27 @@ type Engine struct {
 	notifier *notify.Notifier
 	repoRoot string
 	dataDir  string
-	mergeMu  sync.Mutex // serializes merge operations to prevent concurrent git merge conflicts
+	mergeMu  *sync.Mutex // serializes merge operations to prevent concurrent git merge conflicts
 }
 
-func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, repoRoot string) *Engine {
+// NewEngine creates a new workflow engine. The mergeMu parameter is an optional
+// externally-owned mutex that serializes merge operations for this repo. When
+// non-nil, the mutex survives config reloads (the daemon owns it). When nil, a
+// fresh mutex is created (for standalone/test usage).
+func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, repoRoot string, mergeMu ...*sync.Mutex) *Engine {
+	var mu *sync.Mutex
+	if len(mergeMu) > 0 && mergeMu[0] != nil {
+		mu = mergeMu[0]
+	} else {
+		mu = &sync.Mutex{}
+	}
 	return &Engine{
 		cfg:      cfg,
 		database: database,
 		notifier: notifier,
 		repoRoot: repoRoot,
 		dataDir:  filepath.Join(repoRoot, ".sortie"),
+		mergeMu:  mu,
 	}
 }
 

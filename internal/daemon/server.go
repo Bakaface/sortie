@@ -18,6 +18,7 @@ import (
 	"github.com/aface/sortie/internal/agent"
 	"github.com/aface/sortie/internal/config"
 	"github.com/aface/sortie/internal/db"
+	gitpkg "github.com/aface/sortie/internal/git"
 	"github.com/aface/sortie/internal/notify"
 	"github.com/aface/sortie/internal/task"
 	"github.com/aface/sortie/internal/tmux"
@@ -41,6 +42,9 @@ type Server struct {
 	projectsMu sync.RWMutex
 	projects   map[int64]*projectContext
 
+	mergeMus   map[string]*sync.Mutex // per-repo merge mutexes, keyed by repoRoot
+	mergeMusMu sync.Mutex             // protects mergeMus map
+
 	mu           sync.RWMutex
 	clients      map[net.Conn]bool
 	subscribers  map[net.Conn]bool
@@ -55,16 +59,17 @@ func NewServer(cfg *config.Config, database *db.DB) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	notifier := notify.New(&cfg.Notifications)
 	return &Server{
-		cfg:         cfg,
-		database:    database,
-		manager:     agent.NewManager(cfg.Agents.MaxConcurrent, cfg.Agents.OutputBufferLines),
-		notifier:    notifier,
-		projects:    make(map[int64]*projectContext),
+		cfg:          cfg,
+		database:     database,
+		manager:      agent.NewManager(cfg.Agents.MaxConcurrent, cfg.Agents.OutputBufferLines),
+		notifier:     notifier,
+		projects:     make(map[int64]*projectContext),
+		mergeMus:     make(map[string]*sync.Mutex),
 		clients:      make(map[net.Conn]bool),
 		subscribers:  make(map[net.Conn]bool),
 		tmuxActivity: make(map[int64]string),
-		ctx:         ctx,
-		cancel:      cancel,
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 }
 
@@ -113,7 +118,7 @@ func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 		modTime = info.ModTime()
 	}
 
-	engine := workflow.NewEngine(projCfg, s.database, s.notifier, proj.Path)
+	engine := workflow.NewEngine(projCfg, s.database, s.notifier, proj.Path, s.getMergeMutex(proj.Path))
 
 	pc := &projectContext{
 		cfg:           projCfg,
@@ -127,6 +132,19 @@ func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 	s.projectsMu.Unlock()
 
 	return pc, nil
+}
+
+// getMergeMutex returns a stable merge mutex for the given repo root.
+// The mutex survives config reloads — it's keyed by repo path, not by Engine.
+func (s *Server) getMergeMutex(repoRoot string) *sync.Mutex {
+	s.mergeMusMu.Lock()
+	defer s.mergeMusMu.Unlock()
+	mu, ok := s.mergeMus[repoRoot]
+	if !ok {
+		mu = &sync.Mutex{}
+		s.mergeMus[repoRoot] = mu
+	}
+	return mu
 }
 
 // projectLogPrefix returns a "[projectname] " prefix for log messages.
@@ -413,10 +431,23 @@ func (s *Server) Shutdown() {
 	if s.database != nil {
 		runningTasks, err := s.database.GetRunningTasks()
 		if err == nil {
+			// Collect repo roots that may have in-progress merges
+			dirtyRepoRoots := make(map[string]bool)
 			for _, t := range runningTasks {
 				log.Printf("%sMarking task #%d as failed (daemon shutdown)", s.projectLogPrefix(t.ProjectID), t.ID)
 				if err := s.database.UpdateTaskError(t.ID, "daemon shutdown"); err != nil {
 					log.Printf("%sFailed to mark task #%d as failed: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+				}
+				if repoRoot := s.getProjectRepoRoot(t); repoRoot != "" {
+					dirtyRepoRoots[repoRoot] = true
+				}
+			}
+			// Clean up any staged changes left by interrupted merges
+			for repoRoot := range dirtyRepoRoots {
+				if err := gitpkg.CleanRepoState(repoRoot); err != nil {
+					log.Printf("Warning: failed to clean repo state for %s on shutdown: %v", repoRoot, err)
+				} else {
+					log.Printf("Cleaned repo state for %s on shutdown", repoRoot)
 				}
 			}
 		}

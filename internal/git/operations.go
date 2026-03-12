@@ -104,6 +104,16 @@ func CleanRepoState(repoRoot string) error {
 }
 
 func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
+	// Safety net: if we exit without a successful commit, ensure we don't
+	// leave staged changes on the base branch (the root cause of the race
+	// condition where parallel merges leave pending changes on main).
+	committed := false
+	defer func() {
+		if !committed {
+			CleanRepoState(repoRoot) // best-effort: abort merge + hard reset
+		}
+	}()
+
 	// Checkout base branch
 	checkoutCmd := exec.Command("git", "checkout", baseBranch)
 	checkoutCmd.Dir = repoRoot
@@ -112,7 +122,6 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	checkoutCmd.Stderr = &stderr
 
 	if err := checkoutCmd.Run(); err != nil {
-		CleanRepoState(repoRoot) // best-effort cleanup
 		return fmt.Errorf("git checkout %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
 	}
 
@@ -123,7 +132,6 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	mergeCmd.Stderr = &stderr
 
 	if err := mergeCmd.Run(); err != nil {
-		CleanRepoState(repoRoot) // abort merge + hard reset
 		return fmt.Errorf("git merge --squash failed: %w (stderr: %s)", err, stderr.String())
 	}
 
@@ -137,10 +145,10 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	commitCmd.Stderr = &stderr
 
 	if err := commitCmd.Run(); err != nil {
-		CleanRepoState(repoRoot) // abort merge + hard reset
 		return fmt.Errorf("git commit after squash failed: %w (stderr: %s)", err, stderr.String())
 	}
 
+	committed = true
 	return nil
 }
 

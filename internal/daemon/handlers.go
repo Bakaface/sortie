@@ -414,17 +414,21 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 			log.Printf("%sTask #%d: no meaningful changes detected, fast-tracking to completed", s.projectLogPrefix(t.ProjectID), t.ID)
 			repoRoot := pc.repoRoot
 			if repoRoot != "" {
+				// Hold merge lock while operating on the main repo to avoid
+				// interfering with concurrent squash-merges from other tasks.
+				pc.engine.AcquireMergeLock()
 				if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
 					log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
 				}
 				gitpkg.CleanupWorktrees(repoRoot)
+				if t.Branch != "" {
+					if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
+						log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
+					}
+				}
+				pc.engine.ReleaseMergeLock()
 				if err := s.database.ClearWorktreePath(t.ID); err != nil {
 					log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-				}
-			}
-			if t.Branch != "" && repoRoot != "" {
-				if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
-					log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
 				}
 			}
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
@@ -455,18 +459,26 @@ func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 		log.Printf("%sWarning: finalize failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		// Don't fail the whole operation — still mark as completed.
 		// Best-effort cleanup of worktree and branch so they don't linger.
-		if t.Worktree && t.WorktreePath != "" && repoRoot != "" {
-			if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
-				log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
+		// Hold merge lock while operating on the main repo to avoid
+		// interfering with concurrent squash-merges from other tasks.
+		if t.Worktree && repoRoot != "" {
+			pc.engine.AcquireMergeLock()
+			if t.WorktreePath != "" {
+				if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
+					log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
+				}
+				gitpkg.CleanupWorktrees(repoRoot)
 			}
-			gitpkg.CleanupWorktrees(repoRoot)
-			if err := s.database.ClearWorktreePath(t.ID); err != nil {
-				log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			if t.Branch != "" {
+				if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
+					log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
+				}
 			}
-		}
-		if t.Worktree && t.Branch != "" && repoRoot != "" {
-			if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
-				log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
+			pc.engine.ReleaseMergeLock()
+			if t.WorktreePath != "" {
+				if err := s.database.ClearWorktreePath(t.ID); err != nil {
+					log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+				}
 			}
 		}
 	}
@@ -837,15 +849,22 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 
 	repoRoot := s.getProjectRepoRoot(t)
 
-	if t.Worktree && t.WorktreePath != "" && repoRoot != "" {
-		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
-			log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-		}
-	}
-
-	if t.Worktree && t.Branch != "" && repoRoot != "" {
-		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
-			log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+	// Hold merge lock while operating on the main repo to avoid
+	// interfering with concurrent squash-merges from other tasks.
+	if t.Worktree && repoRoot != "" {
+		if pc, err := s.getProjectContext(t.ProjectID); err == nil {
+			pc.engine.AcquireMergeLock()
+			if t.WorktreePath != "" {
+				if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
+					log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+				}
+			}
+			if t.Branch != "" {
+				if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
+					log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+				}
+			}
+			pc.engine.ReleaseMergeLock()
 		}
 	}
 

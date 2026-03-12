@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aface/sortie/internal/agent"
+	gitpkg "github.com/aface/sortie/internal/git"
 	"github.com/aface/sortie/internal/task"
 	"github.com/aface/sortie/internal/tmux"
 )
@@ -96,6 +97,21 @@ func (s *Server) recoverOrphanedTasks() error {
 	runningTasks, err := s.database.GetRunningTasks()
 	if err != nil {
 		return err
+	}
+
+	// Clean repo state for any projects that had running tasks — a previous
+	// daemon crash may have left staged changes from an interrupted merge.
+	cleanedRepos := make(map[string]bool)
+	for _, t := range runningTasks {
+		if repoRoot := s.getProjectRepoRoot(t); repoRoot != "" && !cleanedRepos[repoRoot] {
+			cleanedRepos[repoRoot] = true
+			if dirty, err := gitpkg.HasChanges(repoRoot); err == nil && dirty {
+				log.Printf("Cleaning up dirty repo state at %s from previous run", repoRoot)
+				if err := gitpkg.CleanRepoState(repoRoot); err != nil {
+					log.Printf("Warning: failed to clean repo state at %s: %v", repoRoot, err)
+				}
+			}
+		}
 	}
 
 	for _, t := range runningTasks {
