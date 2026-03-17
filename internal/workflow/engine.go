@@ -109,6 +109,15 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 	}
 
+	// Run worktree setup command if configured
+	if t.Worktree {
+		if setupCmd := e.cfg.GetWorktreeSetupCommand(wf); setupCmd != "" {
+			if err := RunWorktreeSetupCommand(ctx, e.repoRoot, t.WorktreePath, setupCmd); err != nil {
+				return fmt.Errorf("worktree setup failed: %w", err)
+			}
+		}
+	}
+
 	// Ensure .sortie directories exist in worktree
 	if err := EnsureWorkDirs(t.WorktreePath); err != nil {
 		return fmt.Errorf("failed to create sortie dirs: %w", err)
@@ -1140,6 +1149,33 @@ func summarizationDescription(taskID int64, hasCustomPrompt bool, artifactNames 
 		return fmt.Sprintf("Summarizing task #%d via git diff", taskID)
 	}
 	return fmt.Sprintf("Summarizing task #%d", taskID)
+}
+
+// RunWorktreeSetupCommand runs the configured worktree setup command, if any.
+// The command is executed with the project root as the working directory.
+// {{worktree_path}} in the command string is replaced with the actual worktree path.
+func RunWorktreeSetupCommand(ctx context.Context, projectRoot, worktreePath, command string) error {
+	if command == "" {
+		return nil
+	}
+
+	// Replace template variable
+	resolved := strings.ReplaceAll(command, "{{worktree_path}}", worktreePath)
+
+	log.Printf("Running worktree setup command: %s", resolved)
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", resolved)
+	cmd.Dir = projectRoot
+
+	output, err := cmd.CombinedOutput()
+	if len(output) > 0 {
+		log.Printf("Worktree setup output:\n%s", string(output))
+	}
+	if err != nil {
+		return fmt.Errorf("worktree setup command failed: %w\nOutput: %s", err, string(output))
+	}
+
+	return nil
 }
 
 // runClaudeSync runs Claude Code synchronously and captures its stdout output.

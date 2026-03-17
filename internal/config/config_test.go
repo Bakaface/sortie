@@ -1563,3 +1563,118 @@ func TestWorktreeSyncPathsDefaultEmpty(t *testing.T) {
 		t.Errorf("expected empty sync paths by default, got %v", cfg.WorktreeSyncPaths)
 	}
 }
+
+func TestWorktreeSetupCommandParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+worktree-setup-command: "./scripts/bootstrap.sh {{worktree_path}}"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := "./scripts/bootstrap.sh {{worktree_path}}"
+	if cfg.WorktreeSetupCommand != expected {
+		t.Errorf("expected %q, got %q", expected, cfg.WorktreeSetupCommand)
+	}
+}
+
+func TestWorktreeSetupCommandProjectOverridesGlobal(t *testing.T) {
+	globalDir := t.TempDir()
+	globalPath := filepath.Join(globalDir, ".sortie.yml")
+	os.WriteFile(globalPath, []byte(`
+worktree-setup-command: "./global-setup.sh"
+`), 0644)
+
+	projectDir := t.TempDir()
+	projectPath := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectPath, []byte(`
+worktree-setup-command: "./project-setup.sh"
+`), 0644)
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(globalPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WorktreeSetupCommand != "./global-setup.sh" {
+		t.Errorf("expected global command, got %q", cfg.WorktreeSetupCommand)
+	}
+
+	if err := loadProjectConfig(projectPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.WorktreeSetupCommand != "./project-setup.sh" {
+		t.Errorf("expected project command to override, got %q", cfg.WorktreeSetupCommand)
+	}
+}
+
+func TestWorktreeSetupCommandPerWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+worktree-setup-command: "./global-setup.sh"
+workflows:
+  tasks:
+    - name: custom
+      worktree-setup-command: "./custom-setup.sh"
+      steps:
+        - name: implement
+          prompt: "do it"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.WorktreeSetupCommand != "./global-setup.sh" {
+		t.Fatalf("expected global command, got %q", cfg.WorktreeSetupCommand)
+	}
+
+	wf := cfg.GetWorkflow("custom")
+	if wf == nil {
+		t.Fatal("expected to find 'custom' workflow")
+	}
+
+	cmd := cfg.GetWorktreeSetupCommand(wf)
+	if cmd != "./custom-setup.sh" {
+		t.Errorf("expected workflow-level command, got %q", cmd)
+	}
+}
+
+func TestGetWorktreeSetupCommandFallsBackToGlobal(t *testing.T) {
+	cfg := &Config{
+		WorktreeSetupCommand: "./global-setup.sh",
+	}
+
+	// Workflow without override — should fall back
+	wf := &WorkflowConfig{Name: "test"}
+	cmd := cfg.GetWorktreeSetupCommand(wf)
+	if cmd != "./global-setup.sh" {
+		t.Errorf("expected global fallback, got %q", cmd)
+	}
+
+	// Nil workflow — should fall back
+	cmd = cfg.GetWorktreeSetupCommand(nil)
+	if cmd != "./global-setup.sh" {
+		t.Errorf("expected global fallback for nil workflow, got %q", cmd)
+	}
+}
+
+func TestWorktreeSetupCommandDefaultEmpty(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.WorktreeSetupCommand != "" {
+		t.Errorf("expected empty setup command by default, got %q", cfg.WorktreeSetupCommand)
+	}
+}

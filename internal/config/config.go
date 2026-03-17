@@ -25,6 +25,7 @@ type ProjectConfig struct {
 	TmuxNestedAttachBehavior string               `yaml:"tmux_nested_attach_behavior"`
 	SystemPrompt             string               `yaml:"system_prompt"`
 	WorktreeSyncPaths        []string             `yaml:"worktree-sync-paths"`
+	WorktreeSetupCommand     string               `yaml:"worktree-setup-command"`
 }
 
 // ProjectWorkflows is the consolidated workflows section in .sortie.yml.
@@ -82,6 +83,7 @@ type WorkflowConfig struct {
 	Steps             []StepConfig `yaml:"steps"`
 	SummarizerPrompt  string       `yaml:"summarizer_prompt"`
 	WorktreeSyncPaths []string     `yaml:"worktree-sync-paths,omitempty"`
+	WorktreeSetupCommand string   `yaml:"worktree-setup-command,omitempty"`
 }
 
 type StepConfig struct {
@@ -256,6 +258,9 @@ type Config struct {
 
 	// Paths to sync from project root into new worktrees
 	WorktreeSyncPaths []string
+
+	// Command to run after creating a worktree (e.g. dependency installation)
+	WorktreeSetupCommand string
 
 	// From global config
 	Notifications            NotificationsConfig
@@ -518,6 +523,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if len(proj.WorktreeSyncPaths) > 0 {
 		cfg.WorktreeSyncPaths = proj.WorktreeSyncPaths
 	}
+	if proj.WorktreeSetupCommand != "" {
+		cfg.WorktreeSetupCommand = proj.WorktreeSetupCommand
+	}
 
 	// Handle workflows section: supports three formats:
 	// 1. New structured: workflows: { one-off: [...], tasks: [...], init: [...] }
@@ -778,6 +786,14 @@ func (c *Config) GetWorktreeSyncPaths(wf *WorkflowConfig) []string {
 		return wf.WorktreeSyncPaths
 	}
 	return c.WorktreeSyncPaths
+}
+
+// GetWorktreeSetupCommand returns the setup command for a workflow, falling back to the global config.
+func (c *Config) GetWorktreeSetupCommand(wf *WorkflowConfig) string {
+	if wf != nil && wf.WorktreeSetupCommand != "" {
+		return wf.WorktreeSetupCommand
+	}
+	return c.WorktreeSetupCommand
 }
 
 // GetWorkflowSteps returns configured steps or the default single step.

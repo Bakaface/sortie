@@ -218,6 +218,12 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 					log.Printf("%sWarning: failed to update worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 				}
 				log.Printf("%sRecreated worktree for task #%d at %s", s.projectLogPrefix(t.ProjectID), t.ID, worktree.Path)
+				// Run worktree setup command if configured
+				if setupCmd := pc.cfg.GetWorktreeSetupCommand(nil); setupCmd != "" {
+					if err := workflow.RunWorktreeSetupCommand(context.Background(), pc.repoRoot, worktree.Path, setupCmd); err != nil {
+						log.Printf("%sWarning: worktree setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+					}
+				}
 			}
 		}
 
@@ -317,6 +323,12 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		t.WorktreePath = worktree.Path
 		if err := s.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
 			log.Printf("%sWarning: failed to update worktree path: %v", s.projectLogPrefix(t.ProjectID), err)
+		}
+		// Run worktree setup command if configured
+		if setupCmd := pc.cfg.GetWorktreeSetupCommand(nil); setupCmd != "" {
+			if err := workflow.RunWorktreeSetupCommand(context.Background(), pc.repoRoot, worktree.Path, setupCmd); err != nil {
+				log.Printf("%sWarning: worktree setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			}
 		}
 	}
 
