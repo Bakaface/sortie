@@ -240,14 +240,6 @@ func (m *Manager) IsTaskKnown(taskID int64) bool {
 	return m.knownTasks[taskID]
 }
 
-// RecoverSessions is reserved for future manual mode with tmux sessions.
-// In automatic mode, processes are one-shot and don't persist across restarts.
-func (m *Manager) RecoverSessions() error {
-	// No-op in automatic mode
-	// Future: Recover tmux sessions for manual mode
-	return nil
-}
-
 // Shutdown cancels all agents and waits up to gracePeriod for them to finish.
 func (m *Manager) Shutdown(gracePeriod time.Duration) {
 	m.mu.Lock()
@@ -291,8 +283,3 @@ func (m *Manager) GetOutput(agentID string, fromLine int) ([]string, int, error)
 	return lines, total, nil
 }
 
-// SendInput is reserved for future manual mode with tmux sessions.
-// In automatic mode, processes run with -p flag and cannot accept interactive input.
-func (m *Manager) SendInput(agentID, input string) error {
-	return errors.New("SendInput not available in automatic mode")
-}

@@ -24,7 +24,9 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		refreshedTask, err := s.database.GetTask(a.Task.ID)
 		if err == nil && (refreshedTask.Status == task.StatusAwaitingApproval || refreshedTask.Status == task.StatusTmux || refreshedTask.Status == task.StatusArtifactMissing) {
 			log.Printf("%sAgent %s paused task #%d for approval", prefix, a.ID, a.Task.ID)
-			s.notifier.AgentWaitingForInput(a.ID, taskTitle)
+			if err := s.notifier.AgentWaitingForInput(a.ID, taskTitle); err != nil {
+				log.Printf("%sWarning: notification failed: %v", prefix, err)
+			}
 			return
 		}
 
@@ -37,7 +39,9 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 				log.Printf("%sWarning: failed to kill tmux sessions for task %s: %v", prefix, a.ID, err)
 			}
 		}
-		s.notifier.AgentCompleted(a.ID, taskTitle)
+		if err := s.notifier.AgentCompleted(a.ID, taskTitle); err != nil {
+			log.Printf("%sWarning: notification failed: %v", prefix, err)
+		}
 
 		s.checkProjectTasksDone(a.Task.ProjectID)
 
@@ -51,12 +55,16 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 				log.Printf("%sWarning: failed to kill tmux sessions for task %s: %v", prefix, a.ID, err)
 			}
 		}
-		s.notifier.AgentFailed(a.ID, taskTitle, a.Error)
+		if err := s.notifier.AgentFailed(a.ID, taskTitle, a.Error); err != nil {
+			log.Printf("%sWarning: notification failed: %v", prefix, err)
+		}
 
 		s.checkProjectTasksDone(a.Task.ProjectID)
 
 	case agent.StateWaitingForInput:
-		s.notifier.AgentWaitingForInput(a.ID, taskTitle)
+		if err := s.notifier.AgentWaitingForInput(a.ID, taskTitle); err != nil {
+			log.Printf("%sWarning: notification failed: %v", prefix, err)
+		}
 	}
 }
 
@@ -72,7 +80,9 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 		}
 	}
 	log.Printf("%sAll tasks completed for project %d", s.projectLogPrefix(projectID), projectID)
-	s.notifier.AllTasksCompleted()
+	if err := s.notifier.AllTasksCompleted(); err != nil {
+		log.Printf("%sWarning: notification failed: %v", s.projectLogPrefix(projectID), err)
+	}
 }
 
 func (s *Server) broadcastToSubscribers(msgType MessageType, payload any) {

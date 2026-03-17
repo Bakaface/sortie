@@ -21,6 +21,15 @@ import (
 	"github.com/aface/sortie/internal/config"
 )
 
+const (
+	// titleGenerationTimeout is the maximum time allowed for AI-based task title generation.
+	titleGenerationTimeout = 30 * time.Second
+)
+
+// noiseFiles are files that don't count as meaningful changes when checking
+// whether a task produced real output (e.g. when fast-tracking to completed).
+var noiseFiles = []string{".claude-output.log", "CLAUDE.md"}
+
 func (s *Server) handleListAgents(conn net.Conn) {
 	agents := s.manager.ListAgents()
 	infos := make([]AgentInfo, len(agents))
@@ -135,15 +144,6 @@ func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
 	})
 }
 
-func (s *Server) handleSendInput(conn net.Conn, req SendInputRequest) {
-	if err := s.manager.SendInput(req.AgentID, req.Input); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to send input: %v", err))
-		return
-	}
-
-	s.sendMessage(conn, MsgOK, OKResponse{Message: "input sent"})
-}
-
 func (s *Server) handleGetTask(conn net.Conn, req GetTaskRequest) {
 	t, err := s.database.GetTask(req.TaskID)
 	if err != nil {
@@ -196,34 +196,10 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 
 		// Ensure worktree exists for worktree tasks before continuing.
 		// The worktree may have been cleaned up after a previous completion/merge.
-		if t.Worktree && pcErr == nil {
-			if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
-				if t.Branch == "" {
-					if t.BranchName != "" {
-						t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
-					} else {
-						t.Branch = pc.cfg.ResolveBranchName(t.ID, t.Slug)
-					}
-					if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
-						log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-					}
-				}
-				worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, pc.cfg.Git.BaseBranch, t.Branch)
-				if err != nil {
-					s.sendError(conn, fmt.Sprintf("failed to create worktree for task #%d: %v", t.ID, err))
-					return
-				}
-				t.WorktreePath = worktree.Path
-				if err := s.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
-					log.Printf("%sWarning: failed to update worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-				}
-				log.Printf("%sRecreated worktree for task #%d at %s", s.projectLogPrefix(t.ProjectID), t.ID, worktree.Path)
-				// Run worktree setup command if configured
-				if setupCmd := pc.cfg.GetWorktreeSetupCommand(nil); setupCmd != "" {
-					if err := workflow.RunWorktreeSetupCommand(context.Background(), pc.repoRoot, worktree.Path, setupCmd); err != nil {
-						log.Printf("%sWarning: worktree setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-					}
-				}
+		if pcErr == nil {
+			if err := s.ensureWorktree(t, pc); err != nil {
+				s.sendError(conn, err.Error())
+				return
 			}
 		}
 
@@ -303,33 +279,9 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	if !t.Worktree {
 		// No-worktree mode: run in project root
 		t.WorktreePath = pc.repoRoot
-	} else if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
-		if t.Branch == "" {
-			if t.BranchName != "" {
-				t.Branch = config.ResolveBranchTemplate(t.BranchName, t.ID, t.Title, t.Slug)
-			} else {
-				t.Branch = pc.cfg.ResolveBranchName(t.ID, t.Slug)
-			}
-			// Persist branch name so it survives task re-fetches
-			if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
-				log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-			}
-		}
-		worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, pc.cfg.Git.BaseBranch, t.Branch)
-		if err != nil {
-			s.sendError(conn, fmt.Sprintf("failed to create worktree: %v", err))
-			return
-		}
-		t.WorktreePath = worktree.Path
-		if err := s.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
-			log.Printf("%sWarning: failed to update worktree path: %v", s.projectLogPrefix(t.ProjectID), err)
-		}
-		// Run worktree setup command if configured
-		if setupCmd := pc.cfg.GetWorktreeSetupCommand(nil); setupCmd != "" {
-			if err := workflow.RunWorktreeSetupCommand(context.Background(), pc.repoRoot, worktree.Path, setupCmd); err != nil {
-				log.Printf("%sWarning: worktree setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-			}
-		}
+	} else if err := s.ensureWorktree(t, pc); err != nil {
+		s.sendError(conn, err.Error())
+		return
 	}
 
 	var claudeMD strings.Builder
@@ -365,12 +317,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	claudeCmd := "claude"
-	if pc.cfg.Claude.Yolo {
-		claudeCmd = "claude --dangerously-skip-permissions"
-	}
-	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", claudeCmd)
-	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Yolo); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to write wrapper script: %v", err))
 		return
 	}
@@ -418,31 +365,12 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 	// Fast-track: if no meaningful changes were made, skip full finalization
 	// and go straight to completed, cleaning up worktree and branch.
 	if t.WorktreePath != "" && t.Worktree {
-		noiseFiles := []string{".claude-output.log", "CLAUDE.md"}
 		hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
 		if err != nil {
 			log.Printf("%sWarning: failed to check for meaningful changes for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		} else if !hasChanges {
 			log.Printf("%sTask #%d: no meaningful changes detected, fast-tracking to completed", s.projectLogPrefix(t.ProjectID), t.ID)
-			repoRoot := pc.repoRoot
-			if repoRoot != "" {
-				// Hold merge lock while operating on the main repo to avoid
-				// interfering with concurrent squash-merges from other tasks.
-				pc.engine.AcquireMergeLock()
-				if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
-					log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
-				}
-				gitpkg.CleanupWorktrees(repoRoot)
-				if t.Branch != "" {
-					if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
-						log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
-					}
-				}
-				pc.engine.ReleaseMergeLock()
-				if err := s.database.ClearWorktreePath(t.ID); err != nil {
-					log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-				}
-			}
+			s.cleanupWorktreeAndBranch(pc, t)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
 				log.Printf("%sError: failed to mark task #%d as completed: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			}
@@ -471,27 +399,8 @@ func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 		log.Printf("%sWarning: finalize failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		// Don't fail the whole operation — still mark as completed.
 		// Best-effort cleanup of worktree and branch so they don't linger.
-		// Hold merge lock while operating on the main repo to avoid
-		// interfering with concurrent squash-merges from other tasks.
 		if t.Worktree && repoRoot != "" {
-			pc.engine.AcquireMergeLock()
-			if t.WorktreePath != "" {
-				if rmErr := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); rmErr != nil {
-					log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
-				}
-				gitpkg.CleanupWorktrees(repoRoot)
-			}
-			if t.Branch != "" {
-				if rmErr := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); rmErr != nil {
-					log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, rmErr)
-				}
-			}
-			pc.engine.ReleaseMergeLock()
-			if t.WorktreePath != "" {
-				if err := s.database.ClearWorktreePath(t.ID); err != nil {
-					log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-				}
-			}
+			s.cleanupWorktreeAndBranch(pc, t)
 		}
 	}
 
@@ -505,9 +414,80 @@ func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 	log.Printf("%sTask #%d finalized from tmux continue session", s.projectLogPrefix(t.ProjectID), t.ID)
 }
 
+// ensureWorktree ensures a task's worktree exists, creating it if needed.
+// It resolves the branch name, creates the worktree, updates the DB, and runs the setup command.
+// Returns an error if worktree creation fails.
+func (s *Server) ensureWorktree(t *task.Task, pc *projectContext) error {
+	if !t.Worktree {
+		return nil
+	}
+	if t.WorktreePath != "" && dirExists(t.WorktreePath) {
+		return nil
+	}
+
+	if t.Branch == "" {
+		t.Branch = pc.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
+		if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
+			log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
+	}
+
+	worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, pc.cfg.Git.BaseBranch, t.Branch)
+	if err != nil {
+		return fmt.Errorf("failed to create worktree for task #%d: %v", t.ID, err)
+	}
+	t.WorktreePath = worktree.Path
+	if err := s.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
+		log.Printf("%sWarning: failed to update worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+	}
+	log.Printf("%sRecreated worktree for task #%d at %s", s.projectLogPrefix(t.ProjectID), t.ID, worktree.Path)
+
+	if setupCmd := pc.cfg.GetWorktreeSetupCommand(nil); setupCmd != "" {
+		if err := workflow.RunWorktreeSetupCommand(context.Background(), pc.repoRoot, worktree.Path, setupCmd); err != nil {
+			log.Printf("%sWarning: worktree setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
+	}
+
+	return nil
+}
+
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+// writeClaudeScript writes a bash wrapper script that runs claude and drops to a shell.
+func writeClaudeScript(scriptPath string, yolo bool) error {
+	claudeCmd := "claude"
+	if yolo {
+		claudeCmd = "claude --dangerously-skip-permissions"
+	}
+	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", claudeCmd)
+	return os.WriteFile(scriptPath, []byte(script), 0755)
+}
+
+// cleanupWorktreeAndBranch removes the worktree and branch for a task while holding the merge lock.
+// It logs warnings on errors rather than returning them, since cleanup is best-effort.
+func (s *Server) cleanupWorktreeAndBranch(pc *projectContext, t *task.Task) {
+	pc.engine.AcquireMergeLock()
+	defer pc.engine.ReleaseMergeLock()
+
+	if t.WorktreePath != "" {
+		if err := gitpkg.RemoveWorktree(pc.repoRoot, t.WorktreePath); err != nil {
+			log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
+		gitpkg.CleanupWorktrees(pc.repoRoot)
+	}
+	if t.Branch != "" {
+		if err := gitpkg.ForceDeleteBranch(pc.repoRoot, t.Branch); err != nil {
+			log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
+	}
+	if t.WorktreePath != "" {
+		if err := s.database.ClearWorktreePath(t.ID); err != nil {
+			log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
+	}
 }
 
 func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {
@@ -649,7 +629,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 }
 
 func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, description string) {
-	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(s.ctx, titleGenerationTimeout)
 	defer cancel()
 
 	projCfg := s.cfg
@@ -672,11 +652,7 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, wor
 	// Skip branch resolution for no-worktree tasks
 	var branch string
 	if worktree {
-		if branchName != "" {
-			branch = config.ResolveBranchTemplate(branchName, taskID, title, slug)
-		} else {
-			branch = projCfg.ResolveBranchName(taskID, slug)
-		}
+		branch = projCfg.ResolveBranchForTask(taskID, title, slug, branchName)
 	}
 
 	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {
@@ -861,22 +837,9 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 
 	repoRoot := s.getProjectRepoRoot(t)
 
-	// Hold merge lock while operating on the main repo to avoid
-	// interfering with concurrent squash-merges from other tasks.
 	if t.Worktree && repoRoot != "" {
 		if pc, err := s.getProjectContext(t.ProjectID); err == nil {
-			pc.engine.AcquireMergeLock()
-			if t.WorktreePath != "" {
-				if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
-					log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-				}
-			}
-			if t.Branch != "" {
-				if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
-					log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-				}
-			}
-			pc.engine.ReleaseMergeLock()
+			s.cleanupWorktreeAndBranch(pc, t)
 		}
 	}
 

@@ -25,6 +25,14 @@ import (
 	"github.com/aface/sortie/internal/workflow"
 )
 
+const (
+	// agentShutdownGracePeriod is the time allowed for agents to finish before force-stopping on shutdown.
+	agentShutdownGracePeriod = 30 * time.Second
+
+	// scannerBufferSize is the max message size accepted on the Unix socket (10MB).
+	scannerBufferSize = 10 * 1024 * 1024
+)
+
 type projectContext struct {
 	cfg           *config.Config
 	engine        *workflow.Engine
@@ -196,10 +204,6 @@ func (s *Server) Start(foreground bool) error {
 
 	s.manager.SetStateChangeCallback(s.onAgentStateChange)
 
-	if err := s.manager.RecoverSessions(); err != nil {
-		log.Printf("Warning: failed to recover sessions: %v", err)
-	}
-
 	if err := s.recoverOrphanedTasks(); err != nil {
 		log.Printf("Warning: failed to recover orphaned tasks: %v", err)
 	}
@@ -262,7 +266,7 @@ func (s *Server) handleConnection(conn net.Conn) {
 	}()
 
 	scanner := bufio.NewScanner(conn)
-	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
+	scanner.Buffer(make([]byte, 0, 1024*1024), scannerBufferSize)
 	for scanner.Scan() {
 		msg, err := DecodeMessage(scanner.Bytes())
 		if err != nil {
@@ -284,7 +288,10 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 
 	case MsgListTasks:
 		var req ListTasksRequest
-		msg.DecodePayload(&req)
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
 		s.handleListTasks(conn, req)
 
 	case MsgStartAgent:
@@ -316,14 +323,6 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 			return
 		}
 		s.handleGetOutput(conn, req)
-
-	case MsgSendInput:
-		var req SendInputRequest
-		if err := msg.DecodePayload(&req); err != nil {
-			s.sendError(conn, "invalid payload")
-			return
-		}
-		s.handleSendInput(conn, req)
 
 	case MsgGetTask:
 		var req GetTaskRequest
@@ -453,7 +452,7 @@ func (s *Server) Shutdown() {
 		}
 	}
 
-	s.manager.Shutdown(30 * time.Second)
+	s.manager.Shutdown(agentShutdownGracePeriod)
 
 	s.projectsMu.RLock()
 	for _, pc := range s.projects {

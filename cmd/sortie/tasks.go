@@ -44,11 +44,8 @@ var tasksCmd = &cobra.Command{
 			return nil
 		}
 
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tSTATUS\tSTEP\tTITLE")
-		fmt.Fprintln(w, "--\t------\t----\t-----")
-
-		for _, t := range tasks {
+		rows := make([]taskTableRow, len(tasks))
+		for i, t := range tasks {
 			title := t.Title
 			if title == "" {
 				title = truncateStr(t.Description, 50)
@@ -57,14 +54,9 @@ var tasksCmd = &cobra.Command{
 			if step == "" {
 				step = "-"
 			}
-			fmt.Fprintf(w, "#%d\t%s\t%s\t%s\n",
-				t.ID,
-				t.Status,
-				step,
-				title,
-			)
+			rows[i] = taskTableRow{id: t.ID, status: t.Status, step: step, title: title}
 		}
-		w.Flush()
+		printTaskTable(rows)
 
 		return nil
 	},
@@ -88,11 +80,8 @@ func listTasksFromDB() error {
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tSTATUS\tSTEP\tTITLE")
-	fmt.Fprintln(w, "--\t------\t----\t-----")
-
-	for _, t := range tasks {
+	rows := make([]taskTableRow, len(tasks))
+	for i, t := range tasks {
 		title := t.Title
 		if title == "" {
 			title = truncateStr(t.Description, 50)
@@ -101,14 +90,9 @@ func listTasksFromDB() error {
 		if step == "" {
 			step = "-"
 		}
-		fmt.Fprintf(w, "#%d\t%s\t%s\t%s\n",
-			t.ID,
-			t.Status,
-			step,
-			title,
-		)
+		rows[i] = taskTableRow{id: t.ID, status: string(t.Status), step: step, title: title}
 	}
-	w.Flush()
+	printTaskTable(rows)
 	return nil
 }
 

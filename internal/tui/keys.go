@@ -189,56 +189,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-type detailKeyMap struct {
-	Up       key.Binding
-	Down     key.Binding
-	PageUp   key.Binding
-	PageDown key.Binding
-	Stop     key.Binding
-	Back     key.Binding
-}
-
-func newDetailKeyMap() detailKeyMap {
-	return detailKeyMap{
-		Up: key.NewBinding(
-			key.WithKeys("up", "k"),
-			key.WithHelp("↑/k", "scroll up"),
-		),
-		Down: key.NewBinding(
-			key.WithKeys("down", "j"),
-			key.WithHelp("↓/j", "scroll down"),
-		),
-		PageUp: key.NewBinding(
-			key.WithKeys("pgup", "ctrl+u"),
-			key.WithHelp("pgup", "page up"),
-		),
-		PageDown: key.NewBinding(
-			key.WithKeys("pgdown", "ctrl+d"),
-			key.WithHelp("pgdown", "page down"),
-		),
-		Stop: key.NewBinding(
-			key.WithKeys("ctrl+c"),
-			key.WithHelp("ctrl+c", "stop agent"),
-		),
-		Back: key.NewBinding(
-			key.WithKeys("esc", "q"),
-			key.WithHelp("esc/q", "back to list"),
-		),
-	}
-}
-
-func (k detailKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Back}
-}
-
-func (k detailKeyMap) FullHelp() [][]key.Binding {
-	return [][]key.Binding{
-		{k.Up, k.Down, k.PageUp, k.PageDown},
-		{k.Stop},
-		{k.Back},
-	}
-}
-
 type detailFollowKeyMap struct {
 	ExitFollow key.Binding
 	Back       key.Binding

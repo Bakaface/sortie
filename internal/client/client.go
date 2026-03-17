@@ -3,6 +3,7 @@ package client
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -162,7 +163,7 @@ func (c *Client) request(msgType daemon.MessageType, payload any) (*daemon.Messa
 	if msg.Type == daemon.MsgError {
 		var errResp daemon.ErrorResponse
 		msg.DecodePayload(&errResp)
-		return nil, fmt.Errorf("%s", errResp.Message)
+		return nil, errors.New(errResp.Message)
 	}
 	return msg, nil
 }

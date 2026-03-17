@@ -67,14 +67,16 @@ func (db *DB) GetOrCreateProject(projectPath string) (*Project, error) {
 	}, nil
 }
 
-// GetProjectByPath finds a project by its filesystem path.
-func (db *DB) GetProjectByPath(path string) (*Project, error) {
+// projectScanner is an interface satisfied by both *sql.Row and *sql.Rows.
+type projectScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanProject scans a single project row from a query result.
+func scanProject(s projectScanner) (*Project, error) {
 	var p Project
 	var defaultPriority sql.NullString
-	err := db.QueryRow(
-		`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE path = ?`, path,
-	).Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt)
-	if err != nil {
+	if err := s.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt); err != nil {
 		return nil, err
 	}
 	if defaultPriority.Valid {
@@ -85,22 +87,31 @@ func (db *DB) GetProjectByPath(path string) (*Project, error) {
 	return &p, nil
 }
 
+// scanProjects scans multiple project rows from a query result.
+func scanProjects(rows *sql.Rows) ([]*Project, error) {
+	var projects []*Project
+	for rows.Next() {
+		p, err := scanProject(rows)
+		if err != nil {
+			return nil, err
+		}
+		projects = append(projects, p)
+	}
+	return projects, rows.Err()
+}
+
+// GetProjectByPath finds a project by its filesystem path.
+func (db *DB) GetProjectByPath(path string) (*Project, error) {
+	return scanProject(db.QueryRow(
+		`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE path = ?`, path,
+	))
+}
+
 // GetProject returns a project by ID.
 func (db *DB) GetProject(id int64) (*Project, error) {
-	var p Project
-	var defaultPriority sql.NullString
-	err := db.QueryRow(
+	return scanProject(db.QueryRow(
 		`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE id = ?`, id,
-	).Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt)
-	if err != nil {
-		return nil, err
-	}
-	if defaultPriority.Valid {
-		p.DefaultPriority = task.Priority(defaultPriority.String)
-	} else {
-		p.DefaultPriority = task.PriorityMedium
-	}
-	return &p, nil
+	))
 }
 
 // GetProjectsByName returns all projects matching the given name (basename).
@@ -110,22 +121,7 @@ func (db *DB) GetProjectsByName(name string) ([]*Project, error) {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var projects []*Project
-	for rows.Next() {
-		var p Project
-		var defaultPriority sql.NullString
-		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt); err != nil {
-			return nil, err
-		}
-		if defaultPriority.Valid {
-			p.DefaultPriority = task.Priority(defaultPriority.String)
-		} else {
-			p.DefaultPriority = task.PriorityMedium
-		}
-		projects = append(projects, &p)
-	}
-	return projects, rows.Err()
+	return scanProjects(rows)
 }
 
 // ListProjects returns all registered projects.
@@ -135,22 +131,7 @@ func (db *DB) ListProjects() ([]*Project, error) {
 		return nil, err
 	}
 	defer rows.Close()
-
-	var projects []*Project
-	for rows.Next() {
-		var p Project
-		var defaultPriority sql.NullString
-		if err := rows.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt); err != nil {
-			return nil, err
-		}
-		if defaultPriority.Valid {
-			p.DefaultPriority = task.Priority(defaultPriority.String)
-		} else {
-			p.DefaultPriority = task.PriorityMedium
-		}
-		projects = append(projects, &p)
-	}
-	return projects, rows.Err()
+	return scanProjects(rows)
 }
 
 // UpdateProjectDefaultWorktree updates the default worktree preference for a project.

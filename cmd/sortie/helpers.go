@@ -2,11 +2,32 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"text/tabwriter"
 
 	"github.com/aface/sortie/internal/db"
 	"github.com/aface/sortie/internal/task"
 	"github.com/spf13/cobra"
 )
+
+// taskTableRow holds the display fields for a single row in the task list table.
+type taskTableRow struct {
+	id     int64
+	status string
+	step   string
+	title  string
+}
+
+// printTaskTable prints a formatted table of tasks to stdout.
+func printTaskTable(rows []taskTableRow) {
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(w, "ID\tSTATUS\tSTEP\tTITLE")
+	fmt.Fprintln(w, "--\t------\t----\t-----")
+	for _, r := range rows {
+		fmt.Fprintf(w, "#%d\t%s\t%s\t%s\n", r.id, r.status, r.step, r.title)
+	}
+	w.Flush()
+}
 
 func truncateStr(s string, maxLen int) string {
 	if len(s) <= maxLen {

@@ -227,7 +227,7 @@ func completeRunTask(m Model, input string) (string, bool) {
 	}
 	partial := input[len("RunTask "):]
 	partialLower := strings.ToLower(partial)
-	allTasks := m.cfg.ListAllPredefinedTaskNames()
+	allTasks := m.cfg.ListPredefinedTaskNames()
 	var matches []string
 	for _, name := range allTasks {
 		if strings.HasPrefix(strings.ToLower(name), partialLower) {

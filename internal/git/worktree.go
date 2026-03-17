@@ -12,10 +12,9 @@ import (
 const WorktreePrefix = "sortie-task-"
 
 type Worktree struct {
-	Path       string
-	Branch     string
-	RepoRoot   string
-	WorktreeDir string
+	Path     string
+	Branch   string
+	RepoRoot string
 }
 
 func CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string) (*Worktree, error) {
@@ -62,10 +61,9 @@ func CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string
 	}
 
 	return &Worktree{
-		Path:       worktreePath,
-		Branch:     branchName,
-		RepoRoot:   repoRoot,
-		WorktreeDir: worktreePath,
+		Path:     worktreePath,
+		Branch:   branchName,
+		RepoRoot: repoRoot,
 	}, nil
 }
 

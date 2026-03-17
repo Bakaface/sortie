@@ -16,6 +16,14 @@ import (
 	"github.com/aface/sortie/internal/config"
 )
 
+const (
+	// stopPollInterval is how often to check whether a process has exited during graceful shutdown.
+	stopPollInterval = 500 * time.Millisecond
+
+	// stopGracePollAttempts is how many times to poll before force-killing (10 * 500ms = 5s grace period).
+	stopGracePollAttempts = 10
+)
+
 // Process represents a Claude Code CLI process running in automatic mode.
 // Uses -p flag for one-shot execution (Ralphy-style approach).
 //
@@ -187,8 +195,8 @@ func (p *Process) Stop() error {
 	}
 
 	// Wait up to 5s for graceful exit, then SIGKILL
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
+	for i := 0; i < stopGracePollAttempts; i++ {
+		time.Sleep(stopPollInterval)
 		p.mu.RLock()
 		exited := p.exited
 		p.mu.RUnlock()
@@ -203,7 +211,7 @@ func (p *Process) Stop() error {
 	}
 
 	// Brief wait for kernel cleanup
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(stopPollInterval)
 	return nil
 }
 

@@ -101,7 +101,7 @@ func detectGo(dir string) *DetectedProject {
 	}
 
 	modName := ""
-	for _, line := range splitLines(string(data)) {
+	for _, line := range strings.Split(string(data), "\n") {
 		if len(line) > 7 && line[:7] == "module " {
 			modName = line[7:]
 			break
@@ -186,18 +186,4 @@ func detectRust(dir string) *DetectedProject {
 	}
 }
 
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
 

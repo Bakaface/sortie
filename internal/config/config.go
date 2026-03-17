@@ -188,7 +188,16 @@ func (s *StepConfig) UseTmux(workflowDefault bool) bool {
 	return workflowDefault
 }
 
-const DefaultStepTimeout = 30 * time.Minute
+const (
+	// DefaultStepTimeout is the fallback step timeout when none is configured.
+	DefaultStepTimeout = 30 * time.Minute
+
+	// defaultOutputBufferLines is the default size of the per-agent output ring buffer.
+	defaultOutputBufferLines = 10000
+
+	// defaultMaxRetries is the default number of retries for artifact verification.
+	defaultMaxRetries = 3
+)
 
 // GetStepTimeout parses the step's timeout string or returns the default.
 func (c *Config) GetStepTimeout(step StepConfig) time.Duration {
@@ -351,10 +360,25 @@ func DefaultWorkflow() WorkflowConfig {
 	}
 }
 
-// DefaultWorkflowSteps returns the single-step default when no workflow is configured
-// Kept for backward compatibility - delegates to DefaultWorkflow().Steps
-func DefaultWorkflowSteps() []StepConfig {
-	return DefaultWorkflow().Steps
+// loadCommon loads the global config and global .sortie.yml into cfg.
+func loadCommon(cfg *Config) error {
+	// Load global config (~/.config/sortie/config.yaml)
+	globalPath := getGlobalConfigPath()
+	if globalPath != "" {
+		if err := loadGlobalConfig(globalPath, cfg); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	// Load global .sortie.yml (~/.sortie.yml)
+	globalSortieYml := getGlobalSortieYmlPath()
+	if globalSortieYml != "" {
+		if err := loadProjectConfig(globalSortieYml, cfg); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Load loads config from global config, global .sortie.yml, and project .sortie.yml,
@@ -365,21 +389,8 @@ func DefaultWorkflowSteps() []StepConfig {
 //  4. ./.sortie.yml (project config)
 func Load() (*Config, error) {
 	cfg := defaultConfig()
-
-	// Load global config (~/.config/sortie/config.yaml)
-	globalPath := getGlobalConfigPath()
-	if globalPath != "" {
-		if err := loadGlobalConfig(globalPath, cfg); err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-	}
-
-	// Load global .sortie.yml (~/.sortie.yml)
-	globalSortieYml := getGlobalSortieYmlPath()
-	if globalSortieYml != "" {
-		if err := loadProjectConfig(globalSortieYml, cfg); err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
+	if err := loadCommon(cfg); err != nil {
+		return nil, err
 	}
 
 	// Load project config (.sortie.yml at repo root)
@@ -405,21 +416,8 @@ func Load() (*Config, error) {
 // LoadForProject loads config for a specific project directory.
 func LoadForProject(projectDir string) (*Config, error) {
 	cfg := defaultConfig()
-
-	// Load global config (~/.config/sortie/config.yaml)
-	globalPath := getGlobalConfigPath()
-	if globalPath != "" {
-		if err := loadGlobalConfig(globalPath, cfg); err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-	}
-
-	// Load global .sortie.yml (~/.sortie.yml)
-	globalSortieYml := getGlobalSortieYmlPath()
-	if globalSortieYml != "" {
-		if err := loadProjectConfig(globalSortieYml, cfg); err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
+	if err := loadCommon(cfg); err != nil {
+		return nil, err
 	}
 
 	// Load project config (.sortie.yml)
@@ -527,6 +525,13 @@ func loadProjectConfig(path string, cfg *Config) error {
 		cfg.WorktreeSetupCommand = proj.WorktreeSetupCommand
 	}
 
+	return resolveWorkflows(cfg, &proj)
+}
+
+// resolveWorkflows processes raw project workflows into the Config's flat and categorized lists.
+// It handles three input formats (structured, legacy list, ancient singular) and ensures
+// all workflows have names and valid loop configurations.
+func resolveWorkflows(cfg *Config, proj *ProjectConfig) error {
 	// Handle workflows section: supports three formats:
 	// 1. New structured: workflows: { one-off: [...], tasks: [...], init: [...] }
 	// 2. Legacy list:    workflows: [{ name: ..., steps: [...] }, ...]
@@ -674,8 +679,8 @@ func (c *Config) syncCompat() {
 	}
 	c.Agents = agentsCompat{
 		MaxConcurrent:     c.MaxWorkers,
-		OutputBufferLines: 10000,
-		MaxRetries:        3,
+		OutputBufferLines: defaultOutputBufferLines,
+		MaxRetries:        defaultMaxRetries,
 	}
 	c.Project.AutoDetect = true
 }
@@ -744,12 +749,6 @@ func (c *Config) ListPredefinedTaskNames() []string {
 	return names
 }
 
-// ListAllPredefinedTaskNames returns the names of all one-off workflows.
-// Equivalent to ListPredefinedTaskNames (the unlisted concept has been removed).
-func (c *Config) ListAllPredefinedTaskNames() []string {
-	return c.ListPredefinedTaskNames()
-}
-
 // GetPredefinedTask returns the one-off workflow config with the given name, or nil.
 func (c *Config) GetPredefinedTask(name string) *WorkflowConfig {
 	for i := range c.OneOff {
@@ -796,11 +795,13 @@ func (c *Config) GetWorktreeSetupCommand(wf *WorkflowConfig) string {
 	return c.WorktreeSetupCommand
 }
 
-// GetWorkflowSteps returns configured steps or the default single step.
-// Kept for backward compatibility - use GetWorkflow instead.
-func (c *Config) GetWorkflowSteps() []StepConfig {
-	wf := c.GetWorkflow("")
-	return wf.Steps
+// ResolveBranchForTask resolves the branch name for a task. If branchName is non-empty,
+// it uses ResolveBranchTemplate; otherwise falls back to the config's branch template.
+func (c *Config) ResolveBranchForTask(taskID int64, taskTitle, taskSlug, branchName string) string {
+	if branchName != "" {
+		return ResolveBranchTemplate(branchName, taskID, taskTitle, taskSlug)
+	}
+	return c.ResolveBranchName(taskID, taskSlug)
 }
 
 // ResolveBranchName applies the branch template for a task.

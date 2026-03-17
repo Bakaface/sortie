@@ -271,7 +271,7 @@ func TestListPredefinedTaskNamesExcludesUnlisted(t *testing.T) {
 }
 
 func TestListAllPredefinedTaskNamesIncludesUnlisted(t *testing.T) {
-	// ListAllPredefinedTaskNames now same as ListPredefinedTaskNames (unlisted removed)
+	// ListPredefinedTaskNames returns all one-off workflow names (unlisted concept removed)
 	cfg := &Config{
 		OneOff: []WorkflowConfig{
 			{Name: "task-a"},
@@ -280,7 +280,7 @@ func TestListAllPredefinedTaskNamesIncludesUnlisted(t *testing.T) {
 		},
 	}
 
-	names := cfg.ListAllPredefinedTaskNames()
+	names := cfg.ListPredefinedTaskNames()
 	if len(names) != 3 {
 		t.Fatalf("expected 3 names, got %d: %v", len(names), names)
 	}

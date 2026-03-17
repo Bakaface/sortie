@@ -209,14 +209,9 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 		return fmt.Errorf("failed to create sortie dir: %w", err)
 	}
 
-	claudeCmd := "claude"
-	if pc != nil && pc.cfg.Claude.Yolo {
-		claudeCmd = "claude --dangerously-skip-permissions"
-	}
-
+	yolo := pc != nil && pc.cfg.Claude.Yolo
 	scriptFile := filepath.Join(sortieDir, "run-restore.sh")
-	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", claudeCmd)
-	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
+	if err := writeClaudeScript(scriptFile, yolo); err != nil {
 		return fmt.Errorf("failed to write wrapper script: %w", err)
 	}
 
