@@ -230,6 +230,8 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, m.retryTask(task.ID)
 			}
 		}
+
+	case "x":
 		// Show predefined task selection if tasks are configured
 		if m.client != nil && m.projectPath != "" {
 			tasks := m.cfg.ListPredefinedTaskNames()
@@ -239,8 +241,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
-		// Otherwise just refresh
-		return m, m.refreshTasks()
 
 	case "R":
 		if task := m.list.Selected(); task != nil && m.client != nil {

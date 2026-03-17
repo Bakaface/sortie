@@ -1097,7 +1097,7 @@ func TestListView_ShowsRealTaskID(t *testing.T) {
 	}
 }
 
-func TestHandleListKey_RShowsTaskSelection(t *testing.T) {
+func TestHandleListKey_XShowsTaskSelection(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
@@ -1112,12 +1112,11 @@ func TestHandleListKey_RShowsTaskSelection(t *testing.T) {
 			},
 		},
 	}
-	// Set a non-failed task so "r" doesn't trigger retry
 	m.list.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Running task", Status: "running"},
 	})
 
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
@@ -1225,7 +1224,7 @@ func TestHandleListKey_RRetriesCompletedTask(t *testing.T) {
 	}
 }
 
-func TestHandleListKey_RRefreshesWithNoTasks(t *testing.T) {
+func TestHandleListKey_RNoOpOnRunningTask(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
@@ -1240,15 +1239,11 @@ func TestHandleListKey_RRefreshesWithNoTasks(t *testing.T) {
 	})
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
-	result, cmd := m.handleListKey(msg)
-	updated := result.(Model)
+	_, cmd := m.handleListKey(msg)
 
-	// No predefined tasks configured — should just refresh
-	if updated.selectingTask {
-		t.Error("expected selectingTask to be false when no predefined tasks")
-	}
-	if cmd == nil {
-		t.Error("expected refresh command, got nil")
+	// r on a running task does nothing (not retryable)
+	if cmd != nil {
+		t.Error("expected no command for non-retryable task, got non-nil")
 	}
 }
 
@@ -5155,7 +5150,7 @@ func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
 		{ID: 1, Title: "Running task", Status: "running"},
 	})
 
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}}
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 

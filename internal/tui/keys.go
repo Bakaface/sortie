@@ -67,8 +67,8 @@ func newKeyMap() keyMap {
 			key.WithHelp("r", "retry"),
 		),
 		RunTask: key.NewBinding(
-			key.WithKeys("r"),
-			key.WithHelp("r", "run task"),
+			key.WithKeys("x"),
+			key.WithHelp("x", "run task"),
 		),
 		InitWorkflow: key.NewBinding(
 			key.WithKeys("i"),
