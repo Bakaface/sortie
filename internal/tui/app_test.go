@@ -299,6 +299,42 @@ func TestListView_NoTmuxIndicatorWithoutSessions(t *testing.T) {
 	}
 }
 
+func TestListView_DetachedOmitsTmuxActivity(t *testing.T) {
+	l := newListView(false, "")
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Detached tmux task", Status: "tmux", CurrentStep: "dev", TmuxActivity: "wip", WorktreeDetached: true},
+	})
+	l.tmuxSessions = map[int64]bool{1: true}
+	l.SetSize(100, 24)
+
+	output := l.View()
+
+	if !strings.Contains(output, "[detached]") {
+		t.Error("expected task list to contain [detached] for detached task")
+	}
+	if strings.Contains(output, "[wip]") {
+		t.Error("expected task list to NOT contain [wip] when task is detached")
+	}
+}
+
+func TestListView_NotDetachedShowsTmuxActivity(t *testing.T) {
+	l := newListView(false, "")
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Active tmux task", Status: "tmux", CurrentStep: "implement", TmuxActivity: "wip", WorktreeDetached: false},
+	})
+	l.tmuxSessions = map[int64]bool{1: true}
+	l.SetSize(100, 24)
+
+	output := l.View()
+
+	if !strings.Contains(output, "[wip]") {
+		t.Error("expected task list to contain [wip] for non-detached tmux task")
+	}
+	if strings.Contains(output, "[detached]") {
+		t.Error("expected task list to NOT contain [detached] for non-detached task")
+	}
+}
+
 func TestHandleKey_ClearsErrorAndProcessesKey(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),

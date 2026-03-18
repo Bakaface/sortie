@@ -475,7 +475,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	if task.LoopIteration > 0 {
 		statusLabel += fmt.Sprintf(" [L%d]", task.LoopIteration)
 	}
-	if l.tmuxSessions[task.ID] {
+	if task.WorktreeDetached {
+		statusLabel += " [detached]"
+	} else if l.tmuxSessions[task.ID] {
 		switch task.TmuxActivity {
 		case "idle":
 			statusLabel += " [idle]"
@@ -484,9 +486,6 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		default:
 			statusLabel += " [T]"
 		}
-	}
-	if task.WorktreeDetached {
-		statusLabel += " [detached]"
 	}
 	status := fmt.Sprintf("%s %s", statusIcon, statusLabel)
 
