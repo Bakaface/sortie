@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     loop_iteration INTEGER NOT NULL DEFAULT 0,
     branch_name TEXT NOT NULL DEFAULT '',
     branch TEXT NOT NULL DEFAULT '',
+    target_branch TEXT NOT NULL DEFAULT '',
+    checkout_branch TEXT NOT NULL DEFAULT '',
     worktree INTEGER NOT NULL DEFAULT 1,
     worktree_path TEXT,
     exit_code INTEGER,

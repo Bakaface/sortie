@@ -74,6 +74,19 @@ func findStepIndex(steps []config.StepConfig, name string) int {
 	return -1
 }
 
+// effectiveBaseBranch returns the base branch for a task, checking the task's
+// per-task TargetBranch override first, then falling back to the config's Git.BaseBranch,
+// and finally to "main".
+func (e *Engine) effectiveBaseBranch(t *task.Task) string {
+	if t.TargetBranch != "" {
+		return t.TargetBranch
+	}
+	if e.cfg.Git.BaseBranch != "" {
+		return e.cfg.Git.BaseBranch
+	}
+	return "main"
+}
+
 // RunTask executes the full workflow pipeline for a task.
 // It creates/reuses the worktree, then loops through steps starting from t.StepIndex.
 // outputFn is called with parsed log lines for live streaming (may be nil).
@@ -82,24 +95,39 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	steps := wf.Steps
 
 	if t.Worktree {
-		// Resolve branch name if not set
-		if t.Branch == "" {
-			t.Branch = e.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
-			// Persist branch name to DB so it survives task re-fetches
+		if t.CheckoutBranch != "" {
+			// Checkout existing branch mode
+			t.Branch = t.CheckoutBranch
 			if dbErr := e.database.UpdateTaskBranch(t.ID, t.Branch); dbErr != nil {
 				log.Printf("Warning: failed to persist branch name for task #%d: %v", t.ID, dbErr)
 			}
-		}
-
-		// Create worktree if not already set
-		if t.WorktreePath == "" {
-			worktree, err := gitpkg.CreateWorktree(e.repoRoot, t.ID, e.cfg.Git.BaseBranch, t.Branch)
-			if err != nil {
-				return fmt.Errorf("failed to create worktree: %w", err)
+			if t.WorktreePath == "" {
+				worktree, err := gitpkg.CheckoutWorktree(e.repoRoot, t.ID, t.CheckoutBranch)
+				if err != nil {
+					return fmt.Errorf("failed to checkout worktree: %w", err)
+				}
+				t.WorktreePath = worktree.Path
+				if err := e.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
+					log.Printf("Warning: failed to update worktree path: %v", err)
+				}
 			}
-			t.WorktreePath = worktree.Path
-			if err := e.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
-				log.Printf("Warning: failed to update worktree path: %v", err)
+		} else {
+			// Normal new branch mode
+			if t.Branch == "" {
+				t.Branch = e.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
+				if dbErr := e.database.UpdateTaskBranch(t.ID, t.Branch); dbErr != nil {
+					log.Printf("Warning: failed to persist branch name for task #%d: %v", t.ID, dbErr)
+				}
+			}
+			if t.WorktreePath == "" {
+				worktree, err := gitpkg.CreateWorktree(e.repoRoot, t.ID, e.effectiveBaseBranch(t), t.Branch)
+				if err != nil {
+					return fmt.Errorf("failed to create worktree: %w", err)
+				}
+				t.WorktreePath = worktree.Path
+				if err := e.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
+					log.Printf("Warning: failed to update worktree path: %v", err)
+				}
 			}
 		}
 	} else {
@@ -195,8 +223,9 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			},
 			Artifacts: artifacts,
 			Git: GitVars{
-				BaseBranch: e.cfg.Git.BaseBranch,
-				RepoRoot:   e.repoRoot,
+				BaseBranch:   e.cfg.Git.BaseBranch,
+				TargetBranch: e.effectiveBaseBranch(t),
+				RepoRoot:     e.repoRoot,
 			},
 			Loop: loopVars,
 		}
@@ -488,10 +517,7 @@ func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([
 	if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
 		return fmt.Errorf("commit failed: %w", err)
 	}
-	baseBranch := e.cfg.Git.BaseBranch
-	if baseBranch == "" {
-		baseBranch = "main"
-	}
+	baseBranch := e.effectiveBaseBranch(t)
 
 	// Wait for the target branch to be clean (no staged or unstaged changes)
 	logf("Checking target branch %s for pending changes...", baseBranch)

@@ -89,9 +89,11 @@ type Task struct {
 	StepIndex     int
 	CurrentStep   string
 	LoopIteration int
-	BranchName   string // user-provided branch template (e.g. "feature/{{task.title}}")
-	Branch       string // resolved branch name
-	Worktree     bool // whether to use git worktree isolation (default true)
+	BranchName     string // user-provided branch template (e.g. "feature/{{task.title}}")
+	Branch         string // resolved branch name
+	TargetBranch   string // per-task override for base/merge branch
+	CheckoutBranch string // use an existing branch instead of creating a new one
+	Worktree       bool   // whether to use git worktree isolation (default true)
 	WorktreePath string
 	ExitCode     *int
 	ErrorMessage string

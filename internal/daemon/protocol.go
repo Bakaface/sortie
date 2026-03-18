@@ -112,9 +112,11 @@ type CreateTaskRequest struct {
 	Description string   `json:"description"`
 	Workflow    string   `json:"workflow,omitempty"`
 	Priority    string   `json:"priority,omitempty"`
-	BranchName  string   `json:"branch_name,omitempty"` // user-provided branch template
-	ProjectPath string   `json:"project_path,omitempty"` // resolved to project_id by daemon
-	Worktree    *bool    `json:"worktree,omitempty"`     // nil means default (true)
+	BranchName     string   `json:"branch_name,omitempty"`  // user-provided branch template
+	TargetBranch   string   `json:"target_branch,omitempty"`
+	CheckoutBranch string   `json:"checkout_branch,omitempty"`
+	ProjectPath    string   `json:"project_path,omitempty"` // resolved to project_id by daemon
+	Worktree       *bool    `json:"worktree,omitempty"`     // nil means default (true)
 	Images      []string `json:"images,omitempty"`
 	BlockedBy   []int64  `json:"blocked_by,omitempty"`   // task IDs that block this task
 }
@@ -194,8 +196,10 @@ type TaskInfo struct {
 	StepIndex     int        `json:"step_index"`
 	CurrentStep   string     `json:"current_step"`
 	LoopIteration int        `json:"loop_iteration,omitempty"`
-	BranchName   string     `json:"branch_name,omitempty"`
-	Branch       string     `json:"branch"`
+	BranchName     string     `json:"branch_name,omitempty"`
+	Branch         string     `json:"branch"`
+	TargetBranch   string     `json:"target_branch,omitempty"`
+	CheckoutBranch string     `json:"checkout_branch,omitempty"`
 	Worktree     bool       `json:"worktree"`
 	WorktreePath string     `json:"worktree_path,omitempty"`
 	ErrorMessage string     `json:"error_message,omitempty"`

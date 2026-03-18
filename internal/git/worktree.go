@@ -67,6 +67,71 @@ func CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string
 	}, nil
 }
 
+func BranchExists(repoRoot, branchName string) bool {
+	cmd := exec.Command("git", "show-ref", "--verify", "refs/heads/"+branchName)
+	cmd.Dir = repoRoot
+	return cmd.Run() == nil
+}
+
+func FetchAndTrackBranch(repoRoot, branchName string) error {
+	cmd := exec.Command("git", "fetch", "origin", branchName)
+	cmd.Dir = repoRoot
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to fetch branch %s: %w (stderr: %s)", branchName, err, stderr.String())
+	}
+
+	if !BranchExists(repoRoot, branchName) {
+		cmd = exec.Command("git", "branch", "--track", branchName, "origin/"+branchName)
+		cmd.Dir = repoRoot
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to create tracking branch %s: %w (stderr: %s)", branchName, err, stderr.String())
+		}
+	}
+
+	return nil
+}
+
+func CheckoutWorktree(repoRoot string, taskID int64, branchName string) (*Worktree, error) {
+	if !BranchExists(repoRoot, branchName) {
+		if err := FetchAndTrackBranch(repoRoot, branchName); err != nil {
+			return nil, fmt.Errorf("branch %q not found locally or on remote: %w", branchName, err)
+		}
+	}
+
+	dirName := strings.ReplaceAll(branchName, "/", "-")
+	worktreePath := filepath.Join(repoRoot, ".sortie", "worktrees", dirName)
+
+	if err := os.MkdirAll(filepath.Dir(worktreePath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create worktree directory: %w", err)
+	}
+
+	if _, err := os.Stat(worktreePath); err == nil {
+		if err := RemoveWorktree(repoRoot, worktreePath); err != nil {
+			return nil, fmt.Errorf("failed to remove existing worktree: %w", err)
+		}
+	}
+
+	args := []string{"worktree", "add", worktreePath, branchName}
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoRoot
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to create worktree for branch %s: %w (stderr: %s)", branchName, err, stderr.String())
+	}
+
+	return &Worktree{
+		Path:     worktreePath,
+		Branch:   branchName,
+		RepoRoot: repoRoot,
+	}, nil
+}
+
 func RemoveWorktree(repoRoot, worktreePath string) error {
 	cmd := exec.Command("git", "worktree", "remove", "--force", worktreePath)
 	cmd.Dir = repoRoot

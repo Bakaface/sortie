@@ -1471,7 +1471,7 @@ func TestHandlePromptKey_CtrlGOpensEditor(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		prompt:      newPromptView(true),
+		prompt:      newPromptView(true, ""),
 		view:        viewPrompt,
 		projectPath: "/tmp/test",
 	}
@@ -1489,7 +1489,7 @@ func TestHandlePromptKey_EnterSubmitsTask(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
-		prompt:      newPromptView(true),
+		prompt:      newPromptView(true, ""),
 		view:        viewPrompt,
 		projectPath: "/tmp/test",
 	}
@@ -1512,7 +1512,7 @@ func TestHandlePromptKey_EnterEmptyDoesNothing(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 	m.prompt.SetSize(80, 24)
@@ -1532,7 +1532,7 @@ func TestHandlePromptKey_EnterEmptyDoesNothing(t *testing.T) {
 func TestHandlePromptKey_EscCancels(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 
@@ -1551,7 +1551,7 @@ func TestHandlePromptKey_EscCancels(t *testing.T) {
 func TestEditorPromptFinishedMsg_SetsTextareaValue(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 	m.prompt.SetSize(80, 24)
@@ -1576,7 +1576,7 @@ func TestEditorPromptFinishedMsg_SetsTextareaValue(t *testing.T) {
 func TestEditorPromptFinishedMsg_EmptyFilePreservesTextarea(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 	m.prompt.SetSize(80, 24)
@@ -1604,7 +1604,7 @@ func TestPromptView_HelpShowsEditorShortcutInFullHelp(t *testing.T) {
 		keys:   newKeyMap(),
 		list:   newListView(false, ""),
 		detail: newDetailView(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 
@@ -1619,7 +1619,7 @@ func TestPromptView_HelpShowsEditorShortcutInFullHelp(t *testing.T) {
 }
 
 func TestPromptView_HelpShowsEnterAndCtrlJ(t *testing.T) {
-	p := newPromptView(true)
+	p := newPromptView(true, "")
 	p.SetSize(100, 24)
 
 	output := p.View()
@@ -1644,7 +1644,7 @@ func TestPromptView_HelpShowsEnterAndCtrlJ(t *testing.T) {
 func TestHandlePromptKey_CtrlJInsertsNewline(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 	m.prompt.SetSize(80, 24)
@@ -1665,7 +1665,7 @@ func TestHandlePromptKey_CtrlJInsertsNewline(t *testing.T) {
 }
 
 func TestPromptView_WordJumpKeybindings(t *testing.T) {
-	p := newPromptView(true)
+	p := newPromptView(true, "")
 	p.SetSize(80, 24)
 	p.textarea.SetValue("hello world foo")
 
@@ -3747,7 +3747,7 @@ func TestHandleListKey_NWithNoSearchCreatesNewTask(t *testing.T) {
 		keys:        newKeyMap(),
 		list:        newListView(false, ""),
 		detail:      newDetailView(),
-		prompt:      newPromptView(true),
+		prompt:      newPromptView(true, ""),
 		view:        viewList,
 		client:      &client.Client{},
 		projectPath: "/some/path",
@@ -4339,7 +4339,7 @@ func newTestModelWithWorkflows(n int) Model {
 		keys:              newKeyMap(),
 		list:              newListView(false, ""),
 		detail:            newDetailView(),
-		prompt:            newPromptView(true),
+		prompt:            newPromptView(true, ""),
 		view:              viewList,
 		selectingWorkflow: true,
 		workflowCursor:    0,
@@ -5300,7 +5300,7 @@ func TestPromptHelpToggle(t *testing.T) {
 		keys:   newKeyMap(),
 		list:   newListView(false, ""),
 		detail: newDetailView(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 
@@ -5333,7 +5333,7 @@ func TestPromptHelpCloseWithEsc(t *testing.T) {
 		keys:   newKeyMap(),
 		list:   newListView(false, ""),
 		detail: newDetailView(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 	m.prompt.showHelp = true
@@ -5355,7 +5355,7 @@ func TestPromptHelpConsumesKeys(t *testing.T) {
 		keys:   newKeyMap(),
 		list:   newListView(false, ""),
 		detail: newDetailView(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 	m.prompt.showHelp = true
@@ -5378,7 +5378,7 @@ func TestViewRendersPromptHelpOverlay(t *testing.T) {
 		keys:   newKeyMap(),
 		list:   newListView(false, ""),
 		detail: newDetailView(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 	m.prompt.showHelp = true
@@ -5485,7 +5485,7 @@ func TestPromptHelpOverlayIsSeparateFromListHelp(t *testing.T) {
 		keys:   newKeyMap(),
 		list:   newListView(false, ""),
 		detail: newDetailView(),
-		prompt: newPromptView(true),
+		prompt: newPromptView(true, ""),
 		view:   viewPrompt,
 	}
 

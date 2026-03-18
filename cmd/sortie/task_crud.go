@@ -51,6 +51,12 @@ The daemon must be running.`,
 		branch, _ := cmd.Flags().GetString("branch")
 		workflow, _ := cmd.Flags().GetString("workflow")
 		noWorktree, _ := cmd.Flags().GetBool("no-worktree")
+		target, _ := cmd.Flags().GetString("target")
+		checkout, _ := cmd.Flags().GetString("checkout")
+
+		if checkout != "" && branch != "" {
+			return fmt.Errorf("cannot specify both --checkout and --branch flags")
+		}
 
 		c := client.New(cfg)
 		if err := c.Connect(); err != nil {
@@ -60,12 +66,14 @@ The daemon must be running.`,
 
 		worktree := !noWorktree
 		t, err := c.CreateTaskWithOptions(daemon.CreateTaskRequest{
-			Description: description,
-			Workflow:    workflow,
-			Priority:    priority,
-			BranchName:  branch,
-			ProjectPath: cfg.ProjectDir,
-			Worktree:    &worktree,
+			Description:    description,
+			Workflow:       workflow,
+			Priority:       priority,
+			BranchName:     branch,
+			TargetBranch:   target,
+			CheckoutBranch: checkout,
+			ProjectPath:    cfg.ProjectDir,
+			Worktree:       &worktree,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to create task: %w", err)

@@ -10,10 +10,10 @@ import (
 )
 
 func (db *DB) CreateTask(projectID int64, title, description, slug, workflow, branch string, status task.Status, images []string) (*task.Task, error) {
-	return db.CreateTaskWithPriority(projectID, title, description, slug, workflow, "", branch, status, task.PriorityMedium, true, images)
+	return db.CreateTaskWithPriority(projectID, title, description, slug, workflow, "", branch, "", "", status, task.PriorityMedium, true, images)
 }
 
-func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, workflow, branchName, branch string, status task.Status, priority task.Priority, worktree bool, images []string) (*task.Task, error) {
+func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, workflow, branchName, branch, targetBranch, checkoutBranch string, status task.Status, priority task.Priority, worktree bool, images []string) (*task.Task, error) {
 	var imagesJSON *string
 	if len(images) > 0 {
 		data, err := json.Marshal(images)
@@ -30,8 +30,8 @@ func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, 
 	}
 
 	result, err := db.Exec(
-		`INSERT INTO tasks (project_id, title, description, slug, workflow, branch_name, branch, status, priority, worktree, images) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		projectID, title, description, slug, workflow, branchName, branch, status, priority, worktreeInt, imagesJSON,
+		`INSERT INTO tasks (project_id, title, description, slug, workflow, branch_name, branch, target_branch, checkout_branch, status, priority, worktree, images) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		projectID, title, description, slug, workflow, branchName, branch, targetBranch, checkoutBranch, status, priority, worktreeInt, imagesJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, 
 }
 
 const taskColumns = `id, project_id, title, description, slug, workflow, status, priority, step_index, current_step, loop_iteration,
-	branch_name, branch, worktree, worktree_path, exit_code, error_message, context, images, commits,
+	branch_name, branch, target_branch, checkout_branch, worktree, worktree_path, exit_code, error_message, context, images, commits,
 	created_at, started_at, completed_at, updated_at`
 
 func (db *DB) GetTask(id int64) (*task.Task, error) {
@@ -508,6 +508,7 @@ func scanTaskRow(s scanner) (*task.Task, error) {
 	var t task.Task
 	var projectID sql.NullInt64
 	var title, slug, workflow, branchName, branch sql.NullString
+	var targetBranch, checkoutBranch sql.NullString
 	var priority sql.NullString
 	var currentStep, worktreePath, errorMessage sql.NullString
 	var taskContext sql.NullString
@@ -521,7 +522,7 @@ func scanTaskRow(s scanner) (*task.Task, error) {
 	err := s.Scan(
 		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
 		&t.StepIndex, &currentStep, &t.LoopIteration,
-		&branchName, &branch, &worktreeInt, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON, &commitsJSON,
+		&branchName, &branch, &targetBranch, &checkoutBranch, &worktreeInt, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON, &commitsJSON,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 	)
 	if err != nil {
@@ -554,6 +555,12 @@ func scanTaskRow(s scanner) (*task.Task, error) {
 	}
 	if branch.Valid {
 		t.Branch = branch.String
+	}
+	if targetBranch.Valid {
+		t.TargetBranch = targetBranch.String
+	}
+	if checkoutBranch.Valid {
+		t.CheckoutBranch = checkoutBranch.String
 	}
 	if worktreePath.Valid {
 		t.WorktreePath = worktreePath.String

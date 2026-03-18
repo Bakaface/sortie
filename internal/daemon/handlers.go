@@ -425,25 +425,44 @@ func (s *Server) ensureWorktree(t *task.Task, pc *projectContext) error {
 		return nil
 	}
 
-	if t.Branch == "" {
-		t.Branch = pc.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
-		if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
-			log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+	if t.CheckoutBranch != "" {
+		// Checkout existing branch mode
+		if t.Branch == "" {
+			t.Branch = t.CheckoutBranch
+			if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
+				log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			}
 		}
-	}
+		worktree, err := gitpkg.CheckoutWorktree(pc.repoRoot, t.ID, t.CheckoutBranch)
+		if err != nil {
+			return fmt.Errorf("failed to checkout worktree for task #%d: %v", t.ID, err)
+		}
+		t.WorktreePath = worktree.Path
+	} else {
+		if t.Branch == "" {
+			t.Branch = pc.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
+			if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
+				log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			}
+		}
 
-	worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, pc.cfg.Git.BaseBranch, t.Branch)
-	if err != nil {
-		return fmt.Errorf("failed to create worktree for task #%d: %v", t.ID, err)
+		baseBranch := pc.cfg.Git.BaseBranch
+		if t.TargetBranch != "" {
+			baseBranch = t.TargetBranch
+		}
+		worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, baseBranch, t.Branch)
+		if err != nil {
+			return fmt.Errorf("failed to create worktree for task #%d: %v", t.ID, err)
+		}
+		t.WorktreePath = worktree.Path
 	}
-	t.WorktreePath = worktree.Path
-	if err := s.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
+	if err := s.database.UpdateTaskWorktreePath(t.ID, t.WorktreePath); err != nil {
 		log.Printf("%sWarning: failed to update worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 	}
-	log.Printf("%sRecreated worktree for task #%d at %s", s.projectLogPrefix(t.ProjectID), t.ID, worktree.Path)
+	log.Printf("%sRecreated worktree for task #%d at %s", s.projectLogPrefix(t.ProjectID), t.ID, t.WorktreePath)
 
 	if setupCmd := pc.cfg.GetWorktreeSetupCommand(nil); setupCmd != "" {
-		if err := workflow.RunWorktreeSetupCommand(context.Background(), pc.repoRoot, worktree.Path, setupCmd); err != nil {
+		if err := workflow.RunWorktreeSetupCommand(context.Background(), pc.repoRoot, t.WorktreePath, setupCmd); err != nil {
 			log.Printf("%sWarning: worktree setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}
@@ -593,6 +612,11 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		priority = proj.DefaultPriority
 	}
 
+	if req.CheckoutBranch != "" && req.BranchName != "" {
+		s.sendError(conn, "cannot specify both --checkout and --branch")
+		return
+	}
+
 	worktree := proj.DefaultWorktree
 	if req.Worktree != nil {
 		worktree = *req.Worktree
@@ -603,7 +627,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		log.Printf("%sFailed to update default worktree for project %d: %v", s.projectLogPrefix(proj.ID), proj.ID, err)
 	}
 
-	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", task.StatusInit, priority, worktree, req.Images)
+	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", req.TargetBranch, req.CheckoutBranch, task.StatusInit, priority, worktree, req.Images)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
 		return
@@ -625,10 +649,10 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
 
-	go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, description)
+	go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, t.CheckoutBranch, description)
 }
 
-func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, description string) {
+func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string) {
 	ctx, cancel := context.WithTimeout(s.ctx, titleGenerationTimeout)
 	defer cancel()
 
@@ -652,7 +676,11 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, wor
 	// Skip branch resolution for no-worktree tasks
 	var branch string
 	if worktree {
-		branch = projCfg.ResolveBranchForTask(taskID, title, slug, branchName)
+		if checkoutBranch != "" {
+			branch = checkoutBranch
+		} else {
+			branch = projCfg.ResolveBranchForTask(taskID, title, slug, branchName)
+		}
 	}
 
 	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {

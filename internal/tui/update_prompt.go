@@ -38,9 +38,11 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		images := m.prompt.Images()
 		branchName := m.prompt.BranchName()
+		checkoutBranch := m.prompt.CheckoutBranch()
+		targetBranch := m.prompt.TargetBranch()
 		worktree := m.prompt.Worktree()
 		m.view = viewList
-		return m, m.createTaskWithPrompt(description, branchName, worktree, images)
+		return m, m.createTaskWithPrompt(description, branchName, worktree, images, targetBranch, checkoutBranch)
 
 	case "tab":
 		// Switch focus between description and branch name
@@ -66,6 +68,13 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "alt+w":
 		// Toggle worktree mode
 		m.prompt.ToggleWorktree()
+		return m, nil
+
+	case "alt+m":
+		// Toggle branch mode (only when worktree is on)
+		if m.prompt.worktree {
+			m.prompt.ToggleBranchMode()
+		}
 		return m, nil
 
 	case "ctrl+x":

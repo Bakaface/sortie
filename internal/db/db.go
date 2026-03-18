@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (13)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (14)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -245,6 +245,22 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to create task_dependencies table: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 13`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 14: Add target_branch and checkout_branch to tasks
+	if version < 14 {
+		_, err := db.Exec(`ALTER TABLE tasks ADD COLUMN target_branch TEXT NOT NULL DEFAULT ''`)
+		if err != nil {
+			return fmt.Errorf("failed to add target_branch column: %w", err)
+		}
+		_, err = db.Exec(`ALTER TABLE tasks ADD COLUMN checkout_branch TEXT NOT NULL DEFAULT ''`)
+		if err != nil {
+			return fmt.Errorf("failed to add checkout_branch column: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 14`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}

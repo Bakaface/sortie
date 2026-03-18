@@ -25,24 +25,37 @@ var imageExtensions = map[string]bool{
 type promptField int
 
 const (
-	promptFieldDescription promptField = iota
+	promptFieldDescription  promptField = iota
 	promptFieldBranch
+	promptFieldCheckout
+	promptFieldTargetBranch
+)
+
+type branchMode int
+
+const (
+	branchModeNew      branchMode = iota // create new branch (default)
+	branchModeExisting                    // checkout existing branch
 )
 
 type promptView struct {
-	textarea        textarea.Model
-	branchInput     textinput.Model
-	focusField      promptField
-	worktree        bool
-	images          []string
-	workflowName    string
-	blockingTaskID  int64 // when non-zero, new task blocks this task
-	width           int
-	height          int
-	showHelp        bool
+	textarea          textarea.Model
+	branchInput       textinput.Model
+	checkoutInput     textinput.Model
+	targetBranchInput textinput.Model
+	focusField        promptField
+	worktree          bool
+	branchMode        branchMode
+	defaultBaseBranch string
+	images            []string
+	workflowName      string
+	blockingTaskID    int64 // when non-zero, new task blocks this task
+	width             int
+	height            int
+	showHelp          bool
 }
 
-func newPromptView(defaultWorktree bool) promptView {
+func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
 	ta := textarea.New()
 	ta.Prompt = PromptPrefix
 	ta.Placeholder = "Describe the task..."
@@ -57,12 +70,26 @@ func newPromptView(defaultWorktree bool) promptView {
 	bi.Placeholder = "optional, e.g. feature/{{task.title}}"
 	bi.CharLimit = 200
 
+	ci := textinput.New()
+	ci.Placeholder = "existing branch name"
+	ci.CharLimit = 200
+
+	ti := textinput.New()
+	ti.Placeholder = defaultBaseBranch
+	if ti.Placeholder == "" {
+		ti.Placeholder = "main"
+	}
+	ti.CharLimit = 200
+
 	return promptView{
-		textarea:    ta,
-		branchInput: bi,
-		focusField:  promptFieldDescription,
-		worktree:    defaultWorktree,
-		images:      make([]string, 0),
+		textarea:          ta,
+		branchInput:       bi,
+		checkoutInput:     ci,
+		targetBranchInput: ti,
+		focusField:        promptFieldDescription,
+		worktree:          defaultWorktree,
+		defaultBaseBranch: defaultBaseBranch,
+		images:            make([]string, 0),
 	}
 }
 
@@ -71,12 +98,14 @@ func (p *promptView) SetSize(width, height int) {
 	p.height = height
 	p.textarea.SetWidth(width - 4)
 	p.branchInput.Width = width - 4 - lipgloss.Width("Branch: ")
+	p.checkoutInput.Width = width - 4 - lipgloss.Width("Checkout: ")
+	p.targetBranchInput.Width = width - 4 - lipgloss.Width("Target: ")
 	p.recalcHeight()
 }
 
 // maxHeight returns the maximum textarea height available within the terminal.
 func (p *promptView) maxHeight() int {
-	h := p.height - 8 // reserve space for title(2) + branch(2) + images + help(2) + padding
+	h := p.height - 12 // reserve space for title(2) + worktree(2) + branch/checkout(2) + target(2) + images + help(2)
 	if h < 1 {
 		h = 1
 	}
@@ -127,12 +156,16 @@ func (p *promptView) visualLineCount() int {
 func (p *promptView) Reset() {
 	p.textarea.Reset()
 	p.branchInput.Reset()
-	// Keep worktree state — it persists across task creation within a session
+	p.checkoutInput.Reset()
+	p.targetBranchInput.Reset()
+	// Keep worktree and branchMode state — persists across task creation within a session
 	p.images = make([]string, 0)
 	p.blockingTaskID = 0
 	p.focusField = promptFieldDescription
 	p.textarea.Focus()
 	p.branchInput.Blur()
+	p.checkoutInput.Blur()
+	p.targetBranchInput.Blur()
 	p.recalcHeight()
 }
 
@@ -142,6 +175,14 @@ func (p *promptView) Value() string {
 
 func (p *promptView) BranchName() string {
 	return strings.TrimSpace(p.branchInput.Value())
+}
+
+func (p *promptView) CheckoutBranch() string {
+	return strings.TrimSpace(p.checkoutInput.Value())
+}
+
+func (p *promptView) TargetBranch() string {
+	return strings.TrimSpace(p.targetBranchInput.Value())
 }
 
 func (p *promptView) Images() []string {
@@ -154,55 +195,104 @@ func (p *promptView) Worktree() bool {
 
 func (p *promptView) ToggleWorktree() {
 	p.worktree = !p.worktree
-	// When worktree is disabled and branch field is focused, switch to description
-	if !p.worktree && p.focusField == promptFieldBranch {
+	if !p.worktree && p.focusField != promptFieldDescription {
 		p.focusField = promptFieldDescription
 		p.branchInput.Blur()
+		p.checkoutInput.Blur()
+		p.targetBranchInput.Blur()
 		p.textarea.Focus()
 	}
+}
+
+func (p *promptView) ToggleBranchMode() {
+	if p.branchMode == branchModeNew {
+		p.branchMode = branchModeExisting
+	} else {
+		p.branchMode = branchModeNew
+	}
+	// Reset focus to description when switching modes
+	p.focusField = promptFieldDescription
+	p.textarea.Focus()
+	p.branchInput.Blur()
+	p.checkoutInput.Blur()
+	p.targetBranchInput.Blur()
 }
 
 // Update passes the message to the active input and checks for image paths.
 func (p *promptView) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
-	if p.focusField == promptFieldDescription {
+	switch p.focusField {
+	case promptFieldDescription:
 		// Pre-expand textarea to max height so the internal viewport doesn't
 		// scroll when content grows beyond the current height.
 		maxHeight := p.maxHeight()
 		p.textarea.SetHeight(maxHeight)
-
 		p.textarea, cmd = p.textarea.Update(msg)
 		p.detectImages()
 		p.recalcHeight()
-	} else {
+	case promptFieldBranch:
 		p.branchInput, cmd = p.branchInput.Update(msg)
+	case promptFieldCheckout:
+		p.checkoutInput, cmd = p.checkoutInput.Update(msg)
+	case promptFieldTargetBranch:
+		p.targetBranchInput, cmd = p.targetBranchInput.Update(msg)
 	}
 	return cmd
 }
 
-// SwitchFocus toggles focus between the description textarea and the branch input.
-// When worktree mode is off, branch input is hidden so tab is a no-op.
+// SwitchFocus cycles through the visible fields based on current branch mode.
+// When worktree mode is off, branch inputs are hidden so tab is a no-op.
 func (p *promptView) SwitchFocus() {
 	if !p.worktree {
-		return // branch input is hidden
+		return // branch inputs are hidden
 	}
-	if p.focusField == promptFieldDescription {
-		p.focusField = promptFieldBranch
-		p.textarea.Blur()
-		p.branchInput.Focus()
+
+	// Blur all
+	p.textarea.Blur()
+	p.branchInput.Blur()
+	p.checkoutInput.Blur()
+	p.targetBranchInput.Blur()
+
+	if p.branchMode == branchModeNew {
+		// Cycle: description → branch → targetBranch → description
+		switch p.focusField {
+		case promptFieldDescription:
+			p.focusField = promptFieldBranch
+			p.branchInput.Focus()
+		case promptFieldBranch:
+			p.focusField = promptFieldTargetBranch
+			p.targetBranchInput.Focus()
+		default:
+			p.focusField = promptFieldDescription
+			p.textarea.Focus()
+		}
 	} else {
-		p.focusField = promptFieldDescription
-		p.branchInput.Blur()
-		p.textarea.Focus()
+		// Cycle: description → checkout → targetBranch → description
+		switch p.focusField {
+		case promptFieldDescription:
+			p.focusField = promptFieldCheckout
+			p.checkoutInput.Focus()
+		case promptFieldCheckout:
+			p.focusField = promptFieldTargetBranch
+			p.targetBranchInput.Focus()
+		default:
+			p.focusField = promptFieldDescription
+			p.textarea.Focus()
+		}
 	}
 }
 
 // Focus focuses the currently active input
 func (p *promptView) Focus() {
-	if p.focusField == promptFieldDescription {
+	switch p.focusField {
+	case promptFieldDescription:
 		p.textarea.Focus()
-	} else {
+	case promptFieldBranch:
 		p.branchInput.Focus()
+	case promptFieldCheckout:
+		p.checkoutInput.Focus()
+	case promptFieldTargetBranch:
+		p.targetBranchInput.Focus()
 	}
 }
 
@@ -210,6 +300,8 @@ func (p *promptView) Focus() {
 func (p *promptView) Blur() {
 	p.textarea.Blur()
 	p.branchInput.Blur()
+	p.checkoutInput.Blur()
+	p.targetBranchInput.Blur()
 }
 
 // RemoveLastImage removes the most recently attached image
@@ -341,12 +433,40 @@ func (p *promptView) View() string {
 	}
 	b.WriteString("\n")
 
-	// Branch name input (hidden when worktree is off)
+	// Branch/Checkout inputs (hidden when worktree is off)
 	if p.worktree {
+		// Mode indicator
+		b.WriteString("  ")
+		modeLabel := "new"
+		if p.branchMode == branchModeExisting {
+			modeLabel = "existing"
+		}
+		b.WriteString(labelStyle.Render("Mode: "))
+		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#A8C8E8")).Render(modeLabel))
+		b.WriteString(dimStyle.Render(" (alt+m)"))
+		b.WriteString("\n")
+
+		if p.branchMode == branchModeNew {
+			// New branch mode: show branch template input
+			b.WriteString("\n")
+			b.WriteString("  ")
+			b.WriteString(labelStyle.Render("Branch: "))
+			b.WriteString(p.branchInput.View())
+			b.WriteString("\n")
+		} else {
+			// Existing branch mode: show checkout input
+			b.WriteString("\n")
+			b.WriteString("  ")
+			b.WriteString(labelStyle.Render("Checkout: "))
+			b.WriteString(p.checkoutInput.View())
+			b.WriteString("\n")
+		}
+
+		// Target branch (shown in both modes)
 		b.WriteString("\n")
 		b.WriteString("  ")
-		b.WriteString(labelStyle.Render("Branch: "))
-		b.WriteString(p.branchInput.View())
+		b.WriteString(labelStyle.Render("Target: "))
+		b.WriteString(p.targetBranchInput.View())
 		b.WriteString("\n")
 	}
 

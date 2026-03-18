@@ -16,8 +16,9 @@ type TaskVars struct {
 }
 
 type GitVars struct {
-	BaseBranch string
-	RepoRoot   string
+	BaseBranch   string
+	TargetBranch string
+	RepoRoot     string
 }
 
 type LoopVars struct {
@@ -54,6 +55,8 @@ func ResolveTemplate(tmpl string, ctx *TemplateContext) string {
 			return strings.Join(ctx.Task.Images, "\n")
 		case key == "git.base_branch":
 			return ctx.Git.BaseBranch
+		case key == "git.target_branch":
+			return ctx.Git.TargetBranch
 		case key == "git.repo_root":
 			return ctx.Git.RepoRoot
 		case key == "loop.iteration":

@@ -71,6 +71,8 @@ func init() {
 	createCmd.Flags().StringP("branch", "b", "", "Custom branch name template")
 	createCmd.Flags().StringP("workflow", "w", "", "Workflow to use")
 	createCmd.Flags().Bool("no-worktree", false, "Run task in current directory without creating a worktree")
+	createCmd.Flags().String("target", "", "Target branch to branch from and merge into (overrides git.base_branch)")
+	createCmd.Flags().String("checkout", "", "Check out an existing branch instead of creating a new one")
 	editCmd.Flags().StringP("title", "t", "", "New title")
 	editCmd.Flags().StringP("description", "d", "", "New description")
 	editCmd.Flags().StringP("context", "c", "", "New context")

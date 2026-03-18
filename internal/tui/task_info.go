@@ -118,6 +118,20 @@ func (v *taskInfoView) renderMetadata() string {
 		b.WriteString("\n")
 	}
 
+	// Target branch
+	if t.TargetBranch != "" {
+		b.WriteString(labelStyle.Render("Target:    "))
+		b.WriteString(valueStyle.Render(t.TargetBranch))
+		b.WriteString("\n")
+	}
+
+	// Checkout branch
+	if t.CheckoutBranch != "" {
+		b.WriteString(labelStyle.Render("Checkout:  "))
+		b.WriteString(valueStyle.Render(t.CheckoutBranch))
+		b.WriteString("\n")
+	}
+
 	// Workflow
 	if t.Workflow != "" {
 		b.WriteString(labelStyle.Render("Workflow:  "))

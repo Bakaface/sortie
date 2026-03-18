@@ -397,6 +397,7 @@ type promptKeyMap struct {
 	Cancel      key.Binding
 	RemoveImage key.Binding
 	Worktree    key.Binding
+	BranchMode  key.Binding
 	Editor      key.Binding
 	Help        key.Binding
 }
@@ -427,6 +428,10 @@ func newPromptKeyMap() promptKeyMap {
 			key.WithKeys("alt+w"),
 			key.WithHelp("alt+w", "worktree"),
 		),
+		BranchMode: key.NewBinding(
+			key.WithKeys("alt+m"),
+			key.WithHelp("alt+m", "branch mode"),
+		),
 		Editor: key.NewBinding(
 			key.WithKeys("ctrl+g"),
 			key.WithHelp("ctrl+g", "editor"),
@@ -445,7 +450,7 @@ func (k promptKeyMap) ShortHelp() []key.Binding {
 func (k promptKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Submit, k.Cancel, k.SwitchField, k.Newline},
-		{k.Worktree, k.Editor, k.RemoveImage},
+		{k.Worktree, k.BranchMode, k.Editor, k.RemoveImage},
 		{k.Help},
 	}
 }

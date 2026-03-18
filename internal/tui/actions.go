@@ -186,13 +186,26 @@ func (m Model) addTaskDependency(taskID, blockedByID int64) tea.Cmd {
 	}
 }
 
-func (m Model) createTaskWithPrompt(description, branchName string, worktree bool, images []string) tea.Cmd {
+func (m Model) createTaskWithPrompt(description, branchName string, worktree bool, images []string, targetBranch, checkoutBranch string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
 
-		info, err := m.client.CreateTask(description, m.selectedWorkflow, branchName, m.projectPath, worktree, images)
+		req := daemon.CreateTaskRequest{
+			Description:    description,
+			Workflow:       m.selectedWorkflow,
+			BranchName:     branchName,
+			TargetBranch:   targetBranch,
+			CheckoutBranch: checkoutBranch,
+			ProjectPath:    m.projectPath,
+			Worktree:       &worktree,
+			Images:         images,
+		}
+		if m.blockingTaskID != 0 {
+			req.BlockedBy = []int64{m.blockingTaskID}
+		}
+		info, err := m.client.CreateTaskWithOptions(req)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
@@ -219,7 +232,14 @@ func (m Model) handleEditorResult(path string) tea.Cmd {
 			return nil
 		}
 
-		info, err := m.client.CreateTask(description, m.selectedWorkflow, "", m.projectPath, true, nil)
+		worktree := true
+		req := daemon.CreateTaskRequest{
+			Description: description,
+			Workflow:    m.selectedWorkflow,
+			ProjectPath: m.projectPath,
+			Worktree:    &worktree,
+		}
+		info, err := m.client.CreateTaskWithOptions(req)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
