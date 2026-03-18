@@ -914,6 +914,15 @@ func (s *Server) handleAttachBranch(conn net.Conn, req AttachBranchRequest) {
 		return
 	}
 
+	// Auto-checkout the default branch on root repo before reattaching,
+	// in case root is currently on the task's branch (which would prevent reattach)
+	if repoRoot := s.getProjectRepoRoot(t); repoRoot != "" {
+		defaultBranch := gitpkg.GetDefaultBranch(repoRoot)
+		if err := gitpkg.CheckoutBranch(repoRoot, defaultBranch); err != nil {
+			log.Printf("%sWarning: failed to checkout %s on root before reattach: %v", s.projectLogPrefix(t.ProjectID), defaultBranch, err)
+		}
+	}
+
 	if err := gitpkg.ReattachWorktreeBranch(t.WorktreePath, t.Branch); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to reattach branch: %v", err))
 		return

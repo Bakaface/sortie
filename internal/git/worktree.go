@@ -36,7 +36,7 @@ func CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string
 	}
 
 	if baseBranch == "" {
-		baseBranch = getDefaultBranch(repoRoot)
+		baseBranch = GetDefaultBranch(repoRoot)
 	}
 
 	args := []string{"worktree", "add", "-b", branchName, worktreePath, baseBranch}
@@ -193,7 +193,7 @@ func CleanupWorktrees(repoRoot string) error {
 	return nil
 }
 
-func getDefaultBranch(repoRoot string) string {
+func GetDefaultBranch(repoRoot string) string {
 	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
 	cmd.Dir = repoRoot
 
@@ -257,6 +257,16 @@ func ReattachWorktreeBranch(worktreePath, branch string) error {
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to checkout branch %s in worktree %s: %w (stderr: %s)", branch, worktreePath, err, stderr.String())
+	}
+	return nil
+}
+
+func CheckoutBranch(repoPath, branch string) error {
+	cmd := exec.Command("git", "-C", repoPath, "checkout", branch)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to checkout branch %s in %s: %w (stderr: %s)", branch, repoPath, err, stderr.String())
 	}
 	return nil
 }
