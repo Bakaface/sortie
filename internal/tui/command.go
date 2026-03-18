@@ -46,6 +46,16 @@ var commands = []command{
 		help:  "toggle finished tasks",
 	},
 	{
+		match: matchSetBranch,
+		exec:  execSetBranch,
+		help:  "toggle branch display",
+	},
+	{
+		match: matchSetTarget,
+		exec:  execSetTarget,
+		help:  "toggle target branch display",
+	},
+	{
 		match: matchNoh,
 		exec:  execNoh,
 		help:  "clear search highlights",
@@ -146,6 +156,52 @@ func execSetFinished(m Model, args string) (tea.Model, tea.Cmd) {
 		m.list.showFinished = !m.list.showFinished
 	}
 	m.list.applyFilter()
+	return m, nil
+}
+
+// matchSetBranch matches "set branch", "set nobranch", and "set branch!" commands.
+func matchSetBranch(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	switch input {
+	case "set branch", "set nobranch", "set branch!":
+		return input, true
+	}
+	return "", false
+}
+
+// execSetBranch enables, disables, or toggles branch display in the list view.
+func execSetBranch(m Model, args string) (tea.Model, tea.Cmd) {
+	switch args {
+	case "set branch":
+		m.list.showBranch = true
+	case "set nobranch":
+		m.list.showBranch = false
+	case "set branch!":
+		m.list.showBranch = !m.list.showBranch
+	}
+	return m, nil
+}
+
+// matchSetTarget matches "set target", "set notarget", and "set target!" commands.
+func matchSetTarget(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	switch input {
+	case "set target", "set notarget", "set target!":
+		return input, true
+	}
+	return "", false
+}
+
+// execSetTarget enables, disables, or toggles target branch display in the list view.
+func execSetTarget(m Model, args string) (tea.Model, tea.Cmd) {
+	switch args {
+	case "set target":
+		m.list.showTarget = true
+	case "set notarget":
+		m.list.showTarget = false
+	case "set target!":
+		m.list.showTarget = !m.list.showTarget
+	}
 	return m, nil
 }
 

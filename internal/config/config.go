@@ -10,6 +10,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// OptionsConfig holds TUI display options configurable via .sortie.yml
+type OptionsConfig struct {
+	Number *bool `yaml:"number,omitempty"`
+	Branch *bool `yaml:"branch,omitempty"`
+	Target *bool `yaml:"target,omitempty"`
+}
+
 // ProjectConfig is loaded from .sortie.yml (both global ~/.sortie.yml and project-local)
 type ProjectConfig struct {
 	MaxWorkers               int                  `yaml:"max_workers"`
@@ -27,6 +34,7 @@ type ProjectConfig struct {
 	WorktreeSyncPaths        []string             `yaml:"worktree-sync-paths"`
 	WorktreeSetupCommand     string               `yaml:"worktree-setup-command"`
 	TmuxSetupCommand         string               `yaml:"tmux-setup-command"`
+	Options                  *OptionsConfig       `yaml:"options,omitempty"`
 }
 
 // ProjectWorkflows is the consolidated workflows section in .sortie.yml.
@@ -219,6 +227,7 @@ type GlobalConfig struct {
 	Verification             *VerificationConfig `yaml:"verification,omitempty"`
 	Notifications            NotificationsConfig `yaml:"notifications"`
 	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
+	Options                  *OptionsConfig      `yaml:"options,omitempty"`
 }
 
 type NotificationsConfig struct {
@@ -279,6 +288,9 @@ type Config struct {
 	// From global config
 	Notifications            NotificationsConfig
 	TmuxNestedAttachBehavior string // "switch" (default) or "nest"
+
+	// TUI display options (from .sortie.yml options section)
+	Options OptionsConfig
 
 	// Internal defaults (not in yaml)
 	Claude ClaudeConfig
@@ -472,6 +484,17 @@ func loadGlobalConfig(path string, cfg *Config) error {
 	if global.TmuxNestedAttachBehavior != "" {
 		cfg.TmuxNestedAttachBehavior = global.TmuxNestedAttachBehavior
 	}
+	if global.Options != nil {
+		if global.Options.Number != nil {
+			cfg.Options.Number = global.Options.Number
+		}
+		if global.Options.Branch != nil {
+			cfg.Options.Branch = global.Options.Branch
+		}
+		if global.Options.Target != nil {
+			cfg.Options.Target = global.Options.Target
+		}
+	}
 
 	return nil
 }
@@ -531,6 +554,17 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.TmuxSetupCommand != "" {
 		cfg.TmuxSetupCommand = proj.TmuxSetupCommand
+	}
+	if proj.Options != nil {
+		if proj.Options.Number != nil {
+			cfg.Options.Number = proj.Options.Number
+		}
+		if proj.Options.Branch != nil {
+			cfg.Options.Branch = proj.Options.Branch
+		}
+		if proj.Options.Target != nil {
+			cfg.Options.Target = proj.Options.Target
+		}
 	}
 
 	return resolveWorkflows(cfg, &proj)

@@ -21,6 +21,8 @@ type listView struct {
 	height          int
 	showHelp        bool
 	showLineNumbers bool
+	showBranch      bool
+	showTarget      bool
 	showFinished    bool
 	globalMode      bool
 	projectName     string
@@ -494,6 +496,19 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	if title == "" {
 		title = task.Description
 	}
+
+	// Build optional branch suffix
+	var branchSuffix string
+	if l.showBranch && task.Branch != "" {
+		branchSuffix += " <- " + task.Branch
+	}
+	if l.showTarget && task.TargetBranch != "" {
+		branchSuffix += " -> " + task.TargetBranch
+	}
+	if branchSuffix != "" {
+		title = title + branchSuffix
+	}
+
 	tw := l.titleWidth()
 	title = truncateOrPad(title, tw)
 

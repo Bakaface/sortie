@@ -143,10 +143,25 @@ type artifactLoadedMsg struct {
 }
 
 func NewModel(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool) Model {
+	list := newListView(globalMode, projectName)
+
+	// Apply config-driven display options
+	if cfg != nil {
+		if cfg.Options.Number != nil {
+			list.showLineNumbers = *cfg.Options.Number
+		}
+		if cfg.Options.Branch != nil {
+			list.showBranch = *cfg.Options.Branch
+		}
+		if cfg.Options.Target != nil {
+			list.showTarget = *cfg.Options.Target
+		}
+	}
+
 	return Model{
 		cfg:             cfg,
 		keys:            newKeyMap(),
-		list:            newListView(globalMode, projectName),
+		list:            list,
 		detail:          newDetailView(),
 		taskInfo:        newTaskInfoView(),
 		prompt:          newPromptView(defaultWorktree, cfgBaseBranch(cfg)),
