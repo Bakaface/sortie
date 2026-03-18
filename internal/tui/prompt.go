@@ -67,7 +67,7 @@ func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
 	ta.KeyMap.WordBackward = key.NewBinding(key.WithKeys("alt+left", "ctrl+left", "alt+b"), key.WithHelp("ctrl+left", "word backward"))
 
 	bi := textinput.New()
-	bi.Placeholder = "optional, e.g. feature/{{task.title}}"
+	bi.Placeholder = "sortie/{{task_id}}-{{task_slug}}"
 	bi.CharLimit = 200
 
 	ci := textinput.New()
@@ -437,25 +437,23 @@ func (p *promptView) View() string {
 	if p.worktree {
 		// Mode indicator
 		b.WriteString("  ")
-		modeLabel := "new"
+		modeLabel := "new branch"
 		if p.branchMode == branchModeExisting {
-			modeLabel = "existing"
+			modeLabel = "existing branch"
 		}
 		b.WriteString(labelStyle.Render("Mode: "))
 		b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#A8C8E8")).Render(modeLabel))
 		b.WriteString(dimStyle.Render(" (alt+m)"))
-		b.WriteString("\n")
+		b.WriteString("\n\n")
 
 		if p.branchMode == branchModeNew {
 			// New branch mode: show branch template input
-			b.WriteString("\n")
 			b.WriteString("  ")
 			b.WriteString(labelStyle.Render("Branch: "))
 			b.WriteString(p.branchInput.View())
 			b.WriteString("\n")
 		} else {
 			// Existing branch mode: show checkout input
-			b.WriteString("\n")
 			b.WriteString("  ")
 			b.WriteString(labelStyle.Render("Checkout: "))
 			b.WriteString(p.checkoutInput.View())
@@ -463,7 +461,6 @@ func (p *promptView) View() string {
 		}
 
 		// Target branch (shown in both modes)
-		b.WriteString("\n")
 		b.WriteString("  ")
 		b.WriteString(labelStyle.Render("Target: "))
 		b.WriteString(p.targetBranchInput.View())
