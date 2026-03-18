@@ -1017,6 +1017,13 @@ exec bash
 		return 1, "", fmt.Errorf("failed to create tmux session: %w", err)
 	}
 
+	// Run tmux setup command if configured (e.g. create additional windows/panes)
+	if e.cfg.TmuxSetupCommand != "" {
+		if err := session.RunSetupCommand(e.cfg.TmuxSetupCommand); err != nil {
+			log.Printf("Warning: tmux setup command failed: %v", err)
+		}
+	}
+
 	// Write a clean log message instead of piping raw TUI output via pipe-pane
 	logLines := writeTmuxLogMessage(logPath, t.ID, step.Name, session.Name, taskID)
 	if outputFn != nil {

@@ -26,6 +26,7 @@ type ProjectConfig struct {
 	SystemPrompt             string               `yaml:"system_prompt"`
 	WorktreeSyncPaths        []string             `yaml:"worktree-sync-paths"`
 	WorktreeSetupCommand     string               `yaml:"worktree-setup-command"`
+	TmuxSetupCommand         string               `yaml:"tmux-setup-command"`
 }
 
 // ProjectWorkflows is the consolidated workflows section in .sortie.yml.
@@ -84,6 +85,7 @@ type WorkflowConfig struct {
 	SummarizerPrompt  string       `yaml:"summarizer_prompt"`
 	WorktreeSyncPaths []string     `yaml:"worktree-sync-paths,omitempty"`
 	WorktreeSetupCommand string   `yaml:"worktree-setup-command,omitempty"`
+	TmuxSetupCommand     string   `yaml:"tmux-setup-command,omitempty"`
 }
 
 type StepConfig struct {
@@ -270,6 +272,9 @@ type Config struct {
 
 	// Command to run after creating a worktree (e.g. dependency installation)
 	WorktreeSetupCommand string
+
+	// Command to run after creating a tmux session (e.g. layout setup)
+	TmuxSetupCommand string
 
 	// From global config
 	Notifications            NotificationsConfig
@@ -523,6 +528,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.WorktreeSetupCommand != "" {
 		cfg.WorktreeSetupCommand = proj.WorktreeSetupCommand
+	}
+	if proj.TmuxSetupCommand != "" {
+		cfg.TmuxSetupCommand = proj.TmuxSetupCommand
 	}
 
 	return resolveWorkflows(cfg, &proj)
@@ -793,6 +801,14 @@ func (c *Config) GetWorktreeSetupCommand(wf *WorkflowConfig) string {
 		return wf.WorktreeSetupCommand
 	}
 	return c.WorktreeSetupCommand
+}
+
+// GetTmuxSetupCommand returns the tmux setup command for a workflow, falling back to the global config.
+func (c *Config) GetTmuxSetupCommand(wf *WorkflowConfig) string {
+	if wf != nil && wf.TmuxSetupCommand != "" {
+		return wf.TmuxSetupCommand
+	}
+	return c.TmuxSetupCommand
 }
 
 // ResolveBranchForTask resolves the branch name for a task. If branchName is non-empty,

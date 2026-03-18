@@ -65,6 +65,29 @@ func (s *Session) Create(command string, args ...string) error {
 	return nil
 }
 
+// RunSetupCommand runs a user-configured command after tmux session creation.
+// Template variables {{session_name}} and {{worktree_path}} are replaced.
+func (s *Session) RunSetupCommand(command string) error {
+	if command == "" {
+		return nil
+	}
+
+	resolved := strings.ReplaceAll(command, "{{session_name}}", s.Name)
+	resolved = strings.ReplaceAll(resolved, "{{worktree_path}}", s.WorkDir)
+
+	cmd := exec.Command("sh", "-c", resolved)
+	cmd.Dir = s.WorkDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("tmux setup command failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return nil
+}
+
 func (s *Session) Exists() bool {
 	cmd := exec.Command("tmux", "has-session", "-t", s.Name)
 	return cmd.Run() == nil

@@ -327,6 +327,13 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
+	// Run tmux setup command if configured
+	if pc.cfg.TmuxSetupCommand != "" {
+		if err := session.RunSetupCommand(pc.cfg.TmuxSetupCommand); err != nil {
+			log.Printf("%sWarning: tmux setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
+	}
+
 	if err := s.database.UpdateTaskStatus(t.ID, task.StatusTmux); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
 		return

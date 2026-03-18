@@ -1678,3 +1678,89 @@ func TestWorktreeSetupCommandDefaultEmpty(t *testing.T) {
 		t.Errorf("expected empty setup command by default, got %q", cfg.WorktreeSetupCommand)
 	}
 }
+
+func TestTmuxSetupCommandParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+tmux-setup-command: "tmux new-window -t {{session_name}}:1"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := `tmux new-window -t {{session_name}}:1`
+	if cfg.TmuxSetupCommand != expected {
+		t.Errorf("expected %q, got %q", expected, cfg.TmuxSetupCommand)
+	}
+}
+
+func TestTmuxSetupCommandPerWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+tmux-setup-command: "tmux new-window -t {{session_name}}:1"
+workflows:
+  tasks:
+    - name: custom
+      tmux-setup-command: "tmux split-window -t {{session_name}}"
+      steps:
+        - name: code
+          prompt: Do work
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.TmuxSetupCommand != `tmux new-window -t {{session_name}}:1` {
+		t.Fatalf("expected global command, got %q", cfg.TmuxSetupCommand)
+	}
+
+	wf := cfg.GetWorkflow("custom")
+	if wf == nil {
+		t.Fatal("workflow 'custom' not found")
+	}
+
+	cmd := cfg.GetTmuxSetupCommand(wf)
+	if cmd != `tmux split-window -t {{session_name}}` {
+		t.Errorf("expected workflow command, got %q", cmd)
+	}
+}
+
+func TestGetTmuxSetupCommandFallsBackToGlobal(t *testing.T) {
+	cfg := &Config{
+		TmuxSetupCommand: "tmux new-window -t {{session_name}}:1",
+	}
+
+	// Workflow without override should fall back
+	wf := &WorkflowConfig{Name: "test"}
+	cmd := cfg.GetTmuxSetupCommand(wf)
+	if cmd != "tmux new-window -t {{session_name}}:1" {
+		t.Errorf("expected global fallback, got %q", cmd)
+	}
+
+	// Nil workflow should also fall back
+	cmd = cfg.GetTmuxSetupCommand(nil)
+	if cmd != "tmux new-window -t {{session_name}}:1" {
+		t.Errorf("expected global fallback for nil, got %q", cmd)
+	}
+}
+
+func TestTmuxSetupCommandDefaultEmpty(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.TmuxSetupCommand != "" {
+		t.Errorf("expected empty tmux setup command by default, got %q", cfg.TmuxSetupCommand)
+	}
+}
