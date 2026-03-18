@@ -322,14 +322,30 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
-	if err := session.Create("bash", scriptFile); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to create tmux session: %v", err))
-		return
+	setupCmd := pc.cfg.TmuxSetupCommand
+	if tmux.SetupCommandControlsAgent(setupCmd) {
+		if err := session.Create(""); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to create tmux session: %v", err))
+			return
+		}
+	} else {
+		if err := session.Create("bash", scriptFile); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to create tmux session: %v", err))
+			return
+		}
 	}
 
 	// Run tmux setup command if configured
-	if pc.cfg.TmuxSetupCommand != "" {
-		if err := session.RunSetupCommand(pc.cfg.TmuxSetupCommand); err != nil {
+	if setupCmd != "" {
+		claudeCmd := "claude"
+		if pc.cfg.Claude.Yolo {
+			claudeCmd += " --dangerously-skip-permissions"
+		}
+		vars := &tmux.SetupVars{
+			ClaudeCommand: claudeCmd,
+			RunAgent:      scriptFile,
+		}
+		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
 			log.Printf("%sWarning: tmux setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}

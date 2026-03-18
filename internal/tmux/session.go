@@ -65,15 +65,35 @@ func (s *Session) Create(command string, args ...string) error {
 	return nil
 }
 
+// SetupVars holds template variables for tmux setup command interpolation.
+type SetupVars struct {
+	// ClaudeCommand is the full claude CLI invocation (e.g. "claude --dangerously-skip-permissions \"$PROMPT\"")
+	ClaudeCommand string
+	// RunAgent is the path to the wrapper script that runs the Claude agent TUI
+	RunAgent string
+}
+
+// SetupCommandControlsAgent returns true if the setup command contains
+// {{run_agent}} or {{claude_command}}, meaning the user controls where
+// the agent runs rather than having it auto-start in window 0.
+func SetupCommandControlsAgent(command string) bool {
+	return strings.Contains(command, "{{run_agent}}") ||
+		strings.Contains(command, "{{claude_command}}")
+}
+
 // RunSetupCommand runs a user-configured command after tmux session creation.
-// Template variables {{session_name}} and {{worktree_path}} are replaced.
-func (s *Session) RunSetupCommand(command string) error {
+// Template variables: {{session_name}}, {{worktree_path}}, {{claude_command}}, {{run_agent}}.
+func (s *Session) RunSetupCommand(command string, vars *SetupVars) error {
 	if command == "" {
 		return nil
 	}
 
 	resolved := strings.ReplaceAll(command, "{{session_name}}", s.Name)
 	resolved = strings.ReplaceAll(resolved, "{{worktree_path}}", s.WorkDir)
+	if vars != nil {
+		resolved = strings.ReplaceAll(resolved, "{{claude_command}}", vars.ClaudeCommand)
+		resolved = strings.ReplaceAll(resolved, "{{run_agent}}", vars.RunAgent)
+	}
 
 	cmd := exec.Command("sh", "-c", resolved)
 	cmd.Dir = s.WorkDir

@@ -1015,14 +1015,29 @@ exec bash
 		return 1, "", fmt.Errorf("failed to write wrapper script: %w", err)
 	}
 
-	// Create detached tmux session running the wrapper script
-	if err := session.Create("bash", scriptFile); err != nil {
-		return 1, "", fmt.Errorf("failed to create tmux session: %w", err)
+	// If the setup command contains {{run_agent}} or {{claude_command}}, the user
+	// controls which window/pane runs the agent — create a bare session instead
+	// of auto-starting Claude in window 0.
+	setupCmd := e.cfg.TmuxSetupCommand
+	if tmux.SetupCommandControlsAgent(setupCmd) {
+		// Create bare session (just a shell), setup command will place the agent
+		if err := session.Create(""); err != nil {
+			return 1, "", fmt.Errorf("failed to create tmux session: %w", err)
+		}
+	} else {
+		// Default: create session running the wrapper script in window 0
+		if err := session.Create("bash", scriptFile); err != nil {
+			return 1, "", fmt.Errorf("failed to create tmux session: %w", err)
+		}
 	}
 
 	// Run tmux setup command if configured (e.g. create additional windows/panes)
-	if e.cfg.TmuxSetupCommand != "" {
-		if err := session.RunSetupCommand(e.cfg.TmuxSetupCommand); err != nil {
+	if setupCmd != "" {
+		vars := &tmux.SetupVars{
+			ClaudeCommand: claudeCmd,
+			RunAgent:      scriptFile,
+		}
+		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
 			log.Printf("Warning: tmux setup command failed: %v", err)
 		}
 	}

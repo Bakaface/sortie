@@ -215,8 +215,34 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 		return fmt.Errorf("failed to write wrapper script: %w", err)
 	}
 
-	if err := session.Create("bash", scriptFile); err != nil {
-		return fmt.Errorf("failed to create tmux session: %w", err)
+	var setupCmd string
+	if pc != nil {
+		setupCmd = pc.cfg.TmuxSetupCommand
+	}
+
+	if tmux.SetupCommandControlsAgent(setupCmd) {
+		if err := session.Create(""); err != nil {
+			return fmt.Errorf("failed to create tmux session: %w", err)
+		}
+	} else {
+		if err := session.Create("bash", scriptFile); err != nil {
+			return fmt.Errorf("failed to create tmux session: %w", err)
+		}
+	}
+
+	// Run tmux setup command if configured
+	if setupCmd != "" {
+		claudeCmd := "claude"
+		if yolo {
+			claudeCmd += " --dangerously-skip-permissions"
+		}
+		vars := &tmux.SetupVars{
+			ClaudeCommand: claudeCmd,
+			RunAgent:      scriptFile,
+		}
+		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
+			log.Printf("%sWarning: tmux setup command failed for restored task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
 	}
 
 	return nil

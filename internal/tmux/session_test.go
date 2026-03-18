@@ -65,6 +65,30 @@ func TestNewSessionDotPrefix(t *testing.T) {
 	}
 }
 
+func TestSetupCommandControlsAgent(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		expected bool
+	}{
+		{"empty", "", false},
+		{"plain setup", "tmux new-window -t {{session_name}}:1 -n bash", false},
+		{"with run_agent", "tmux send-keys -t {{session_name}}:0 'bash {{run_agent}}' C-m", true},
+		{"with claude_command", "tmux send-keys -t {{session_name}}:1 '{{claude_command}}' C-m", true},
+		{"both vars", "{{run_agent}} and {{claude_command}}", true},
+		{"only session_name", "tmux split-window -t {{session_name}}", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SetupCommandControlsAgent(tt.command)
+			if got != tt.expected {
+				t.Errorf("SetupCommandControlsAgent(%q) = %v, want %v", tt.command, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestExtractTaskID(t *testing.T) {
 	tests := []struct {
 		name        string
