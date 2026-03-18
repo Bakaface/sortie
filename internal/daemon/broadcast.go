@@ -174,6 +174,15 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		info.ProjectPath = proj.Path
 	}
 
+	// Populate TargetBranch with effective base branch when task doesn't have an override
+	if info.TargetBranch == "" && info.Worktree {
+		s.projectsMu.RLock()
+		if pc, ok := s.projects[t.ProjectID]; ok && pc.cfg.Git.BaseBranch != "" {
+			info.TargetBranch = pc.cfg.Git.BaseBranch
+		}
+		s.projectsMu.RUnlock()
+	}
+
 	s.mu.RLock()
 	if activity, ok := s.tmuxActivity[t.ID]; ok {
 		info.TmuxActivity = activity

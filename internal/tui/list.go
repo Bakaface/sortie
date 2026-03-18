@@ -55,7 +55,7 @@ func safeKeyMap() table.KeyMap {
 
 func newListView(globalMode bool, projectName string) listView {
 	t := table.New(
-		table.WithColumns(computeColumns(80, globalMode, true, 0)),
+		table.WithColumns(computeColumns(80, globalMode, true, 0, false, false)),
 		table.WithFocused(true),
 		table.WithHeight(20),
 		table.WithKeyMap(safeKeyMap()),
@@ -83,13 +83,15 @@ func newListView(globalMode bool, projectName string) listView {
 }
 
 // computeColumns calculates column widths with the title column filling remaining space.
-func computeColumns(width int, globalMode, lineNumbers bool, taskCount int) []table.Column {
+func computeColumns(width int, globalMode, lineNumbers bool, taskCount int, showBranch, showTarget bool) []table.Column {
 	const (
-		idWidth      = 5
-		priWidth     = 2
-		statusWidth  = 18
-		projWidth    = 14
-		spacing      = 5 // gaps between columns
+		idWidth       = 5
+		priWidth      = 2
+		statusWidth   = 18
+		projWidth     = 14
+		branchWidth   = 20
+		targetWidth   = 14
+		spacing       = 5 // gaps between columns
 		minTitleWidth = 15
 	)
 
@@ -99,6 +101,12 @@ func computeColumns(width int, globalMode, lineNumbers bool, taskCount int) []ta
 	}
 	if lineNumbers {
 		fixed += lineNumWidthForCount(taskCount)
+	}
+	if showBranch {
+		fixed += branchWidth
+	}
+	if showTarget {
+		fixed += targetWidth
 	}
 
 	titleWidth := width - fixed
@@ -114,10 +122,14 @@ func computeColumns(width int, globalMode, lineNumbers bool, taskCount int) []ta
 	if globalMode {
 		cols = append(cols, table.Column{Title: "PROJECT", Width: projWidth})
 	}
-	cols = append(cols,
-		table.Column{Title: "STATUS", Width: statusWidth},
-		table.Column{Title: "TITLE", Width: titleWidth},
-	)
+	cols = append(cols, table.Column{Title: "STATUS", Width: statusWidth})
+	if showBranch {
+		cols = append(cols, table.Column{Title: "BRANCH", Width: branchWidth})
+	}
+	if showTarget {
+		cols = append(cols, table.Column{Title: "TARGET", Width: targetWidth})
+	}
+	cols = append(cols, table.Column{Title: "TITLE", Width: titleWidth})
 	return cols
 }
 
@@ -173,7 +185,9 @@ func (l *listView) tasksChanged(old, new []daemon.TaskInfo) bool {
 			a.Priority != b.Priority ||
 			a.LoopIteration != b.LoopIteration ||
 			a.TmuxActivity != b.TmuxActivity ||
-			a.WorktreeDetached != b.WorktreeDetached {
+			a.WorktreeDetached != b.WorktreeDetached ||
+			a.Branch != b.Branch ||
+			a.TargetBranch != b.TargetBranch {
 			return true
 		}
 		// Compare blocked-by lists
@@ -345,7 +359,7 @@ func (l *listView) SetSize(width, height int) {
 }
 
 func (l *listView) recomputeColumns() {
-	cols := computeColumns(l.width, l.globalMode, l.showLineNumbers, len(l.tasks))
+	cols := computeColumns(l.width, l.globalMode, l.showLineNumbers, len(l.tasks), l.showBranch, l.showTarget)
 	l.table.SetColumns(cols)
 }
 
@@ -436,13 +450,23 @@ func (l *listView) renderHeader() string {
 		gutter = strings.Repeat(" ", gutterWidth+1)
 	}
 	tw := l.titleWidth()
+
+	// Build the middle columns (branch/target) string for insertion between STATUS and TITLE
+	var midCols string
+	if l.showBranch {
+		midCols += fmt.Sprintf(" %-20s", "BRANCH")
+	}
+	if l.showTarget {
+		midCols += fmt.Sprintf(" %-14s", "TARGET")
+	}
+
 	var header string
 	if l.globalMode {
-		header = fmt.Sprintf("%s %-5s %-2s %-14s %-18s %-*s",
-			gutter, "ID", "P", "PROJECT", "STATUS", tw, "TITLE")
+		header = fmt.Sprintf("%s %-5s %-2s %-14s %-18s%s %-*s",
+			gutter, "ID", "P", "PROJECT", "STATUS", midCols, tw, "TITLE")
 	} else {
-		header = fmt.Sprintf("%s %-5s %-2s %-18s %-*s",
-			gutter, "ID", "P", "STATUS", tw, "TITLE")
+		header = fmt.Sprintf("%s %-5s %-2s %-18s%s %-*s",
+			gutter, "ID", "P", "STATUS", midCols, tw, "TITLE")
 	}
 	return headerStyle.Render(header)
 }
@@ -497,18 +521,6 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		title = task.Description
 	}
 
-	// Build optional branch suffix
-	var branchSuffix string
-	if l.showBranch && task.Branch != "" {
-		branchSuffix += " <- " + task.Branch
-	}
-	if l.showTarget && task.TargetBranch != "" {
-		branchSuffix += " -> " + task.TargetBranch
-	}
-	if branchSuffix != "" {
-		title = title + branchSuffix
-	}
-
 	tw := l.titleWidth()
 	title = truncateOrPad(title, tw)
 
@@ -525,6 +537,15 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		priCol := truncateOrPad(priBadge, 2)
 		statusCol := truncateOrPad(status, 18)
 
+		branchCol := ""
+		if l.showBranch {
+			branchCol = " " + truncateOrPad(task.Branch, 20)
+		}
+		targetCol := ""
+		if l.showTarget {
+			targetCol = " " + truncateOrPad(task.TargetBranch, 14)
+		}
+
 		var line string
 		if l.showLineNumbers {
 			gutterWidth := l.lineNumWidth()
@@ -532,16 +553,16 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 			idxCol := truncateOrPad(idxStr, gutterWidth)
 			if l.globalMode {
 				projCol := truncateOrPad(l.projectNameFor(task), 14)
-				line = fmt.Sprintf(" %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
+				line = fmt.Sprintf(" %s %s %s %s %s%s%s %s", idxCol, idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 			} else {
-				line = fmt.Sprintf(" %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
+				line = fmt.Sprintf(" %s %s %s %s%s%s %s", idxCol, idCol, priCol, statusCol, branchCol, targetCol, title)
 			}
 		} else {
 			if l.globalMode {
 				projCol := truncateOrPad(l.projectNameFor(task), 14)
-				line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
+				line = fmt.Sprintf("  %s %s %s %s%s%s %s", idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 			} else {
-				line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
+				line = fmt.Sprintf("  %s %s %s%s%s %s", idCol, priCol, statusCol, branchCol, targetCol, title)
 			}
 		}
 		// Pad to full terminal width so the background fills the entire row
@@ -559,6 +580,16 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		statusSt = stateStyle("failed")
 	}
 	statusCol := statusSt.Width(18).Render(status)
+
+	branchCol := ""
+	if l.showBranch {
+		branchCol = " " + dimStyle.Copy().Width(20).Render(truncateOrPad(task.Branch, 20))
+	}
+	targetCol := ""
+	if l.showTarget {
+		targetCol = " " + dimStyle.Copy().Width(14).Render(truncateOrPad(task.TargetBranch, 14))
+	}
+
 	var line string
 	if l.showLineNumbers {
 		gutterWidth := l.lineNumWidth()
@@ -566,16 +597,16 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
 		if l.globalMode {
 			projCol := lipgloss.NewStyle().Width(14).Render(l.projectNameFor(task))
-			line = fmt.Sprintf(" %s %s %s %s %s %s", idxCol, idCol, priCol, projCol, statusCol, title)
+			line = fmt.Sprintf(" %s %s %s %s %s%s%s %s", idxCol, idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 		} else {
-			line = fmt.Sprintf(" %s %s %s %s %s", idxCol, idCol, priCol, statusCol, title)
+			line = fmt.Sprintf(" %s %s %s %s%s%s %s", idxCol, idCol, priCol, statusCol, branchCol, targetCol, title)
 		}
 	} else {
 		if l.globalMode {
 			projCol := lipgloss.NewStyle().Width(14).Render(l.projectNameFor(task))
-			line = fmt.Sprintf("  %s %s %s %s %s", idCol, priCol, projCol, statusCol, title)
+			line = fmt.Sprintf("  %s %s %s %s%s%s %s", idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 		} else {
-			line = fmt.Sprintf("  %s %s %s %s", idCol, priCol, statusCol, title)
+			line = fmt.Sprintf("  %s %s %s%s%s %s", idCol, priCol, statusCol, branchCol, targetCol, title)
 		}
 	}
 	return normalStyle.Render(line)
