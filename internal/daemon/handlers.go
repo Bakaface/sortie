@@ -847,6 +847,73 @@ func (s *Server) handleUpdateDependency(conn net.Conn, req UpdateDependencyReque
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("dependency updated for task #%d", req.TaskID)})
 }
 
+func (s *Server) handleDetachBranch(conn net.Conn, req DetachBranchRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	if !t.Worktree || t.WorktreePath == "" {
+		s.sendError(conn, "task does not have a worktree")
+		return
+	}
+
+	if t.Status == task.StatusRunning || t.Status == task.StatusInit || t.Status == task.StatusPending || t.Status == task.StatusFinalizing || t.Status == task.StatusSummarizing {
+		s.sendError(conn, fmt.Sprintf("cannot detach while agent is active (status: %s)", t.Status))
+		return
+	}
+
+	if t.WorktreeDetached {
+		s.sendError(conn, "worktree branch is already detached")
+		return
+	}
+
+	if err := gitpkg.DetachWorktreeHead(t.WorktreePath); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to detach worktree HEAD: %v", err))
+		return
+	}
+
+	if err := s.database.SetWorktreeDetached(t.ID, true); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update detached state: %v", err))
+		return
+	}
+
+	s.broadcastTaskUpdate(t.ID)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("branch %s detached from worktree", t.Branch)})
+}
+
+func (s *Server) handleAttachBranch(conn net.Conn, req AttachBranchRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	if !t.Worktree || t.WorktreePath == "" {
+		s.sendError(conn, "task does not have a worktree")
+		return
+	}
+
+	if !t.WorktreeDetached {
+		s.sendError(conn, "worktree branch is not detached")
+		return
+	}
+
+	if err := gitpkg.ReattachWorktreeBranch(t.WorktreePath, t.Branch); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to reattach branch: %v", err))
+		return
+	}
+
+	if err := s.database.SetWorktreeDetached(t.ID, false); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update detached state: %v", err))
+		return
+	}
+
+	s.broadcastTaskUpdate(t.ID)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("branch %s reattached to worktree", t.Branch)})
+}
+
 func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 	t, err := s.database.GetTask(req.TaskID)
 	if err != nil {

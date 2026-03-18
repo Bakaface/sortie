@@ -412,6 +412,22 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleUpdateDependency(conn, req)
 
+	case MsgDetachBranch:
+		var req DetachBranchRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleDetachBranch(conn, req)
+
+	case MsgAttachBranch:
+		var req AttachBranchRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleAttachBranch(conn, req)
+
 	case MsgShutdown:
 		s.Shutdown()
 

@@ -126,6 +126,30 @@ func (m Model) revertTask(taskID int64) tea.Cmd {
 	}
 }
 
+func (m Model) detachBranch(taskID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+		if err := m.client.DetachBranch(taskID); err != nil {
+			return errorMsg(err)
+		}
+		return nil
+	}
+}
+
+func (m Model) attachBranch(taskID int64) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+		if err := m.client.AttachBranch(taskID); err != nil {
+			return errorMsg(err)
+		}
+		return nil
+	}
+}
+
 func (m Model) continueTask(taskID int64, workflow, prompt string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {

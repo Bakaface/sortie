@@ -94,8 +94,9 @@ type Task struct {
 	TargetBranch   string // per-task override for base/merge branch
 	CheckoutBranch string // use an existing branch instead of creating a new one
 	Worktree       bool   // whether to use git worktree isolation (default true)
-	WorktreePath string
-	ExitCode     *int
+	WorktreePath     string
+	WorktreeDetached bool
+	ExitCode         *int
 	ErrorMessage string
 	Context      string
 	BlockedBy    []int64

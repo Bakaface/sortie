@@ -46,7 +46,7 @@ func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, 
 }
 
 const taskColumns = `id, project_id, title, description, slug, workflow, status, priority, step_index, current_step, loop_iteration,
-	branch_name, branch, target_branch, checkout_branch, worktree, worktree_path, exit_code, error_message, context, images, commits,
+	branch_name, branch, target_branch, checkout_branch, worktree, worktree_path, worktree_detached, exit_code, error_message, context, images, commits,
 	created_at, started_at, completed_at, updated_at`
 
 func (db *DB) GetTask(id int64) (*task.Task, error) {
@@ -516,13 +516,14 @@ func scanTaskRow(s scanner) (*task.Task, error) {
 	var commitsJSON sql.NullString
 	var exitCode sql.NullInt64
 	var worktreeInt int
+	var worktreeDetached int
 	var startedAt, completedAt sql.NullTime
 	var updatedAt sql.NullTime
 
 	err := s.Scan(
 		&t.ID, &projectID, &title, &t.Description, &slug, &workflow, &t.Status, &priority,
 		&t.StepIndex, &currentStep, &t.LoopIteration,
-		&branchName, &branch, &targetBranch, &checkoutBranch, &worktreeInt, &worktreePath, &exitCode, &errorMessage, &taskContext, &imagesJSON, &commitsJSON,
+		&branchName, &branch, &targetBranch, &checkoutBranch, &worktreeInt, &worktreePath, &worktreeDetached, &exitCode, &errorMessage, &taskContext, &imagesJSON, &commitsJSON,
 		&t.CreatedAt, &startedAt, &completedAt, &updatedAt,
 	)
 	if err != nil {
@@ -530,6 +531,7 @@ func scanTaskRow(s scanner) (*task.Task, error) {
 	}
 
 	t.Worktree = worktreeInt != 0
+	t.WorktreeDetached = worktreeDetached != 0
 	if projectID.Valid {
 		t.ProjectID = projectID.Int64
 	}
@@ -612,4 +614,16 @@ func scanTasks(rows *sql.Rows) ([]*task.Task, error) {
 		tasks = append(tasks, t)
 	}
 	return tasks, rows.Err()
+}
+
+func (db *DB) SetWorktreeDetached(id int64, detached bool) error {
+	val := 0
+	if detached {
+		val = 1
+	}
+	_, err := db.Exec(
+		"UPDATE tasks SET worktree_detached = ?, updated_at = ? WHERE id = ?",
+		val, time.Now(), id,
+	)
+	return err
 }

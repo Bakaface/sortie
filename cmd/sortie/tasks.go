@@ -504,6 +504,54 @@ func cleanupTask(database *db.DB, taskID int64) error {
 	return nil
 }
 
+var detachCmd = &cobra.Command{
+	Use:   "detach <task_id>",
+	Short: "Detach worktree branch so it can be checked out elsewhere",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		taskID, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid task ID: %s", args[0])
+		}
+
+		c := client.New(cfg)
+		if err := c.Connect(); err != nil {
+			return err
+		}
+		defer c.Close()
+
+		if err := c.DetachBranch(taskID); err != nil {
+			return err
+		}
+		fmt.Printf("Branch detached from task #%d worktree\n", taskID)
+		return nil
+	},
+}
+
+var attachBranchCmd = &cobra.Command{
+	Use:   "attach-branch <task_id>",
+	Short: "Reattach branch to worktree after detach",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		taskID, err := strconv.ParseInt(args[0], 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid task ID: %s", args[0])
+		}
+
+		c := client.New(cfg)
+		if err := c.Connect(); err != nil {
+			return err
+		}
+		defer c.Close()
+
+		if err := c.AttachBranch(taskID); err != nil {
+			return err
+		}
+		fmt.Printf("Branch reattached to task #%d worktree\n", taskID)
+		return nil
+	},
+}
+
 var attachCmd = &cobra.Command{
 	Use:               "attach <task_id>",
 	Short:             "Attach to a task's tmux session",

@@ -370,6 +370,22 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.Focus()
 		return m, nil
 
+	case "D":
+		if task := m.list.Selected(); task != nil && m.client != nil {
+			if task.Worktree && task.WorktreePath != "" && !task.WorktreeDetached {
+				return m, m.detachBranch(task.ID)
+			}
+		}
+		return m, nil
+
+	case "A":
+		if task := m.list.Selected(); task != nil && m.client != nil {
+			if task.Worktree && task.WorktreePath != "" && task.WorktreeDetached {
+				return m, m.attachBranch(task.ID)
+			}
+		}
+		return m, nil
+
 	case "ctrl+h":
 		m.list.showHelp = !m.list.showHelp
 		return m, nil

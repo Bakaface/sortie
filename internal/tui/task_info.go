@@ -192,6 +192,10 @@ func (v *taskInfoView) renderMetadata() string {
 	} else if t.WorktreePath != "" {
 		b.WriteString(labelStyle.Render("Worktree:  "))
 		b.WriteString(dimStyle.Render(t.WorktreePath))
+		if t.WorktreeDetached {
+			b.WriteString("  ")
+			b.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#E88388")).Render("[detached]"))
+		}
 		b.WriteString("\n")
 	}
 

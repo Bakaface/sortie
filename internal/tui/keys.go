@@ -25,6 +25,8 @@ type keyMap struct {
 	EditTitle      key.Binding
 	EditContext    key.Binding
 	Revert         key.Binding
+	DetachBranch   key.Binding
+	AttachBranch   key.Binding
 	Refresh        key.Binding
 	Back           key.Binding
 	Quit           key.Binding
@@ -122,6 +124,14 @@ func newKeyMap() keyMap {
 			key.WithKeys("R"),
 			key.WithHelp("R", "revert"),
 		),
+		DetachBranch: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "detach branch"),
+		),
+		AttachBranch: key.NewBinding(
+			key.WithKeys("A"),
+			key.WithHelp("A", "attach branch"),
+		),
 		Refresh: key.NewBinding(
 			key.WithKeys("ctrl+r"),
 			key.WithHelp("ctrl+r", "refresh"),
@@ -184,7 +194,7 @@ func (k keyMap) ShortHelp() []key.Binding {
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.GotoTask, k.SearchForward, k.SearchBackward, k.NextMatch, k.PrevMatch, k.Enter, k.Logs},
-		{k.NewTask, k.NewBlockingTask, k.RunTask, k.InitWorkflow, k.Stop, k.Retry, k.Revert, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
+		{k.NewTask, k.NewBlockingTask, k.RunTask, k.InitWorkflow, k.Stop, k.Retry, k.Revert, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.DetachBranch, k.AttachBranch, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

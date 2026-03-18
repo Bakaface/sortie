@@ -39,6 +39,8 @@ const (
 	MsgTmuxActivity   MessageType = "tmux_activity"
 	MsgRevertTask         MessageType = "revert_task"
 	MsgUpdateDependency   MessageType = "update_dependency"
+	MsgDetachBranch       MessageType = "detach_branch"
+	MsgAttachBranch       MessageType = "attach_branch"
 )
 
 type Message struct {
@@ -156,6 +158,14 @@ type UpdateDependencyRequest struct {
 	Action    string `json:"action"` // "add" or "remove"
 }
 
+type DetachBranchRequest struct {
+	TaskID int64 `json:"task_id"`
+}
+
+type AttachBranchRequest struct {
+	TaskID int64 `json:"task_id"`
+}
+
 type CreateTaskResponse struct {
 	Task TaskInfo `json:"task"`
 }
@@ -200,8 +210,9 @@ type TaskInfo struct {
 	Branch         string     `json:"branch"`
 	TargetBranch   string     `json:"target_branch,omitempty"`
 	CheckoutBranch string     `json:"checkout_branch,omitempty"`
-	Worktree     bool       `json:"worktree"`
-	WorktreePath string     `json:"worktree_path,omitempty"`
+	Worktree         bool       `json:"worktree"`
+	WorktreePath     string     `json:"worktree_path,omitempty"`
+	WorktreeDetached bool       `json:"worktree_detached,omitempty"`
 	ErrorMessage string     `json:"error_message,omitempty"`
 	Context      string     `json:"context,omitempty"`
 	Images       []string   `json:"images,omitempty"`

@@ -381,6 +381,14 @@ func (c *Client) RemoveTaskDependency(taskID, blockedByID int64) error {
 	})
 }
 
+func (c *Client) DetachBranch(id int64) error {
+	return c.requestOK(daemon.MsgDetachBranch, daemon.DetachBranchRequest{TaskID: id})
+}
+
+func (c *Client) AttachBranch(id int64) error {
+	return c.requestOK(daemon.MsgAttachBranch, daemon.AttachBranchRequest{TaskID: id})
+}
+
 func (c *Client) GetLogs(id int64, step string, tail int) ([]string, error) {
 	msg, err := c.request(daemon.MsgGetLogs, daemon.GetLogsRequest{
 		TaskID: id,

@@ -240,3 +240,28 @@ func GetRepoRoot(path string) (string, error) {
 
 	return strings.TrimSpace(stdout.String()), nil
 }
+
+func DetachWorktreeHead(worktreePath string) error {
+	cmd := exec.Command("git", "-C", worktreePath, "checkout", "--detach")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to detach HEAD in worktree %s: %w (stderr: %s)", worktreePath, err, stderr.String())
+	}
+	return nil
+}
+
+func ReattachWorktreeBranch(worktreePath, branch string) error {
+	cmd := exec.Command("git", "-C", worktreePath, "checkout", branch)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to checkout branch %s in worktree %s: %w (stderr: %s)", branch, worktreePath, err, stderr.String())
+	}
+	return nil
+}
+
+func IsWorktreeDetached(worktreePath string) bool {
+	cmd := exec.Command("git", "-C", worktreePath, "symbolic-ref", "HEAD")
+	return cmd.Run() != nil
+}

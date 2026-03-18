@@ -170,7 +170,8 @@ func (l *listView) tasksChanged(old, new []daemon.TaskInfo) bool {
 			a.CurrentStep != b.CurrentStep ||
 			a.Priority != b.Priority ||
 			a.LoopIteration != b.LoopIteration ||
-			a.TmuxActivity != b.TmuxActivity {
+			a.TmuxActivity != b.TmuxActivity ||
+			a.WorktreeDetached != b.WorktreeDetached {
 			return true
 		}
 		// Compare blocked-by lists
@@ -483,6 +484,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		default:
 			statusLabel += " [T]"
 		}
+	}
+	if task.WorktreeDetached {
+		statusLabel += " [detached]"
 	}
 	status := fmt.Sprintf("%s %s", statusIcon, statusLabel)
 

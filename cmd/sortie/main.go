@@ -92,6 +92,8 @@ func init() {
 	rootCmd.AddCommand(createCmd)
 	rootCmd.AddCommand(editCmd)
 	rootCmd.AddCommand(deleteCmd)
+	rootCmd.AddCommand(detachCmd)
+	rootCmd.AddCommand(attachBranchCmd)
 }
 
 func main() {

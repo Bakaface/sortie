@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     checkout_branch TEXT NOT NULL DEFAULT '',
     worktree INTEGER NOT NULL DEFAULT 1,
     worktree_path TEXT,
+    worktree_detached INTEGER NOT NULL DEFAULT 0,
     exit_code INTEGER,
     error_message TEXT,
     context TEXT,
