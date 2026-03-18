@@ -33,12 +33,13 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.continueTask(taskID, workflow, description)
 		}
 		// New task mode: create task with prompt
-		if description == "" {
+		checkoutBranch := m.prompt.CheckoutBranch()
+		// Allow empty description only when using existing branch mode
+		if description == "" && checkoutBranch == "" {
 			return m, nil
 		}
 		images := m.prompt.Images()
 		branchName := m.prompt.BranchName()
-		checkoutBranch := m.prompt.CheckoutBranch()
 		targetBranch := m.prompt.TargetBranch()
 		worktree := m.prompt.Worktree()
 		m.view = viewList

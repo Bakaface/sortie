@@ -996,11 +996,17 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 		}
 		claudeCmd += fmt.Sprintf(" --system-prompt \"$(cat %q)\"", sysPromptFile)
 	}
-	script := fmt.Sprintf(`#!/bin/bash
+	var script string
+	if strings.TrimSpace(prompt) == "" {
+		// Empty prompt: launch Claude as a blank interactive session
+		script = fmt.Sprintf("#!/bin/bash\n%s%s\nexec bash\n", envExports.String(), claudeCmd)
+	} else {
+		script = fmt.Sprintf(`#!/bin/bash
 %sPROMPT=$(cat %q)
 %s "$PROMPT"
 exec bash
 `, envExports.String(), promptFile, claudeCmd)
+	}
 
 	if err := os.WriteFile(scriptFile, []byte(script), 0755); err != nil {
 		return 1, "", fmt.Errorf("failed to write wrapper script: %w", err)

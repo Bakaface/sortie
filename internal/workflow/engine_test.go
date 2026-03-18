@@ -736,3 +736,53 @@ func TestFindStepIndex(t *testing.T) {
 		})
 	}
 }
+
+func TestTmuxScriptEmptyPromptLaunchesBlankSession(t *testing.T) {
+	// Verify that when prompt is empty, the tmux script launches Claude
+	// without a prompt argument (blank interactive session)
+	prompt := ""
+	claudeCmd := "claude"
+	envExports := ""
+
+	var script string
+	if strings.TrimSpace(prompt) == "" {
+		script = fmt.Sprintf("#!/bin/bash\n%s%s\nexec bash\n", envExports, claudeCmd)
+	} else {
+		script = fmt.Sprintf("#!/bin/bash\n%sPROMPT=$(cat %q)\n%s \"$PROMPT\"\nexec bash\n", envExports, "/tmp/prompt.txt", claudeCmd)
+	}
+
+	// Should NOT contain PROMPT= or "$PROMPT"
+	if strings.Contains(script, "PROMPT=") {
+		t.Error("blank session script should not contain PROMPT variable")
+	}
+	if strings.Contains(script, "$PROMPT") {
+		t.Error("blank session script should not reference $PROMPT")
+	}
+	// Should contain bare claude command
+	if !strings.Contains(script, "claude\n") {
+		t.Error("blank session script should contain bare claude command")
+	}
+}
+
+func TestTmuxScriptNonEmptyPromptPassesPrompt(t *testing.T) {
+	// Verify that when prompt is non-empty, the tmux script passes it to Claude
+	prompt := "implement the feature"
+	claudeCmd := "claude"
+	envExports := ""
+	promptFile := "/tmp/prompt.txt"
+
+	var script string
+	if strings.TrimSpace(prompt) == "" {
+		script = fmt.Sprintf("#!/bin/bash\n%s%s\nexec bash\n", envExports, claudeCmd)
+	} else {
+		script = fmt.Sprintf("#!/bin/bash\n%sPROMPT=$(cat %q)\n%s \"$PROMPT\"\nexec bash\n", envExports, promptFile, claudeCmd)
+	}
+
+	// Should contain PROMPT= and "$PROMPT"
+	if !strings.Contains(script, "PROMPT=") {
+		t.Error("non-empty prompt script should contain PROMPT variable")
+	}
+	if !strings.Contains(script, `"$PROMPT"`) {
+		t.Error("non-empty prompt script should pass $PROMPT to claude")
+	}
+}

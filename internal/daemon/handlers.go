@@ -584,7 +584,7 @@ func readLogFile(path string) []string {
 
 func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	description := strings.TrimSpace(req.Description)
-	if description == "" {
+	if description == "" && req.CheckoutBranch == "" {
 		s.sendError(conn, "description cannot be empty")
 		return
 	}
@@ -601,7 +601,13 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		return
 	}
 
-	title := task.SanitizeTitle(description)
+	// When using existing branch with empty description, generate title from branch name
+	var title string
+	if description == "" && req.CheckoutBranch != "" {
+		title = "Branch " + req.CheckoutBranch
+	} else {
+		title = task.SanitizeTitle(description)
+	}
 
 	slug := task.Slugify(title)
 
@@ -649,26 +655,34 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
 
-	go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, t.CheckoutBranch, description)
+	go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, t.CheckoutBranch, description, title)
 }
 
-func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string) {
-	ctx, cancel := context.WithTimeout(s.ctx, titleGenerationTimeout)
-	defer cancel()
-
+func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string, initialTitle string) {
 	projCfg := s.cfg
 	if pc, err := s.getProjectContext(projectID); err == nil {
 		projCfg = pc.cfg
 	}
 
-	title, err := s.generateTitle(ctx, description, &projCfg.Claude)
-	if err != nil {
-		log.Printf("%sFailed to generate AI title for task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
-		if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
-			log.Printf("%sFailed to transition task #%d to pending: %v", s.projectLogPrefix(projectID), taskID, err)
+	var title string
+
+	// Skip AI title generation when description is empty (existing branch with no prompt)
+	if description == "" {
+		title = initialTitle
+	} else {
+		ctx, cancel := context.WithTimeout(s.ctx, titleGenerationTimeout)
+		defer cancel()
+
+		var err error
+		title, err = s.generateTitle(ctx, description, &projCfg.Claude)
+		if err != nil {
+			log.Printf("%sFailed to generate AI title for task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+			if err := s.database.UpdateTaskStatus(taskID, task.StatusPending); err != nil {
+				log.Printf("%sFailed to transition task #%d to pending: %v", s.projectLogPrefix(projectID), taskID, err)
+			}
+			s.broadcastTaskUpdate(taskID)
+			return
 		}
-		s.broadcastTaskUpdate(taskID)
-		return
 	}
 
 	slug := task.Slugify(title)
