@@ -622,8 +622,11 @@ func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([
 	if err := gitpkg.CleanupWorktrees(e.repoRoot); err != nil {
 		log.Printf("Warning: failed to prune worktrees: %v", err)
 	}
-	if err := gitpkg.ForceDeleteBranch(e.repoRoot, t.Branch); err != nil {
-		log.Printf("Warning: failed to delete branch: %v", err)
+	// Only delete branches that sortie created; preserve user-provided branches
+	if t.CheckoutBranch == "" {
+		if err := gitpkg.ForceDeleteBranch(e.repoRoot, t.Branch); err != nil {
+			log.Printf("Warning: failed to delete branch: %v", err)
+		}
 	}
 	// Clear worktree path in DB
 	if err := e.database.ClearWorktreePath(t.ID); err != nil {

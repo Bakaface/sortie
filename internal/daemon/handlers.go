@@ -504,7 +504,8 @@ func (s *Server) cleanupWorktreeAndBranch(pc *projectContext, t *task.Task) {
 		}
 		gitpkg.CleanupWorktrees(pc.repoRoot)
 	}
-	if t.Branch != "" {
+	// Only delete branches that sortie created; preserve user-provided branches
+	if t.Branch != "" && t.CheckoutBranch == "" {
 		if err := gitpkg.ForceDeleteBranch(pc.repoRoot, t.Branch); err != nil {
 			log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}

@@ -479,8 +479,8 @@ func cleanupTask(database *db.DB, taskID int64) error {
 		cleaned = true
 	}
 
-	// Delete the task branch
-	if t.Worktree && t.Branch != "" && repoRoot != "" {
+	// Delete the task branch (but preserve branches the user provided via --checkout)
+	if t.Worktree && t.Branch != "" && repoRoot != "" && t.CheckoutBranch == "" {
 		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to delete branch %s for task #%d: %v\n", t.Branch, taskID, err)
 		} else {
