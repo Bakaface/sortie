@@ -10,6 +10,11 @@ import (
 func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keyStr := msg.String()
 
+	// Handle confirmation prompt if active
+	if m.confirmAction != "" {
+		return m.handleConfirmKey(msg)
+	}
+
 	// Handle artifact selection if active (must come before q/esc handling)
 	if m.selectingArtifact {
 		return m.handleArtifactSelectKey(msg)
@@ -21,7 +26,9 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+c":
 		if m.taskInfo.task != nil && m.client != nil {
-			return m, m.stopTask(m.taskInfo.task.ID)
+			m.confirmAction = "stop"
+			m.confirmTaskID = m.taskInfo.task.ID
+			return m, nil
 		}
 		return m, nil
 	case "t":

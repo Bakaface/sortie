@@ -47,31 +47,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle confirmation prompt if active
 	if m.confirmAction != "" {
-		switch msg.String() {
-		case "y":
-			action := m.confirmAction
-			taskID := m.confirmTaskID
-			m.confirmAction = ""
-			m.confirmTaskID = 0
-			switch action {
-			case "continue":
-				return m, m.continueTask(taskID, "", "")
-			case "finalize":
-				return m, m.finalizeTask(taskID)
-			case "delete":
-				return m, m.deleteTask(taskID)
-			case "revert":
-				return m, m.revertTask(taskID)
-			default:
-				return m, nil
-			}
-		case "n", "esc":
-			m.confirmAction = ""
-			m.confirmTaskID = 0
-			return m, nil
-		default:
-			return m, nil
-		}
+		return m.handleConfirmKey(msg)
 	}
 
 	keyStr := msg.String()
@@ -254,7 +230,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "s":
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			return m, m.stopTask(task.ID)
+			m.confirmAction = "stop"
+			m.confirmTaskID = task.ID
+			return m, nil
 		}
 		return m, nil
 
@@ -848,4 +826,35 @@ func (m Model) handleContinueWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.C
 	}
 
 	return m, nil
+}
+
+// handleConfirmKey handles y/n/esc keys for the shared confirmation dialog.
+func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "y":
+		action := m.confirmAction
+		taskID := m.confirmTaskID
+		m.confirmAction = ""
+		m.confirmTaskID = 0
+		switch action {
+		case "continue":
+			return m, m.continueTask(taskID, "", "")
+		case "finalize":
+			return m, m.finalizeTask(taskID)
+		case "delete":
+			return m, m.deleteTask(taskID)
+		case "revert":
+			return m, m.revertTask(taskID)
+		case "stop":
+			return m, m.stopTask(taskID)
+		default:
+			return m, nil
+		}
+	case "n", "esc":
+		m.confirmAction = ""
+		m.confirmTaskID = 0
+		return m, nil
+	default:
+		return m, nil
+	}
 }

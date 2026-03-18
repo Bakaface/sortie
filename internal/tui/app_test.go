@@ -5555,3 +5555,311 @@ func TestPromptHelpOverlayIsSeparateFromListHelp(t *testing.T) {
 		t.Error("list help should not contain 'newline'")
 	}
 }
+
+func TestHandleListKey_STriggersStopConfirmation(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 42, Title: "Running task", Status: "running"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "stop" {
+		t.Errorf("expected confirmAction to be 'stop', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 42 {
+		t.Errorf("expected confirmTaskID to be 42, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
+	}
+}
+
+func TestHandleListKey_SNoOpWithNoClient(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: nil,
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+	}
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 42, Title: "Running task", Status: "running"},
+	})
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction without client, got %q", updated.confirmAction)
+	}
+}
+
+func TestHandleDetailKey_CtrlCTriggersStopConfirmation(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+	task := daemon.TaskInfo{ID: 55, Title: "Running task", Status: "running"}
+	m.detail.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+	result, cmd := m.handleDetailKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "stop" {
+		t.Errorf("expected confirmAction to be 'stop', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 55 {
+		t.Errorf("expected confirmTaskID to be 55, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
+	}
+}
+
+func TestHandleDetailKey_CtrlCNoOpWithNoTask(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+	result, _ := m.handleDetailKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction without task, got %q", updated.confirmAction)
+	}
+}
+
+func TestHandleDetailKey_CtrlCNoOpWithNoClient(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		client: nil,
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+	task := daemon.TaskInfo{ID: 55, Title: "Running task", Status: "running"}
+	m.detail.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+	result, _ := m.handleDetailKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction without client, got %q", updated.confirmAction)
+	}
+}
+
+func TestHandleTaskInfoKey_CtrlCTriggersStopConfirmation(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		client:   &client.Client{},
+		list:     newListView(false, ""),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+	}
+	task := daemon.TaskInfo{ID: 77, Title: "Running task", Status: "running"}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+	result, cmd := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "stop" {
+		t.Errorf("expected confirmAction to be 'stop', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 77 {
+		t.Errorf("expected confirmTaskID to be 77, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
+	}
+}
+
+func TestHandleTaskInfoKey_CtrlCNoOpWithNoTask(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		client:   &client.Client{},
+		list:     newListView(false, ""),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlC}
+	result, _ := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction without task, got %q", updated.confirmAction)
+	}
+}
+
+func TestHandleConfirmKey_YConfirmsStop(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false, ""),
+		detail:        newDetailView(),
+		confirmAction: "stop",
+		confirmTaskID: 42,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}}
+	result, cmd := m.handleConfirmKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected confirmAction to be cleared, got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 0 {
+		t.Errorf("expected confirmTaskID to be cleared, got %d", updated.confirmTaskID)
+	}
+	if cmd == nil {
+		t.Error("expected command from confirmed stop, got nil")
+	}
+}
+
+func TestHandleConfirmKey_NCancelsStop(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false, ""),
+		detail:        newDetailView(),
+		confirmAction: "stop",
+		confirmTaskID: 42,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+	result, cmd := m.handleConfirmKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected confirmAction to be cleared, got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 0 {
+		t.Errorf("expected confirmTaskID to be cleared, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command from cancelled stop, got non-nil")
+	}
+}
+
+func TestHandleConfirmKey_EscCancelsStop(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false, ""),
+		detail:        newDetailView(),
+		confirmAction: "stop",
+		confirmTaskID: 42,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	result, cmd := m.handleConfirmKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "" {
+		t.Errorf("expected confirmAction to be cleared, got %q", updated.confirmAction)
+	}
+	if cmd != nil {
+		t.Error("expected no command from esc cancel, got non-nil")
+	}
+}
+
+func TestHandleConfirmKey_OtherKeyIgnored(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false, ""),
+		detail:        newDetailView(),
+		confirmAction: "stop",
+		confirmTaskID: 42,
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	result, cmd := m.handleConfirmKey(msg)
+	updated := result.(Model)
+
+	if updated.confirmAction != "stop" {
+		t.Errorf("expected confirmAction to remain 'stop', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 42 {
+		t.Errorf("expected confirmTaskID to remain 42, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command from ignored key, got non-nil")
+	}
+}
+
+func TestHandleDetailKey_ConfirmationBlocksOtherKeys(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false, ""),
+		detail:        newDetailView(),
+		view:          viewDetail,
+		confirmAction: "stop",
+		confirmTaskID: 42,
+	}
+	task := daemon.TaskInfo{ID: 42, Title: "Running task", Status: "running"}
+	m.detail.SetTask(&task)
+
+	// Pressing 'q' while confirmation is active should not navigate away
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+	result, _ := m.handleDetailKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewDetail {
+		t.Error("expected to stay in detail view while confirmation is active")
+	}
+	if updated.confirmAction != "stop" {
+		t.Errorf("expected confirmAction to remain 'stop', got %q", updated.confirmAction)
+	}
+}
+
+func TestHandleTaskInfoKey_ConfirmationBlocksOtherKeys(t *testing.T) {
+	m := Model{
+		keys:          newKeyMap(),
+		client:        &client.Client{},
+		list:          newListView(false, ""),
+		detail:        newDetailView(),
+		taskInfo:      newTaskInfoView(),
+		view:          viewTaskInfo,
+		confirmAction: "stop",
+		confirmTaskID: 77,
+	}
+	task := daemon.TaskInfo{ID: 77, Title: "Running task", Status: "running"}
+	m.taskInfo.SetTask(&task)
+
+	// Pressing 'q' while confirmation is active should not navigate away
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}}
+	result, _ := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+
+	if updated.view != viewTaskInfo {
+		t.Error("expected to stay in task info view while confirmation is active")
+	}
+	if updated.confirmAction != "stop" {
+		t.Errorf("expected confirmAction to remain 'stop', got %q", updated.confirmAction)
+	}
+}

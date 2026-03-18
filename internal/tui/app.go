@@ -47,7 +47,7 @@ type Model struct {
 	blockingTaskID int64 // when non-zero, the newly created task will block this task
 
 	// Confirmation state
-	confirmAction string // "continue", "finalize", or "delete"; empty if no confirmation pending
+	confirmAction string // "continue", "finalize", "delete", "revert", or "stop"; empty if no confirmation pending
 	confirmTaskID int64
 	pendingDelete bool // tracks first "d" press for dd sequence
 

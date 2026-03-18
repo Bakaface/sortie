@@ -7,6 +7,11 @@ import (
 func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	keyStr := msg.String()
 
+	// Handle confirmation prompt if active
+	if m.confirmAction != "" {
+		return m.handleConfirmKey(msg)
+	}
+
 	// Common keys (both modes)
 	switch keyStr {
 	case "q":
@@ -14,7 +19,9 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "ctrl+c":
 		if m.detail.task != nil && m.client != nil {
-			return m, m.stopTask(m.detail.task.ID)
+			m.confirmAction = "stop"
+			m.confirmTaskID = m.detail.task.ID
+			return m, nil
 		}
 		return m, nil
 	case "t":
