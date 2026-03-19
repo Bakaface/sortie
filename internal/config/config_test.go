@@ -1434,6 +1434,43 @@ func TestWorktreeSyncPathsParsing(t *testing.T) {
 
 	yamlContent := `
 worktree-sync-paths:
+  copy:
+    - node_modules/
+  link:
+    - .claude
+    - .env.example
+    - scripts/setup.sh
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cfg.WorktreeSyncPaths.Copy) != 1 {
+		t.Fatalf("expected 1 copy path, got %d", len(cfg.WorktreeSyncPaths.Copy))
+	}
+	if cfg.WorktreeSyncPaths.Copy[0] != "node_modules/" {
+		t.Errorf("expected copy path 'node_modules/', got %q", cfg.WorktreeSyncPaths.Copy[0])
+	}
+	if len(cfg.WorktreeSyncPaths.Link) != 3 {
+		t.Fatalf("expected 3 link paths, got %d", len(cfg.WorktreeSyncPaths.Link))
+	}
+	if cfg.WorktreeSyncPaths.Link[0] != ".claude" {
+		t.Errorf("expected first link path '.claude', got %q", cfg.WorktreeSyncPaths.Link[0])
+	}
+}
+
+func TestWorktreeSyncPathsLegacyListFormat(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	// Legacy format: plain list → treated as copy paths
+	yamlContent := `
+worktree-sync-paths:
   - .claude
   - .env.example
   - scripts/setup.sh
@@ -1447,17 +1484,14 @@ worktree-sync-paths:
 		t.Fatal(err)
 	}
 
-	if len(cfg.WorktreeSyncPaths) != 3 {
-		t.Fatalf("expected 3 sync paths, got %d", len(cfg.WorktreeSyncPaths))
+	if len(cfg.WorktreeSyncPaths.Copy) != 3 {
+		t.Fatalf("expected 3 copy paths from legacy format, got %d", len(cfg.WorktreeSyncPaths.Copy))
 	}
-	if cfg.WorktreeSyncPaths[0] != ".claude" {
-		t.Errorf("expected first path '.claude', got %q", cfg.WorktreeSyncPaths[0])
+	if cfg.WorktreeSyncPaths.Copy[0] != ".claude" {
+		t.Errorf("expected first path '.claude', got %q", cfg.WorktreeSyncPaths.Copy[0])
 	}
-	if cfg.WorktreeSyncPaths[1] != ".env.example" {
-		t.Errorf("expected second path '.env.example', got %q", cfg.WorktreeSyncPaths[1])
-	}
-	if cfg.WorktreeSyncPaths[2] != "scripts/setup.sh" {
-		t.Errorf("expected third path 'scripts/setup.sh', got %q", cfg.WorktreeSyncPaths[2])
+	if len(cfg.WorktreeSyncPaths.Link) != 0 {
+		t.Errorf("expected no link paths from legacy format, got %d", len(cfg.WorktreeSyncPaths.Link))
 	}
 }
 
@@ -1466,33 +1500,39 @@ func TestWorktreeSyncPathsProjectOverridesGlobal(t *testing.T) {
 	globalPath := filepath.Join(globalDir, ".sortie.yml")
 	os.WriteFile(globalPath, []byte(`
 worktree-sync-paths:
-  - .claude
-  - .env
+  copy:
+    - .claude
+    - .env
 `), 0644)
 
 	projectDir := t.TempDir()
 	projectPath := filepath.Join(projectDir, ".sortie.yml")
 	os.WriteFile(projectPath, []byte(`
 worktree-sync-paths:
-  - .vscode
+  link:
+    - .vscode
 `), 0644)
 
 	cfg := defaultConfig()
 	if err := loadProjectConfig(globalPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.WorktreeSyncPaths) != 2 {
-		t.Fatalf("expected 2 sync paths from global, got %d", len(cfg.WorktreeSyncPaths))
+	if len(cfg.WorktreeSyncPaths.Copy) != 2 {
+		t.Fatalf("expected 2 copy paths from global, got %d", len(cfg.WorktreeSyncPaths.Copy))
 	}
 
 	if err := loadProjectConfig(projectPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.WorktreeSyncPaths) != 1 {
-		t.Fatalf("expected 1 sync path after project override, got %d", len(cfg.WorktreeSyncPaths))
+	if len(cfg.WorktreeSyncPaths.Link) != 1 {
+		t.Fatalf("expected 1 link path after project override, got %d", len(cfg.WorktreeSyncPaths.Link))
 	}
-	if cfg.WorktreeSyncPaths[0] != ".vscode" {
-		t.Errorf("expected '.vscode', got %q", cfg.WorktreeSyncPaths[0])
+	if cfg.WorktreeSyncPaths.Link[0] != ".vscode" {
+		t.Errorf("expected '.vscode', got %q", cfg.WorktreeSyncPaths.Link[0])
+	}
+	// Project override should replace global entirely
+	if len(cfg.WorktreeSyncPaths.Copy) != 0 {
+		t.Errorf("expected 0 copy paths after override, got %d", len(cfg.WorktreeSyncPaths.Copy))
 	}
 }
 
@@ -1502,13 +1542,17 @@ func TestWorktreeSyncPathsPerWorkflow(t *testing.T) {
 
 	yamlContent := `
 worktree-sync-paths:
-  - .claude
+  link:
+    - .claude
 workflows:
   tasks:
     - name: custom
       worktree-sync-paths:
-        - .claude
-        - .vscode
+        copy:
+          - node_modules
+        link:
+          - .claude
+          - .vscode
       steps:
         - name: implementing
           prompt: "Implement"
@@ -1523,44 +1567,50 @@ workflows:
 	}
 
 	// Global level
-	if len(cfg.WorktreeSyncPaths) != 1 {
-		t.Fatalf("expected 1 global sync path, got %d", len(cfg.WorktreeSyncPaths))
+	if len(cfg.WorktreeSyncPaths.Link) != 1 {
+		t.Fatalf("expected 1 global link path, got %d", len(cfg.WorktreeSyncPaths.Link))
 	}
 
 	// Per-workflow override
 	wf := cfg.GetWorkflow("custom")
 	paths := cfg.GetWorktreeSyncPaths(wf)
-	if len(paths) != 2 {
-		t.Fatalf("expected 2 per-workflow sync paths, got %d", len(paths))
+	if len(paths.Copy) != 1 {
+		t.Fatalf("expected 1 per-workflow copy path, got %d", len(paths.Copy))
 	}
-	if paths[0] != ".claude" || paths[1] != ".vscode" {
-		t.Errorf("expected [.claude, .vscode], got %v", paths)
+	if len(paths.Link) != 2 {
+		t.Fatalf("expected 2 per-workflow link paths, got %d", len(paths.Link))
+	}
+	if paths.Link[0] != ".claude" || paths.Link[1] != ".vscode" {
+		t.Errorf("expected [.claude, .vscode], got %v", paths.Link)
 	}
 }
 
 func TestGetWorktreeSyncPathsFallsBackToGlobal(t *testing.T) {
 	cfg := &Config{
-		WorktreeSyncPaths: []string{".claude", ".env"},
+		WorktreeSyncPaths: WorktreeSyncPathsConfig{
+			Copy: []string{".claude"},
+			Link: []string{".env"},
+		},
 	}
 
 	// Workflow without override should fall back to global
 	wf := &WorkflowConfig{Name: "default"}
 	paths := cfg.GetWorktreeSyncPaths(wf)
-	if len(paths) != 2 {
-		t.Fatalf("expected 2 paths from global fallback, got %d", len(paths))
+	if len(paths.Copy) != 1 || len(paths.Link) != 1 {
+		t.Fatalf("expected 1 copy + 1 link from global fallback, got %d copy + %d link", len(paths.Copy), len(paths.Link))
 	}
 
 	// Nil workflow should fall back to global
 	paths = cfg.GetWorktreeSyncPaths(nil)
-	if len(paths) != 2 {
-		t.Fatalf("expected 2 paths from nil workflow fallback, got %d", len(paths))
+	if len(paths.Copy) != 1 || len(paths.Link) != 1 {
+		t.Fatalf("expected 1 copy + 1 link from nil workflow fallback, got %d copy + %d link", len(paths.Copy), len(paths.Link))
 	}
 }
 
 func TestWorktreeSyncPathsDefaultEmpty(t *testing.T) {
 	cfg := defaultConfig()
-	if len(cfg.WorktreeSyncPaths) != 0 {
-		t.Errorf("expected empty sync paths by default, got %v", cfg.WorktreeSyncPaths)
+	if !cfg.WorktreeSyncPaths.IsEmpty() {
+		t.Errorf("expected empty sync paths by default, got copy=%v link=%v", cfg.WorktreeSyncPaths.Copy, cfg.WorktreeSyncPaths.Link)
 	}
 }
 

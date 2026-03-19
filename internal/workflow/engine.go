@@ -138,7 +138,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	// Sync configured paths from project root into the worktree
 	if t.Worktree {
 		syncPaths := e.cfg.GetWorktreeSyncPaths(wf)
-		if len(syncPaths) > 0 {
+		if !syncPaths.IsEmpty() {
 			if err := SyncPathsToWorktree(e.repoRoot, t.WorktreePath, syncPaths); err != nil {
 				log.Printf("Warning: failed to sync paths to worktree: %v", err)
 			}

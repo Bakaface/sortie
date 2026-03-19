@@ -17,6 +17,52 @@ type OptionsConfig struct {
 	Target *bool `yaml:"target,omitempty"`
 }
 
+// WorktreeSyncPathsConfig specifies paths to sync into worktrees via copy or symlink.
+// Supports both the new structured format (map with copy/link keys) and the legacy
+// plain list format ([]string, treated as copy paths for backward compatibility).
+type WorktreeSyncPathsConfig struct {
+	Copy []string `yaml:"copy,omitempty"`
+	Link []string `yaml:"link,omitempty"`
+}
+
+// UnmarshalYAML handles both the new structured format and the legacy list format.
+// Legacy: worktree-sync-paths: [".claude", ".env"]  → treated as copy paths
+// New:    worktree-sync-paths: { copy: [...], link: [...] }
+func (w *WorktreeSyncPathsConfig) UnmarshalYAML(value *yaml.Node) error {
+	// Try legacy list format first
+	if value.Kind == yaml.SequenceNode {
+		var paths []string
+		if err := value.Decode(&paths); err != nil {
+			return err
+		}
+		w.Copy = paths
+		return nil
+	}
+
+	// New structured format
+	type raw WorktreeSyncPathsConfig
+	var r raw
+	if err := value.Decode(&r); err != nil {
+		return err
+	}
+	w.Copy = r.Copy
+	w.Link = r.Link
+	return nil
+}
+
+// IsEmpty returns true if no sync paths are configured.
+func (w WorktreeSyncPathsConfig) IsEmpty() bool {
+	return len(w.Copy) == 0 && len(w.Link) == 0
+}
+
+// AllPaths returns all configured paths (both copy and link) for backward-compatible checks.
+func (w WorktreeSyncPathsConfig) AllPaths() []string {
+	paths := make([]string, 0, len(w.Copy)+len(w.Link))
+	paths = append(paths, w.Copy...)
+	paths = append(paths, w.Link...)
+	return paths
+}
+
 // ProjectConfig is loaded from .sortie.yml (both global ~/.sortie.yml and project-local)
 type ProjectConfig struct {
 	MaxWorkers               int                  `yaml:"max_workers"`
@@ -31,7 +77,7 @@ type ProjectConfig struct {
 	Notifications            *NotificationsConfig `yaml:"notifications,omitempty"`
 	TmuxNestedAttachBehavior string               `yaml:"tmux_nested_attach_behavior"`
 	SystemPrompt             string               `yaml:"system_prompt"`
-	WorktreeSyncPaths        []string             `yaml:"worktree-sync-paths"`
+	WorktreeSyncPaths        WorktreeSyncPathsConfig `yaml:"worktree-sync-paths"`
 	WorktreeSetupCommand     string               `yaml:"worktree-setup-command"`
 	TmuxSetupCommand         string               `yaml:"tmux-setup-command"`
 	Options                  *OptionsConfig       `yaml:"options,omitempty"`
@@ -91,7 +137,7 @@ type WorkflowConfig struct {
 	Tmux              bool         `yaml:"tmux,omitempty"`
 	Steps             []StepConfig `yaml:"steps"`
 	SummarizerPrompt  string       `yaml:"summarizer_prompt"`
-	WorktreeSyncPaths []string     `yaml:"worktree-sync-paths,omitempty"`
+	WorktreeSyncPaths WorktreeSyncPathsConfig `yaml:"worktree-sync-paths,omitempty"`
 	WorktreeSetupCommand string   `yaml:"worktree-setup-command,omitempty"`
 	TmuxSetupCommand     string   `yaml:"tmux-setup-command,omitempty"`
 }
@@ -277,7 +323,7 @@ type Config struct {
 	SystemPrompt string
 
 	// Paths to sync from project root into new worktrees
-	WorktreeSyncPaths []string
+	WorktreeSyncPaths WorktreeSyncPathsConfig
 
 	// Command to run after creating a worktree (e.g. dependency installation)
 	WorktreeSetupCommand string
@@ -546,7 +592,7 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if proj.SystemPrompt != "" {
 		cfg.SystemPrompt = proj.SystemPrompt
 	}
-	if len(proj.WorktreeSyncPaths) > 0 {
+	if !proj.WorktreeSyncPaths.IsEmpty() {
 		cfg.WorktreeSyncPaths = proj.WorktreeSyncPaths
 	}
 	if proj.WorktreeSetupCommand != "" {
@@ -822,8 +868,8 @@ func (c *Config) GetInitWorkflow(name string) *WorkflowConfig {
 }
 
 // GetWorktreeSyncPaths returns the sync paths for a workflow, falling back to the global config.
-func (c *Config) GetWorktreeSyncPaths(wf *WorkflowConfig) []string {
-	if wf != nil && len(wf.WorktreeSyncPaths) > 0 {
+func (c *Config) GetWorktreeSyncPaths(wf *WorkflowConfig) WorktreeSyncPathsConfig {
+	if wf != nil && !wf.WorktreeSyncPaths.IsEmpty() {
 		return wf.WorktreeSyncPaths
 	}
 	return c.WorktreeSyncPaths

@@ -35,7 +35,7 @@ type ProjectConfig struct {
     Git                      GitConfig            // BaseBranch, BranchTemplate, OnComplete
     Workflows                ProjectWorkflows     // tasks, one-off, init
     SystemPrompt             string
-    WorktreeSyncPaths        []string             // Paths to sync into worktrees
+    WorktreeSyncPaths        WorktreeSyncPathsConfig // Paths to copy/link into worktrees
     Notifications            *NotificationsConfig
     TmuxNestedAttachBehavior string               // "switch" (default) or "nest"
 }
@@ -50,7 +50,7 @@ type WorkflowConfig struct {
     Tmux              bool
     Steps             []StepConfig
     SummarizerPrompt  string
-    WorktreeSyncPaths []string     // Per-workflow sync paths (override project-level)
+    WorktreeSyncPaths WorktreeSyncPathsConfig // Per-workflow sync paths (override project-level)
 }
 ```
 
@@ -106,9 +106,16 @@ type StepConfig struct {
 ## Worktree Sync Paths
 
 ```go
-GetWorktreeSyncPaths(wf *WorkflowConfig) []string
+type WorktreeSyncPathsConfig struct {
+    Copy []string   // Paths to copy into worktrees
+    Link []string   // Paths to symlink into worktrees
+}
+
+GetWorktreeSyncPaths(wf *WorkflowConfig) WorktreeSyncPathsConfig
 ```
 
+Supports two modes: `copy` (full recursive copy) and `link` (symlink to source).
+Legacy plain-list format (`[]string`) is treated as copy paths for backward compatibility.
 Returns workflow-level paths if set, otherwise project-level `WorktreeSyncPaths`.
 
 ## Branch Templates
