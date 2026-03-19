@@ -61,7 +61,7 @@ func (c *Client) Close() error {
 // to subscribers, as opposed to responses to client requests.
 func isBroadcast(t daemon.MessageType) bool {
 	switch t {
-	case daemon.MsgAgentUpdate, daemon.MsgTaskUpdate:
+	case daemon.MsgAgentUpdate, daemon.MsgTaskUpdate, daemon.MsgTmuxActivity:
 		return true
 	default:
 		return false
@@ -144,13 +144,21 @@ func (c *Client) sendAndWait(msgType daemon.MessageType, payload any) (*daemon.M
 		return nil, err
 	}
 
-	select {
-	case resp := <-c.respChan:
-		return resp, nil
-	case err := <-c.errChan:
-		return nil, err
-	case <-c.done:
-		return nil, fmt.Errorf("client closed")
+	// Read responses, skipping any broadcast messages that may have leaked
+	// into respChan (e.g. due to a missing isBroadcast entry).
+	for {
+		select {
+		case resp := <-c.respChan:
+			if isBroadcast(resp.Type) {
+				// Discard stale broadcast that ended up in the response channel
+				continue
+			}
+			return resp, nil
+		case err := <-c.errChan:
+			return nil, err
+		case <-c.done:
+			return nil, fmt.Errorf("client closed")
+		}
 	}
 }
 

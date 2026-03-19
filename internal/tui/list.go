@@ -242,6 +242,11 @@ func (l *listView) UpdateTask(task daemon.TaskInfo) {
 	}
 	if !found {
 		l.allTasks = append(l.allTasks, task)
+		// Keep allTasks sorted by ID desc (same order as SetTasks) so the next
+		// tick-driven SetTasks sees no change and skips the full rebuild.
+		sort.Slice(l.allTasks, func(i, j int) bool {
+			return l.allTasks[i].ID > l.allTasks[j].ID
+		})
 	}
 	l.applyFilter()
 }
