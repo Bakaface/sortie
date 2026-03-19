@@ -24,13 +24,13 @@ description: >
    - Validate meaningful code changes (skip for human/tmux)
    - Verify artifact written (retry if configured)
    - Evaluate loop conditions, check approval gates
-6. Run summarizer, execute `on_complete` (commit/merge/none)
+6. Execute `on_complete` (commit/merge/none), run summarizer, clean up worktree (if merge)
 
 ## File Map
 
 | File | Purpose |
 |------|---------|
-| `engine.go` | Core orchestrator: `RunTask()`, `runClaudeStep()`, `runClaudeStepTmux()`, `executeOnComplete()`, `FinalizeTask()`, `ResumeAfterApproval()`, `resolveConflicts()`, `runSummarizer()` |
+| `engine.go` | Core orchestrator: `RunTask()`, `runClaudeStep()`, `runClaudeStepTmux()`, `executeOnComplete()`, `FinalizeTask()`, `ResumeAfterApproval()`, `resolveConflicts()`, `runSummarizer()`, `cleanupMergedWorktree()` |
 | `template.go` | `{{placeholder}}` interpolation via `ResolveTemplate()` |
 | `system-prompt.go` | `BuildSystemPrompt()` — builds system prompt string for spawned Claude agents |
 | `artifact.go` | Directory management, artifact read/write, image copying |
@@ -96,9 +96,10 @@ When `task.Worktree == false`:
 ## Finalization (FinalizeTask)
 
 `FinalizeTask()` handles tmux task completion:
-1. Sets `StatusSummarizing`, runs summarizer (same as normal completion)
-2. Runs `executeOnComplete` (commit/merge/none)
-3. Called from `handleFinalizeTask` → `runFinalization` (async)
+1. Runs `executeOnComplete` (commit/merge/none) — merges first to unblock user
+2. Sets `StatusSummarizing`, runs summarizer
+3. Cleans up worktree via `cleanupMergedWorktree` (if merge was performed)
+4. Called from `handleFinalizeTask` → `runFinalization` (async)
 
 ## Key Mechanisms
 

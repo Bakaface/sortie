@@ -403,6 +403,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 	}
 
+	// All steps completed — execute on_complete action (merge to unblock user)
+	if err := e.executeOnComplete(ctx, t, outputFn, nil); err != nil {
+		return fmt.Errorf("on_complete action failed: %w", err)
+	}
+
 	// Run summarizer to generate task context
 	if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
 		log.Printf("Warning: failed to set summarizing status for task #%d: %v", t.ID, err)
@@ -440,9 +445,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		summarizerLogFile.Close()
 	}
 
-	// All steps completed — execute on_complete action
-	if err := e.executeOnComplete(ctx, t, outputFn, nil); err != nil {
-		return fmt.Errorf("on_complete action failed: %w", err)
+	// Clean up worktree after merge (if applicable)
+	if e.cfg.Git.OnComplete == "merge" && t.Worktree {
+		e.cleanupMergedWorktree(t, func(format string, args ...any) {
+			log.Printf("Task #%d: "+format, append([]any{t.ID}, args...)...)
+		})
 	}
 
 	return nil
@@ -612,7 +619,11 @@ func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([
 		return fmt.Errorf("merge failed after %d attempts: %w", maxMergeAttempts, mergeErr)
 	}
 
-	// Clean up worktree and branch (safe to run concurrently)
+	return nil
+}
+
+// cleanupMergedWorktree removes the worktree and branch after a successful merge.
+func (e *Engine) cleanupMergedWorktree(t *task.Task, logf func(string, ...any)) {
 	logf("Cleaning up worktree and branch...")
 	if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
 		log.Printf("Warning: failed to remove worktree: %v", err)
@@ -633,7 +644,6 @@ func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([
 		log.Printf("Warning: failed to clear worktree path: %v", err)
 	}
 	logf("Cleanup completed")
-	return nil
 }
 
 // waitForCleanTarget polls the repo root until it has no pending changes (staged or unstaged).
@@ -674,7 +684,7 @@ func (e *Engine) waitForCleanTarget(ctx context.Context, t *task.Task) error {
 	}
 }
 
-// FinalizeTask runs the summarizer and on_complete action for a task.
+// FinalizeTask runs the on_complete action, then the summarizer, then worktree cleanup.
 // Used when finalizing a tmux-continued task.
 func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	// Open finalize log file so TUI can show progress
@@ -708,7 +718,18 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 		t.Branch = e.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
 	}
 
-	// Run summarizer to generate task context (same as normal completion)
+	// Run on_complete action first (merge to unblock user)
+	action := e.cfg.Git.OnComplete
+	if action == "" {
+		action = "none"
+	}
+	logFn("Running on_complete action: %s", action)
+	if err := e.executeOnComplete(ctx, t, nil, logFn); err != nil {
+		logFn("Error: on_complete failed: %v", err)
+		return err
+	}
+
+	// Run summarizer after merge
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	if wf != nil {
 		if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
@@ -722,15 +743,9 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 		}
 	}
 
-	action := e.cfg.Git.OnComplete
-	if action == "" {
-		action = "none"
-	}
-	logFn("Running on_complete action: %s", action)
-
-	if err := e.executeOnComplete(ctx, t, nil, logFn); err != nil {
-		logFn("Error: on_complete failed: %v", err)
-		return err
+	// Clean up worktree after summarizer (if merge was performed)
+	if e.cfg.Git.OnComplete == "merge" && t.Worktree {
+		e.cleanupMergedWorktree(t, logFn)
 	}
 
 	logFn("=== Finalization completed ===")
