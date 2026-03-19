@@ -120,7 +120,7 @@ func TestUpdateViewportContent_SetsContentDirectly(t *testing.T) {
 	d := setupDetailView(nil)
 
 	d.output = []string{"hello", "world"}
-	d.updateViewportContent()
+	d.rebuildViewportContent()
 
 	// Verify the viewport received the content
 	view := d.viewport.View()

@@ -41,7 +41,7 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.view = viewDetail
 			m.detail.SetTask(m.taskInfo.task)
 			m.detail.SetFollowMode(true)
-			return m, m.loadOutput(m.taskInfo.task.ID)
+			return m, m.loadOutput(m.taskInfo.task.ID, 0)
 		}
 		return m, nil
 	}

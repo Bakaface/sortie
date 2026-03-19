@@ -548,15 +548,25 @@ func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {
 	if req.Step != "" {
 		logPath := workflow.ProjectLogPath(dataDir, req.TaskID, req.Step)
 		lines := readLogFile(logPath)
+		totalLines := len(lines)
+
+		if req.Offset > 0 {
+			if req.Offset >= len(lines) {
+				lines = nil
+			} else {
+				lines = lines[req.Offset:]
+			}
+		}
 
 		if req.Tail > 0 && len(lines) > req.Tail {
 			lines = lines[len(lines)-req.Tail:]
 		}
 
 		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
-			TaskID: req.TaskID,
-			Step:   req.Step,
-			Lines:  lines,
+			TaskID:     req.TaskID,
+			Step:       req.Step,
+			Lines:      lines,
+			TotalLines: totalLines,
 		})
 		return
 	}
@@ -579,14 +589,24 @@ func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {
 		lines := readLogFile(filepath.Join(logsDir, entry.Name()))
 		allLines = append(allLines, lines...)
 	}
+	totalLines := len(allLines)
+
+	if req.Offset > 0 {
+		if req.Offset >= len(allLines) {
+			allLines = nil
+		} else {
+			allLines = allLines[req.Offset:]
+		}
+	}
 
 	if req.Tail > 0 && len(allLines) > req.Tail {
 		allLines = allLines[len(allLines)-req.Tail:]
 	}
 
 	s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
-		TaskID: req.TaskID,
-		Lines:  allLines,
+		TaskID:     req.TaskID,
+		Lines:      allLines,
+		TotalLines: totalLines,
 	})
 }
 

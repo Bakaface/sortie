@@ -397,22 +397,23 @@ func (c *Client) AttachBranch(id int64) error {
 	return c.requestOK(daemon.MsgAttachBranch, daemon.AttachBranchRequest{TaskID: id})
 }
 
-func (c *Client) GetLogs(id int64, step string, tail int) ([]string, error) {
+func (c *Client) GetLogs(id int64, step string, tail int, offset int) ([]string, int, error) {
 	msg, err := c.request(daemon.MsgGetLogs, daemon.GetLogsRequest{
 		TaskID: id,
 		Step:   step,
 		Tail:   tail,
+		Offset: offset,
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	var resp daemon.GetLogsResponse
 	if err := msg.DecodePayload(&resp); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return resp.Lines, nil
+	return resp.Lines, resp.TotalLines, nil
 }
 
 func (c *Client) StopTask(id int64) error {

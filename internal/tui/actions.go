@@ -78,16 +78,21 @@ func (m Model) refreshTasks() tea.Cmd {
 	}
 }
 
-func (m Model) loadOutput(taskID int64) tea.Cmd {
+func (m Model) loadOutput(taskID int64, offset int) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
-		lines, err := m.client.GetLogs(taskID, "", 0)
+		lines, totalLines, err := m.client.GetLogs(taskID, "", 0, offset)
 		if err != nil {
 			return errorMsg(err)
 		}
-		return outputLoadedMsg{lines: lines, total: len(lines)}
+		return outputLoadedMsg{
+			taskID:     taskID,
+			lines:      lines,
+			totalLines: totalLines,
+			offset:     offset,
+		}
 	}
 }
 

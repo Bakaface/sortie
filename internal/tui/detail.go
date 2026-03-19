@@ -25,9 +25,10 @@ type detailView struct {
 	pendingG   bool
 	loading    bool // true while waiting for initial output load after task switch
 
-	// Performance: track content state to avoid redundant re-wraps
-	contentLineCount int  // number of lines last set on viewport
-	contentDirty     bool // true when content needs re-wrap (e.g. resize)
+	// Performance: track content state to avoid redundant processing
+	contentLineCount int    // number of lines last set on viewport
+	contentDirty     bool   // true when content needs re-wrap (e.g. resize)
+	cachedContent    string // cached joined content string to avoid re-joining
 }
 
 func newDetailView() detailView {
@@ -44,11 +45,52 @@ func (d *detailView) SetTask(task *daemon.TaskInfo) {
 		d.loading = true
 		d.contentDirty = true
 		d.contentLineCount = 0
+		d.cachedContent = ""
 	}
 	d.task = task
 	d.recalcViewport()
 }
 
+// AppendNewLines handles incremental log updates. It ANSI-strips only the new
+// lines, appends them to the existing output, and efficiently updates the
+// viewport content by extending the cached string rather than re-joining
+// everything.
+func (d *detailView) AppendNewLines(lines []string) {
+	d.loading = false
+	if len(lines) == 0 && !d.contentDirty {
+		return
+	}
+
+	// Strip ANSI only on the new lines
+	cleaned := make([]string, len(lines))
+	for i, line := range lines {
+		cleaned[i] = ansiRegex.ReplaceAllString(line, "")
+	}
+	d.output = append(d.output, cleaned...)
+
+	if d.contentDirty {
+		// Full rebuild needed (e.g. after resize)
+		d.rebuildViewportContent()
+	} else if len(cleaned) > 0 {
+		// Incremental append to cached content
+		newContent := strings.Join(cleaned, "\n")
+		if d.cachedContent == "" {
+			d.cachedContent = newContent
+		} else {
+			d.cachedContent += "\n" + newContent
+		}
+		d.setViewportContent(d.cachedContent)
+	}
+
+	d.contentLineCount = len(d.output)
+	d.contentDirty = false
+
+	if d.followMode {
+		d.viewport.GotoBottom()
+	}
+}
+
+// SetOutput replaces all output (used for full reload, e.g. task switch).
 func (d *detailView) SetOutput(lines []string) {
 	d.loading = false
 	// Skip expensive re-wrap if content hasn't changed
@@ -61,7 +103,9 @@ func (d *detailView) SetOutput(lines []string) {
 		cleaned[i] = ansiRegex.ReplaceAllString(line, "")
 	}
 	d.output = cleaned
-	d.updateViewportContent()
+	d.rebuildViewportContent()
+	d.contentLineCount = len(d.output)
+	d.contentDirty = false
 	if d.followMode {
 		d.viewport.GotoBottom()
 	}
@@ -70,7 +114,9 @@ func (d *detailView) SetOutput(lines []string) {
 func (d *detailView) AppendOutput(lines []string) {
 	d.output = append(d.output, lines...)
 	d.contentDirty = true
-	d.updateViewportContent()
+	d.rebuildViewportContent()
+	d.contentLineCount = len(d.output)
+	d.contentDirty = false
 	d.viewport.GotoBottom()
 }
 
@@ -117,20 +163,27 @@ func (d *detailView) recalcViewport() {
 	}
 
 	d.contentDirty = true
-	d.updateViewportContent()
+	d.rebuildViewportContent()
+	d.contentLineCount = len(d.output)
+	d.contentDirty = false
 }
 
-func (d *detailView) updateViewportContent() {
+// rebuildViewportContent rebuilds the cached content string from scratch
+// and sets it on the viewport. Used after resize or full content replacement.
+func (d *detailView) rebuildViewportContent() {
 	if !d.ready {
 		return
 	}
+	d.cachedContent = strings.Join(d.output, "\n")
+	d.setViewportContent(d.cachedContent)
+}
 
-	// Set content directly without expensive lipgloss full-content wrapping.
-	// The viewport's own View() method handles rendering visible lines.
-	content := strings.Join(d.output, "\n")
+// setViewportContent sets content on the viewport.
+func (d *detailView) setViewportContent(content string) {
+	if !d.ready {
+		return
+	}
 	d.viewport.SetContent(content)
-	d.contentLineCount = len(d.output)
-	d.contentDirty = false
 }
 
 func (d *detailView) ScrollUp() {
@@ -242,4 +295,3 @@ func (d *detailView) renderHelp() string {
 
 	return help.String()
 }
-

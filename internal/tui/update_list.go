@@ -200,7 +200,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.view = viewDetail
 			m.detail.SetTask(task)
 			m.detail.SetFollowMode(true)
-			return m, m.loadOutput(task.ID)
+			return m, m.loadOutput(task.ID, 0)
 		}
 		return m, nil
 

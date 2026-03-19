@@ -131,8 +131,10 @@ type editorFinishedMsg struct{ path string }
 type editorPromptFinishedMsg struct{ path string }
 type tasksLoadedMsg []daemon.TaskInfo
 type outputLoadedMsg struct {
-	lines []string
-	total int
+	taskID     int64    // which task this output belongs to (prevents stale data)
+	lines      []string // new lines since last fetch (or all lines if offset=0)
+	totalLines int      // total line count on server (used as next offset)
+	offset     int      // the offset used for this request (0 = full load)
 }
 type errorMsg error
 type tickMsg time.Time
@@ -301,7 +303,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case outputLoadedMsg:
-		m.detail.SetOutput(msg.lines)
+		// Ignore stale results from a previously viewed task
+		if m.detail.task == nil || msg.taskID != m.detail.task.ID {
+			return m, nil
+		}
+		if msg.offset > 0 {
+			// Incremental update: only new lines since last fetch
+			m.detail.AppendNewLines(msg.lines)
+		} else {
+			// Full load (first fetch or task switch)
+			m.detail.SetOutput(msg.lines)
+		}
 		return m, nil
 
 	case tickMsg:
@@ -316,7 +328,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.view == viewDetail && m.detail.task != nil && m.client != nil {
-			cmds = append(cmds, m.loadOutput(m.detail.task.ID))
+			cmds = append(cmds, m.loadOutput(m.detail.task.ID, m.detail.contentLineCount))
 		}
 
 		if m.client != nil && !m.list.refreshing {

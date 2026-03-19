@@ -393,7 +393,7 @@ var logsCmd = &cobra.Command{
 		}
 		defer c.Close()
 
-		lines, err := c.GetLogs(taskID, step, tail)
+		lines, _, err := c.GetLogs(taskID, step, tail, 0)
 		if err != nil {
 			return fmt.Errorf("failed to get logs: %w", err)
 		}
