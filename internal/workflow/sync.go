@@ -11,7 +11,9 @@ import (
 )
 
 // SyncPathsToWorktree syncs the configured paths from srcRoot into dstRoot.
-// Copy paths are fully copied (files and directories). Link paths are symlinked.
+// Copy paths are fully copied (files and directories). Link paths are hard-linked
+// so that Claude Code (which cannot follow symlinks outside its working directory)
+// can read the files directly.
 func SyncPathsToWorktree(srcRoot, dstRoot string, paths config.WorktreeSyncPathsConfig) error {
 	for _, p := range paths.Copy {
 		if err := copyPath(srcRoot, dstRoot, p); err != nil {
@@ -51,14 +53,19 @@ func copyPath(srcRoot, dstRoot, p string) error {
 	return nil
 }
 
-// linkPath creates a symlink at dstRoot/p pointing to srcRoot/p.
+// linkPath creates hard links from srcRoot/p to dstRoot/p.
+// Hard links are used instead of symlinks because Claude Code cannot follow
+// symlinks that resolve to paths outside its working directory. Hard links
+// share the same inode, so the file appears as a regular file within the worktree.
+// For directories, the directory structure is recreated and individual files are hard-linked.
 // If the destination already exists (e.g. from the worktree checkout), it is removed first.
 func linkPath(srcRoot, dstRoot, p string) error {
 	srcPath := filepath.Join(srcRoot, p)
 	dstPath := filepath.Join(dstRoot, p)
 
 	// Verify source exists
-	if _, err := os.Lstat(srcPath); err != nil {
+	info, err := os.Lstat(srcPath)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil // skip missing paths silently
 		}
@@ -75,10 +82,39 @@ func linkPath(srcRoot, dstRoot, p string) error {
 		return fmt.Errorf("remove existing %s: %w", p, err)
 	}
 
-	if err := os.Symlink(srcPath, dstPath); err != nil {
-		return fmt.Errorf("symlink %s: %w", p, err)
+	if info.IsDir() {
+		return hardLinkDir(srcPath, dstPath)
+	}
+	if err := os.Link(srcPath, dstPath); err != nil {
+		return fmt.Errorf("hard link %s: %w", p, err)
 	}
 	return nil
+}
+
+// hardLinkDir recreates the directory structure from src to dst and hard-links
+// all individual files. This is needed because hard links cannot target directories.
+func hardLinkDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+
+		if d.IsDir() {
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			return os.MkdirAll(target, info.Mode())
+		}
+
+		return os.Link(path, target)
+	})
 }
 
 // syncDir recursively copies a directory from src to dst, preserving permissions.

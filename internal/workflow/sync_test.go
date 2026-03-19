@@ -181,19 +181,28 @@ func TestSyncPathsToWorktreeLinkFile(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should be a symlink
-	linkDst, err := os.Readlink(filepath.Join(dst, "CLAUDE.md"))
+	// Should be a hard link (not a symlink) — same inode, regular file
+	srcInfo, err := os.Stat(filepath.Join(src, "CLAUDE.md"))
 	if err != nil {
-		t.Fatalf("expected symlink, got error: %v", err)
+		t.Fatalf("failed to stat source: %v", err)
 	}
-	if linkDst != filepath.Join(src, "CLAUDE.md") {
-		t.Errorf("expected symlink to %q, got %q", filepath.Join(src, "CLAUDE.md"), linkDst)
+	dstInfo, err := os.Stat(filepath.Join(dst, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("failed to stat destination: %v", err)
+	}
+	if !os.SameFile(srcInfo, dstInfo) {
+		t.Error("expected hard link (same inode), got different files")
 	}
 
-	// Content should be readable through the symlink
+	// Should NOT be a symlink
+	if _, err := os.Readlink(filepath.Join(dst, "CLAUDE.md")); err == nil {
+		t.Error("expected regular file (hard link), not a symlink")
+	}
+
+	// Content should be readable directly
 	data, err := os.ReadFile(filepath.Join(dst, "CLAUDE.md"))
 	if err != nil {
-		t.Fatalf("failed to read through symlink: %v", err)
+		t.Fatalf("failed to read hard-linked file: %v", err)
 	}
 	if string(data) != "instructions" {
 		t.Errorf("expected 'instructions', got %q", string(data))
@@ -206,6 +215,7 @@ func TestSyncPathsToWorktreeLinkDirectory(t *testing.T) {
 
 	os.MkdirAll(filepath.Join(src, ".claude", "skills"), 0755)
 	os.WriteFile(filepath.Join(src, ".claude", "settings.json"), []byte(`{"key":"val"}`), 0644)
+	os.WriteFile(filepath.Join(src, ".claude", "skills", "review.md"), []byte("review skill"), 0644)
 
 	err := SyncPathsToWorktree(src, dst, config.WorktreeSyncPathsConfig{
 		Link: []string{".claude"},
@@ -214,19 +224,48 @@ func TestSyncPathsToWorktreeLinkDirectory(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should be a symlink
-	linkDst, err := os.Readlink(filepath.Join(dst, ".claude"))
-	if err != nil {
-		t.Fatalf("expected symlink, got error: %v", err)
+	// Directory itself should NOT be a symlink — it should be a real directory
+	if _, err := os.Readlink(filepath.Join(dst, ".claude")); err == nil {
+		t.Error("expected real directory, not a symlink")
 	}
-	if linkDst != filepath.Join(src, ".claude") {
-		t.Errorf("expected symlink to %q, got %q", filepath.Join(src, ".claude"), linkDst)
+	info, err := os.Stat(filepath.Join(dst, ".claude"))
+	if err != nil {
+		t.Fatalf("failed to stat .claude dir: %v", err)
+	}
+	if !info.IsDir() {
+		t.Error("expected .claude to be a directory")
 	}
 
-	// Content should be accessible through the symlink
+	// Files inside should be hard links (same inode as source)
+	srcInfo, err := os.Stat(filepath.Join(src, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("failed to stat source settings: %v", err)
+	}
+	dstInfo, err := os.Stat(filepath.Join(dst, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("failed to stat destination settings: %v", err)
+	}
+	if !os.SameFile(srcInfo, dstInfo) {
+		t.Error("expected settings.json to be a hard link (same inode)")
+	}
+
+	// Nested files should also be hard-linked
+	srcInfo, err = os.Stat(filepath.Join(src, ".claude", "skills", "review.md"))
+	if err != nil {
+		t.Fatalf("failed to stat source review.md: %v", err)
+	}
+	dstInfo, err = os.Stat(filepath.Join(dst, ".claude", "skills", "review.md"))
+	if err != nil {
+		t.Fatalf("failed to stat destination review.md: %v", err)
+	}
+	if !os.SameFile(srcInfo, dstInfo) {
+		t.Error("expected review.md to be a hard link (same inode)")
+	}
+
+	// Content should be accessible
 	data, err := os.ReadFile(filepath.Join(dst, ".claude", "settings.json"))
 	if err != nil {
-		t.Fatalf("failed to read through symlinked dir: %v", err)
+		t.Fatalf("failed to read hard-linked settings: %v", err)
 	}
 	if string(data) != `{"key":"val"}` {
 		t.Errorf("expected settings content, got %q", string(data))
@@ -249,9 +288,11 @@ func TestSyncPathsToWorktreeLinkReplacesExisting(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Should be a symlink now
-	if _, err := os.Readlink(filepath.Join(dst, "CLAUDE.md")); err != nil {
-		t.Fatalf("expected symlink, got error: %v", err)
+	// Should be a hard link (same inode as source)
+	srcInfo, _ := os.Stat(filepath.Join(src, "CLAUDE.md"))
+	dstInfo, _ := os.Stat(filepath.Join(dst, "CLAUDE.md"))
+	if !os.SameFile(srcInfo, dstInfo) {
+		t.Error("expected hard link (same inode)")
 	}
 
 	data, _ := os.ReadFile(filepath.Join(dst, "CLAUDE.md"))
@@ -290,12 +331,16 @@ func TestSyncPathsToWorktreeLinkNestedPath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	linkDst, err := os.Readlink(filepath.Join(dst, "deep", "path", "file.txt"))
-	if err != nil {
-		t.Fatalf("expected symlink: %v", err)
+	// Should be a hard link (same inode)
+	srcInfo, _ := os.Stat(filepath.Join(src, "deep", "path", "file.txt"))
+	dstInfo, _ := os.Stat(filepath.Join(dst, "deep", "path", "file.txt"))
+	if !os.SameFile(srcInfo, dstInfo) {
+		t.Error("expected hard link (same inode)")
 	}
-	if linkDst != filepath.Join(src, "deep", "path", "file.txt") {
-		t.Errorf("expected symlink to source, got %q", linkDst)
+
+	data, _ := os.ReadFile(filepath.Join(dst, "deep", "path", "file.txt"))
+	if string(data) != "nested" {
+		t.Errorf("expected 'nested', got %q", string(data))
 	}
 }
 
@@ -329,9 +374,17 @@ func TestSyncPathsToWorktreeMixed(t *testing.T) {
 		t.Errorf("expected 'module', got %q", string(data))
 	}
 
-	// CLAUDE.md should be symlinked
-	if _, err := os.Readlink(filepath.Join(dst, "CLAUDE.md")); err != nil {
-		t.Fatalf("expected CLAUDE.md to be a symlink: %v", err)
+	// CLAUDE.md should be hard-linked (not a symlink)
+	srcInfo, err := os.Stat(filepath.Join(src, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("failed to stat source CLAUDE.md: %v", err)
+	}
+	dstClaudeInfo, err := os.Stat(filepath.Join(dst, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("failed to stat destination CLAUDE.md: %v", err)
+	}
+	if !os.SameFile(srcInfo, dstClaudeInfo) {
+		t.Error("expected CLAUDE.md to be a hard link (same inode)")
 	}
 	data, _ = os.ReadFile(filepath.Join(dst, "CLAUDE.md"))
 	if string(data) != "instructions" {
