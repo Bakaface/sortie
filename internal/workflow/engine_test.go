@@ -870,6 +870,146 @@ func TestCleanupMergedWorktreePreservesCheckoutBranch(t *testing.T) {
 	}
 }
 
+func TestRunTaskDoesNotSetSummarizingStatus(t *testing.T) {
+	// Verify that after RunTask completes all steps, the task status is NOT
+	// StatusCompleted or StatusSummarizing — finalization is now the daemon's job.
+	dir := t.TempDir()
+
+	// Create a git repo so worktree operations don't fail
+	if err := os.MkdirAll(filepath.Join(dir, ".git"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a fake Claude script that exits successfully
+	script := filepath.Join(t.TempDir(), "fake-claude.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho 'done'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+
+	tk, err := database.CreateTask(project.ID, "Test task", "A test task", "test-task", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+	// No-worktree mode so we don't need a real git repo with worktree support
+	tk.Worktree = false
+	tk.WorktreePath = dir
+
+	cfg := &config.Config{
+		Claude: config.ClaudeConfig{Command: script},
+		Git:    config.GitConfig{OnComplete: "merge"},
+		Workflows: []config.WorkflowConfig{
+			{
+				Name: "default",
+				Steps: []config.StepConfig{
+					{Name: "implement", Prompt: "implement the thing"},
+				},
+			},
+		},
+	}
+	engine := NewEngine(cfg, database, nil, dir)
+
+	ctx := context.Background()
+	err = engine.RunTask(ctx, tk, nil)
+	if err != nil {
+		t.Fatalf("RunTask failed: %v", err)
+	}
+
+	// After RunTask, the task should NOT be StatusSummarizing or StatusCompleted.
+	// The daemon handles finalization after agent completion.
+	refreshed, err := database.GetTask(tk.ID)
+	if err != nil {
+		t.Fatalf("failed to get task: %v", err)
+	}
+	if refreshed.Status == task.StatusSummarizing {
+		t.Error("RunTask should not set StatusSummarizing — that is the daemon's job now")
+	}
+	if refreshed.Status == task.StatusCompleted {
+		t.Error("RunTask should not set StatusCompleted — that is the daemon's job now")
+	}
+}
+
+func TestRunTaskDoesNotCallExecuteOnComplete(t *testing.T) {
+	// Verify the finalization order: RunTask should return nil after all steps
+	// without doing merge/summarize/cleanup. The comment in code documents this.
+
+	// This is a structural test — we verify RunTask exits cleanly with nil
+	// and the task remains in its running state (no status change to summarizing/completed).
+	dir := t.TempDir()
+
+	script := filepath.Join(t.TempDir(), "fake-claude.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho 'done'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+
+	// Test with on_complete: none — RunTask should still just return nil
+	// (previously it would call executeOnComplete then summarizer)
+	tk, err := database.CreateTask(project.ID, "No finalization task", "desc", "slug", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+	tk.Worktree = false
+	tk.WorktreePath = dir
+
+	cfg := &config.Config{
+		Claude: config.ClaudeConfig{Command: script},
+		Git:    config.GitConfig{OnComplete: "none"},
+		Workflows: []config.WorkflowConfig{
+			{
+				Name: "default",
+				Steps: []config.StepConfig{
+					{Name: "step1", Prompt: "do something"},
+				},
+			},
+		},
+	}
+	engine := NewEngine(cfg, database, nil, dir)
+
+	ctx := context.Background()
+	if err := engine.RunTask(ctx, tk, nil); err != nil {
+		t.Fatalf("RunTask returned error: %v", err)
+	}
+
+	// Verify task status is still running (not changed by RunTask itself)
+	refreshed, err := database.GetTask(tk.ID)
+	if err != nil {
+		t.Fatalf("failed to get task: %v", err)
+	}
+	switch refreshed.Status {
+	case task.StatusSummarizing, task.StatusCompleted, task.StatusFinalizing:
+		t.Errorf("RunTask should not change task status to %s — daemon handles finalization", refreshed.Status)
+	}
+}
+
 func TestTmuxScriptNonEmptyPromptPassesPrompt(t *testing.T) {
 	// Verify that when prompt is non-empty, the tmux script passes it to Claude
 	prompt := "implement the feature"

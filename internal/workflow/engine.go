@@ -403,55 +403,8 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 	}
 
-	// All steps completed — execute on_complete action (merge to unblock user)
-	if err := e.executeOnComplete(ctx, t, outputFn, nil); err != nil {
-		return fmt.Errorf("on_complete action failed: %w", err)
-	}
-
-	// Run summarizer to generate task context
-	if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
-		log.Printf("Warning: failed to set summarizing status for task #%d: %v", t.ID, err)
-	}
-
-	// Open summarizer log file so TUI can show progress
-	summarizerLogPath := ProjectLogPath(e.dataDir, t.ID, "summarizer")
-	summarizerLogFile, summarizerLogErr := os.OpenFile(summarizerLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if summarizerLogErr != nil {
-		log.Printf("Warning: failed to open summarizer log for task #%d: %v", t.ID, summarizerLogErr)
-	}
-	summarizerLogFn := func(format string, args ...any) {
-		msg := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
-		if summarizerLogFile != nil {
-			summarizerLogFile.WriteString(msg + "\n")
-		}
-	}
-
-	if err := e.runSummarizer(ctx, t, wf, summarizerLogFn); err != nil {
-		log.Printf("Warning: summarizer failed for task #%d: %v", t.ID, err)
-	}
-
-	// Retry summarizer once if verify_summarizer is enabled and context is empty
-	if e.cfg.Verification.VerifySummarizer && strings.TrimSpace(t.Context) == "" {
-		log.Printf("Task #%d: summarizer produced empty output, retrying", t.ID)
-		if err := e.runSummarizer(ctx, t, wf, summarizerLogFn); err != nil {
-			log.Printf("Warning: summarizer retry failed for task #%d: %v", t.ID, err)
-		}
-		if strings.TrimSpace(t.Context) == "" {
-			log.Printf("Warning: summarizer still empty after retry for task #%d", t.ID)
-		}
-	}
-
-	if summarizerLogFile != nil {
-		summarizerLogFile.Close()
-	}
-
-	// Clean up worktree after merge (if applicable)
-	if e.cfg.Git.OnComplete == "merge" && t.Worktree {
-		e.cleanupMergedWorktree(t, func(format string, args ...any) {
-			log.Printf("Task #%d: "+format, append([]any{t.ID}, args...)...)
-		})
-	}
-
+	// All steps completed — merge, summarization, and cleanup
+	// are handled by the daemon on agent completion.
 	return nil
 }
 

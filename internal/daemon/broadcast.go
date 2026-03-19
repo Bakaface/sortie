@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/aface/sortie/internal/agent"
+	gitpkg "github.com/aface/sortie/internal/git"
 	"github.com/aface/sortie/internal/task"
 	"github.com/aface/sortie/internal/tmux"
 )
@@ -30,20 +31,17 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 			return
 		}
 
-		log.Printf("%sAgent %s completed task #%d", prefix, a.ID, a.Task.ID)
-		if err := s.database.UpdateTaskStatus(a.Task.ID, task.StatusCompleted); err != nil {
-			log.Printf("%sFailed to update task status: %v", prefix, err)
-		}
+		log.Printf("%sAgent %s completed task #%d, starting finalization", prefix, a.ID, a.Task.ID)
+
+		// Kill tmux sessions before finalization
 		if pc, err := s.getProjectContext(a.Task.ProjectID); err == nil {
 			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, a.ID); err != nil {
 				log.Printf("%sWarning: failed to kill tmux sessions for task %s: %v", prefix, a.ID, err)
 			}
 		}
-		if err := s.notifier.AgentCompleted(a.ID, taskTitle); err != nil {
-			log.Printf("%sWarning: notification failed: %v", prefix, err)
-		}
 
-		s.checkProjectTasksDone(a.Task.ProjectID)
+		// Run merge + summarization + completion asynchronously
+		go s.finalizeCompletedTask(a.Task, a.ID, taskTitle)
 
 	case agent.StateFailed:
 		log.Printf("%sAgent %s failed task #%d: %s", prefix, a.ID, a.Task.ID, a.Error)
@@ -66,6 +64,61 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 			log.Printf("%sWarning: notification failed: %v", prefix, err)
 		}
 	}
+}
+
+// finalizeCompletedTask handles merge, summarization, and completion for a
+// task whose agent has finished running all workflow steps.
+func (s *Server) finalizeCompletedTask(t *task.Task, agentID string, taskTitle string) {
+	prefix := s.projectLogPrefix(t.ProjectID)
+
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		log.Printf("%sWarning: failed to get project context for task #%d, marking completed: %v", prefix, t.ID, err)
+		if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
+			log.Printf("%sFailed to update task status: %v", prefix, err)
+		}
+		s.broadcastTaskUpdate(t.ID)
+		if err := s.notifier.AgentCompleted(agentID, taskTitle); err != nil {
+			log.Printf("%sWarning: notification failed: %v", prefix, err)
+		}
+		s.checkProjectTasksDone(t.ProjectID)
+		return
+	}
+
+	// Fast-track: if no meaningful changes, skip finalization
+	if t.WorktreePath != "" && t.Worktree {
+		hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
+		if err != nil {
+			log.Printf("%sWarning: failed to check for meaningful changes for task #%d: %v", prefix, t.ID, err)
+		} else if !hasChanges {
+			log.Printf("%sTask #%d: no meaningful changes detected, fast-tracking to completed", prefix, t.ID)
+			s.cleanupWorktreeAndBranch(pc, t)
+			if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
+				log.Printf("%sError: failed to mark task #%d as completed: %v", prefix, t.ID, err)
+			}
+			s.broadcastTaskUpdate(t.ID)
+			if err := s.notifier.AgentCompleted(agentID, taskTitle); err != nil {
+				log.Printf("%sWarning: notification failed: %v", prefix, err)
+			}
+			s.checkProjectTasksDone(t.ProjectID)
+			return
+		}
+	}
+
+	// Set finalizing status
+	if err := s.database.UpdateTaskStatus(t.ID, task.StatusFinalizing); err != nil {
+		log.Printf("%sWarning: failed to set finalizing status for task #%d: %v", prefix, t.ID, err)
+	}
+	s.broadcastTaskUpdate(t.ID)
+
+	// Run merge → summarize → cleanup → complete
+	s.runFinalization(t, pc)
+
+	log.Printf("%sAgent %s completed task #%d", prefix, agentID, t.ID)
+	if err := s.notifier.AgentCompleted(agentID, taskTitle); err != nil {
+		log.Printf("%sWarning: notification failed: %v", prefix, err)
+	}
+	s.checkProjectTasksDone(t.ProjectID)
 }
 
 func (s *Server) checkProjectTasksDone(projectID int64) {
