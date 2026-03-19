@@ -74,7 +74,7 @@ func TestCreateTaskRequest_EmptyDescriptionWithCheckoutBranch(t *testing.T) {
 			name:           "empty description with checkout branch generates branch title",
 			description:    "",
 			checkoutBranch: "feature/my-feature",
-			wantTitle:      "Branch feature/my-feature",
+			wantTitle:      "⎇ feature/my-feature",
 			wantError:      false,
 		},
 		{
@@ -112,7 +112,7 @@ func TestCreateTaskRequest_EmptyDescriptionWithCheckoutBranch(t *testing.T) {
 			// Simulate the title generation logic
 			var title string
 			if description == "" && tt.checkoutBranch != "" {
-				title = "Branch " + tt.checkoutBranch
+				title = "⎇ " + tt.checkoutBranch
 			} else {
 				title = task.SanitizeTitle(description)
 			}
@@ -127,7 +127,7 @@ func TestCreateTaskRequest_EmptyDescriptionWithCheckoutBranch(t *testing.T) {
 func TestRefineTaskTitle_SkipsAIForEmptyDescription(t *testing.T) {
 	// When description is empty (existing branch mode), refineTaskTitle should
 	// use the initial title directly without calling generateTitle
-	initialTitle := "Branch feature/my-branch"
+	initialTitle := "⎇ feature/my-branch"
 	description := ""
 
 	// Simulate the logic from refineTaskTitle

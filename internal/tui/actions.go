@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	gitpkg "github.com/aface/sortie/internal/git"
 	"github.com/aface/sortie/internal/client"
 	"github.com/aface/sortie/internal/daemon"
 	"github.com/aface/sortie/internal/tmux"
@@ -493,4 +494,71 @@ func (m Model) checkTmuxSessions() tea.Cmd {
 		}
 		return tmuxSessionsMsg(result)
 	}
+}
+
+type branchesLoadedMsg []string
+
+func (m Model) loadLocalBranches() tea.Cmd {
+	return func() tea.Msg {
+		branches, err := gitpkg.ListLocalBranches(m.projectPath)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to list branches: %w", err))
+		}
+		if len(branches) == 0 {
+			return errorMsg(fmt.Errorf("no local branches found"))
+		}
+		return branchesLoadedMsg(branches)
+	}
+}
+
+func (m Model) createBranchTask(branch string) tea.Cmd {
+	return func() tea.Msg {
+		if m.client == nil {
+			return nil
+		}
+
+		worktree := true
+		req := daemon.CreateTaskRequest{
+			CheckoutBranch: branch,
+			ProjectPath:    m.projectPath,
+			Worktree:       &worktree,
+			TmuxDirect:     true,
+		}
+		info, err := m.client.CreateTaskWithOptions(req)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to create branch task: %w", err))
+		}
+
+		return taskCreatedMsg(*info)
+	}
+}
+
+// fuzzyFilterBranches returns branches that match the query using fuzzy matching.
+// Characters in the query must appear in order in the branch name, but not necessarily contiguously.
+func fuzzyFilterBranches(branches []string, query string) []string {
+	if query == "" {
+		result := make([]string, len(branches))
+		copy(result, branches)
+		return result
+	}
+
+	query = strings.ToLower(query)
+	var result []string
+	for _, b := range branches {
+		if fuzzyMatch(strings.ToLower(b), query) {
+			result = append(result, b)
+		}
+	}
+	return result
+}
+
+// fuzzyMatch returns true if all characters in pattern appear in str in order.
+func fuzzyMatch(str, pattern string) bool {
+	pi := 0
+	for i := 0; i < len(str) && pi < len(pattern); i++ {
+		if str[i] == pattern[pi] {
+			pi++
+		}
+	}
+	return pi == len(pattern)
 }

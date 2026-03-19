@@ -628,7 +628,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	// When using existing branch with empty description, generate title from branch name
 	var title string
 	if description == "" && req.CheckoutBranch != "" {
-		title = "Branch " + req.CheckoutBranch
+		title = "⎇ " + req.CheckoutBranch
 	} else {
 		title = task.SanitizeTitle(description)
 	}
@@ -679,7 +679,11 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
 
-	go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, t.CheckoutBranch, description, title)
+	if req.TmuxDirect {
+		go s.setupTmuxDirect(t.ID, t.ProjectID, title)
+	} else {
+		go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, t.CheckoutBranch, description, title)
+	}
 }
 
 func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string, initialTitle string) {
@@ -737,6 +741,99 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, wor
 
 	s.broadcastTaskUpdate(taskID)
 	log.Printf("%sAI title for task #%d: %s (branch: %s)", s.projectLogPrefix(projectID), taskID, title, branch)
+}
+
+// setupTmuxDirect creates a tmux session for a task that should go directly into tmux state,
+// skipping the normal workflow. Used for branch tasks created via the "b" keybind.
+func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
+	slug := task.Slugify(title)
+
+	t, err := s.database.GetTask(taskID)
+	if err != nil {
+		log.Printf("%sFailed to get task #%d for tmux-direct: %v", s.projectLogPrefix(projectID), taskID, err)
+		return
+	}
+
+	pc, err := s.getProjectContext(projectID)
+	if err != nil {
+		log.Printf("%sFailed to get project context for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+		return
+	}
+
+	// Resolve branch
+	branch := t.CheckoutBranch
+
+	if err := s.database.FinalizeTaskIdentity(taskID, title, slug, branch); err != nil {
+		log.Printf("%sFailed to finalize identity for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+		return
+	}
+
+	// Ensure worktree exists
+	if err := s.ensureWorktree(t, pc); err != nil {
+		log.Printf("%sFailed to ensure worktree for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+		return
+	}
+
+	if !tmux.IsAvailable() {
+		log.Printf("%sTmux not available for tmux-direct task #%d", s.projectLogPrefix(projectID), taskID)
+		return
+	}
+
+	// Create tmux session
+	taskIDStr := fmt.Sprintf("%d", taskID)
+	session := tmux.NewSession(pc.cfg.Project.Name, taskIDStr, t.WorktreePath)
+
+	if session.Exists() {
+		session.Kill()
+	}
+
+	sortieDir := filepath.Join(t.WorktreePath, ".sortie")
+	if err := os.MkdirAll(sortieDir, 0755); err != nil {
+		log.Printf("%sFailed to create sortie dir for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+		return
+	}
+	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
+
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Yolo); err != nil {
+		log.Printf("%sFailed to write claude script for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+		return
+	}
+
+	setupCmd := pc.cfg.TmuxSetupCommand
+	if tmux.SetupCommandControlsAgent(setupCmd) {
+		if err := session.Create(""); err != nil {
+			log.Printf("%sFailed to create tmux session for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+			return
+		}
+	} else {
+		if err := session.Create("bash", scriptFile); err != nil {
+			log.Printf("%sFailed to create tmux session for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+			return
+		}
+	}
+
+	// Run tmux setup command if configured
+	if setupCmd != "" {
+		claudeCmd := "claude"
+		if pc.cfg.Claude.Yolo {
+			claudeCmd += " --dangerously-skip-permissions"
+		}
+		vars := &tmux.SetupVars{
+			ClaudeCommand: claudeCmd,
+			RunAgent:      scriptFile,
+		}
+		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
+			log.Printf("%sWarning: tmux setup command failed for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+		}
+	}
+
+	if err := s.database.UpdateTaskStatus(taskID, task.StatusTmux); err != nil {
+		log.Printf("%sFailed to update status for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+		return
+	}
+
+	s.broadcastTaskUpdate(taskID)
+	log.Printf("%sTmux-direct session started for task #%d (tmux: %s)", s.projectLogPrefix(projectID), taskID, session.Name)
 }
 
 func (s *Server) generateTitle(ctx context.Context, description string, claude *config.ClaudeConfig) (string, error) {

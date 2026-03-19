@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -170,6 +171,37 @@ func RebaseBranch(worktreePath, baseBranch string) error {
 	}
 
 	return nil
+}
+
+// ListLocalBranches returns a sorted list of local branch names in the given
+// repository, excluding the currently checked-out branch.
+func ListLocalBranches(repoRoot string) ([]string, error) {
+	currentBranch, err := GetCurrentBranch(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd := exec.Command("git", "branch", "--list", "--format=%(refname:short)")
+	cmd.Dir = repoRoot
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git branch --list failed: %w (stderr: %s)", err, stderr.String())
+	}
+
+	var branches []string
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && line != currentBranch {
+			branches = append(branches, line)
+		}
+	}
+
+	sort.Strings(branches)
+	return branches, nil
 }
 
 func DeleteBranch(repoRoot, branch string) error {

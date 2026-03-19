@@ -40,6 +40,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleContinueWorkflowSelectKey(msg)
 	}
 
+	// Handle branch selection if active
+	if m.selectingBranch {
+		return m.handleBranchSelectKey(msg)
+	}
+
 	// Handle artifact selection if active
 	if m.selectingArtifact {
 		return m.handleArtifactSelectKey(msg)
@@ -361,6 +366,12 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if task.Worktree && task.WorktreePath != "" && task.WorktreeDetached {
 				return m, m.attachBranch(task.ID)
 			}
+		}
+		return m, nil
+
+	case "b":
+		if m.client != nil && m.projectPath != "" {
+			return m, m.loadLocalBranches()
 		}
 		return m, nil
 
@@ -821,6 +832,75 @@ func (m Model) handleContinueWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.C
 			m.prompt.Reset()
 			m.prompt.workflowName = workflow
 			m.prompt.Focus()
+			return m, nil
+		}
+	}
+
+	return m, nil
+}
+
+func (m Model) handleBranchSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	keyStr := msg.String()
+
+	// Handle "gg" sequence for go-to-top
+	if keyStr == "g" {
+		if m.branchPendingG {
+			m.branchPendingG = false
+			m.branchCursor = 0
+			return m, nil
+		}
+		m.branchPendingG = true
+		return m, nil
+	}
+	m.branchPendingG = false
+
+	switch keyStr {
+	case "up", "ctrl+k", "ctrl+p":
+		if m.branchCursor > 0 {
+			m.branchCursor--
+		}
+		return m, nil
+	case "down", "ctrl+j", "ctrl+n":
+		if m.branchCursor < len(m.branchFiltered)-1 {
+			m.branchCursor++
+		}
+		return m, nil
+	case "G":
+		m.branchCursor = max(0, len(m.branchFiltered)-1)
+		return m, nil
+	case "ctrl+d", "pgdown":
+		half := max(1, len(m.branchFiltered)/2)
+		m.branchCursor = min(m.branchCursor+half, len(m.branchFiltered)-1)
+		return m, nil
+	case "ctrl+u", "pgup":
+		half := max(1, len(m.branchFiltered)/2)
+		m.branchCursor = max(m.branchCursor-half, 0)
+		return m, nil
+	case "enter":
+		if len(m.branchFiltered) > 0 {
+			branch := m.branchFiltered[m.branchCursor]
+			m.selectingBranch = false
+			m.branchFilter = ""
+			return m, m.createBranchTask(branch)
+		}
+		return m, nil
+	case "esc":
+		m.selectingBranch = false
+		m.branchFilter = ""
+		return m, nil
+	case "backspace":
+		if len(m.branchFilter) > 0 {
+			m.branchFilter = m.branchFilter[:len(m.branchFilter)-1]
+			m.branchFiltered = fuzzyFilterBranches(m.branchList, m.branchFilter)
+			m.branchCursor = 0
+		}
+		return m, nil
+	default:
+		// Accept printable characters for fuzzy search
+		if len(keyStr) == 1 && keyStr[0] >= ' ' && keyStr[0] <= '~' {
+			m.branchFilter += keyStr
+			m.branchFiltered = fuzzyFilterBranches(m.branchList, m.branchFilter)
+			m.branchCursor = 0
 			return m, nil
 		}
 	}

@@ -80,6 +80,14 @@ type Model struct {
 	priorityPendingG  bool
 	priorityTaskID    int64
 
+	// Branch selection state (for "b" keybind — fuzzy-searchable branch picker)
+	selectingBranch bool
+	branchCursor    int
+	branchPendingG  bool
+	branchList      []string // all local branches
+	branchFilter    string   // fuzzy search input
+	branchFiltered  []string // branches matching the filter
+
 	// Artifact pending key state
 	pendingO bool // tracks first "o" press for oa sequence
 	pendingE bool // tracks first "e" press for ea sequence
@@ -258,6 +266,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case artifactLoadedMsg:
 		m.artifactView.SetContent(msg.name, msg.content)
 		m.view = viewArtifact
+		return m, nil
+
+	case branchesLoadedMsg:
+		m.branchList = msg
+		m.branchFiltered = make([]string, len(msg))
+		copy(m.branchFiltered, msg)
+		m.branchFilter = ""
+		m.branchCursor = 0
+		m.selectingBranch = true
 		return m, nil
 
 	case tmuxDetachedMsg:
@@ -475,6 +492,46 @@ func (m Model) View() string {
 			}
 		}
 		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | 1-9: quick select | esc: cancel"))
+		return b.String()
+	}
+
+	// Show branch selection as its own screen (fuzzy-searchable)
+	if m.selectingBranch {
+		var b strings.Builder
+		b.WriteString(titleStyle.Render(" Select Branch ") + "\n\n")
+
+		if m.branchFilter != "" {
+			b.WriteString("  " + dimStyle.Render("filter: ") + m.branchFilter + "█\n\n")
+		}
+
+		// Calculate visible window for scrolling
+		maxVisible := m.height - 7 // account for header, filter, footer
+		if maxVisible < 1 {
+			maxVisible = 10
+		}
+		branches := m.branchFiltered
+		startIdx := 0
+		if m.branchCursor >= maxVisible {
+			startIdx = m.branchCursor - maxVisible + 1
+		}
+		endIdx := startIdx + maxVisible
+		if endIdx > len(branches) {
+			endIdx = len(branches)
+		}
+
+		if len(branches) == 0 {
+			b.WriteString("  " + dimStyle.Render("no matching branches") + "\n")
+		} else {
+			for i := startIdx; i < endIdx; i++ {
+				label := "  " + branches[i]
+				if i == m.branchCursor {
+					b.WriteString(selectedStyle.Render("> "+label) + "\n")
+				} else {
+					b.WriteString("    " + label + "\n")
+				}
+			}
+		}
+		b.WriteString("\n" + dimStyle.Render("  type to filter | enter: select | esc: cancel"))
 		return b.String()
 	}
 
