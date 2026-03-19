@@ -51,6 +51,99 @@ func TestGetAllTasks_SortedDescending(t *testing.T) {
 	}
 }
 
+func TestGetAllTasks_TmuxTasksSortedFirst(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a mix of pending and tmux tasks
+	pending1, err := database.CreateTask(proj.ID, "Pending 1", "desc", "pending-1", "", "", task.StatusPending, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux1, err := database.CreateTask(proj.ID, "Tmux 1", "desc", "tmux-1", "", "", task.StatusTmux, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending2, err := database.CreateTask(proj.ID, "Pending 2", "desc", "pending-2", "", "", task.StatusPending, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux2, err := database.CreateTask(proj.ID, "Tmux 2", "desc", "tmux-2", "", "", task.StatusTmux, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tasks, err := database.GetAllTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 4 {
+		t.Fatalf("expected 4 tasks, got %d", len(tasks))
+	}
+
+	// Tmux tasks should come first (sorted by ID desc within group), then non-tmux (sorted by ID desc)
+	if tasks[0].ID != tmux2.ID {
+		t.Errorf("expected first task to be tmux2 (ID=%d), got ID=%d", tmux2.ID, tasks[0].ID)
+	}
+	if tasks[1].ID != tmux1.ID {
+		t.Errorf("expected second task to be tmux1 (ID=%d), got ID=%d", tmux1.ID, tasks[1].ID)
+	}
+	if tasks[2].ID != pending2.ID {
+		t.Errorf("expected third task to be pending2 (ID=%d), got ID=%d", pending2.ID, tasks[2].ID)
+	}
+	if tasks[3].ID != pending1.ID {
+		t.Errorf("expected fourth task to be pending1 (ID=%d), got ID=%d", pending1.ID, tasks[3].ID)
+	}
+}
+
+func TestGetTasksByProject_TmuxTasksSortedFirst(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pending1, err := database.CreateTask(proj.ID, "Pending 1", "desc", "pending-1", "", "", task.StatusPending, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux1, err := database.CreateTask(proj.ID, "Tmux 1", "desc", "tmux-1", "", "", task.StatusTmux, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tasks, err := database.GetTasksByProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+
+	// Tmux task should be first
+	if tasks[0].ID != tmux1.ID {
+		t.Errorf("expected first task to be tmux (ID=%d), got ID=%d", tmux1.ID, tasks[0].ID)
+	}
+	if tasks[1].ID != pending1.ID {
+		t.Errorf("expected second task to be pending (ID=%d), got ID=%d", pending1.ID, tasks[1].ID)
+	}
+}
+
 func TestGetTasksByProject_SortedDescending(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := Open(dbPath)

@@ -119,7 +119,7 @@ func (db *DB) GetClaimableTasks() ([]*task.Task, error) {
 }
 
 func (db *DB) GetAllTasks() ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks ORDER BY id DESC`, taskColumns))
+	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns))
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (db *DB) GetAllTasks() ([]*task.Task, error) {
 
 // GetTasksByProject returns all tasks for a specific project.
 func (db *DB) GetTasksByProject(projectID int64) ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id = ? ORDER BY id DESC`, taskColumns), projectID)
+	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id = ? ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns), projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func (db *DB) GetTasksByProject(projectID int64) ([]*task.Task, error) {
 
 // GetTasksByProjectName returns all tasks for projects matching the given name.
 func (db *DB) GetTasksByProjectName(name string) ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name = ?) ORDER BY id DESC`, taskColumns), name)
+	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name = ?) ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns), name)
 	if err != nil {
 		return nil, err
 	}
