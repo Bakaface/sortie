@@ -4,6 +4,11 @@ description = "Build the sortie binary"
 run = "go build -o ~/bin/sortie ./cmd/sortie"
 
 [tasks.daemon]
+alias = "d"
+description = "Start the daemon"
+run = "sortie daemon start"
+
+[tasks."daemon:fg"]
 description = "Start the daemon in foreground mode"
 run = "./sortie daemon start -f"
 depends = ["build"]
@@ -12,8 +17,12 @@ depends = ["build"]
 description = "Open SQLite database console"
 run = "sqlite3 $(git rev-parse --show-toplevel)/.sortie/tasks.db"
 
-[tasks.test]
+[tasks.tui]
 alias = "t"
+description = "Launch the TUI"
+run = "sortie tui"
+
+[tasks.test]
 description = "Run unit tests"
 run = "go test ./..."
 
