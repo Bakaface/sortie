@@ -259,6 +259,43 @@ func TestUpdateTaskPriority(t *testing.T) {
 	}
 }
 
+func TestUpdateTaskTitle(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := database.CreateTask(proj.ID, "Original Title", "Description", "task-slug", "", "", "pending", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if created.Title != "Original Title" {
+		t.Errorf("expected initial title 'Original Title', got %q", created.Title)
+	}
+
+	// Update title
+	if err := database.UpdateTaskTitle(created.ID, "Updated Title"); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := database.GetTask(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if updated.Title != "Updated Title" {
+		t.Errorf("expected title 'Updated Title', got %q", updated.Title)
+	}
+}
+
 func TestGetClaimableTasks_SortedByPriority(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	database, err := Open(dbPath)

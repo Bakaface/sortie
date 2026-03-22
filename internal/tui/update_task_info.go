@@ -20,6 +20,41 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleArtifactSelectKey(msg)
 	}
 
+	// Handle second key after "o" prefix (must come before single-key handlers)
+	if m.pendingO {
+		m.pendingO = false
+		if keyStr == "a" {
+			if m.taskInfo.task != nil {
+				return m.openArtifactSelection(m.taskInfo.task, "view")
+			}
+		}
+		// Fall through to handle this key normally
+	}
+
+	// Handle second key after "e" prefix (must come before single-key handlers)
+	if m.pendingE {
+		m.pendingE = false
+		switch keyStr {
+		case "a":
+			if m.taskInfo.task != nil {
+				return m.openArtifactSelection(m.taskInfo.task, "edit")
+			}
+		case "d":
+			if m.taskInfo.task != nil {
+				return m, m.openEditorForField(m.taskInfo.task.ID, "description", m.taskInfo.task.Description)
+			}
+		case "t":
+			if m.taskInfo.task != nil {
+				return m, m.openEditorForField(m.taskInfo.task.ID, "title", m.taskInfo.task.Title)
+			}
+		case "c":
+			if m.taskInfo.task != nil {
+				return m, m.openEditorForField(m.taskInfo.task.ID, "context", m.taskInfo.task.Context)
+			}
+		}
+		// Fall through to handle this key normally
+	}
+
 	switch keyStr {
 	case "q", "esc":
 		m.view = viewList
@@ -44,41 +79,6 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadOutput(m.taskInfo.task.ID, 0)
 		}
 		return m, nil
-	}
-
-	// Handle second key after "o" prefix
-	if m.pendingO {
-		m.pendingO = false
-		if keyStr == "a" {
-			if m.taskInfo.task != nil {
-				return m.openArtifactSelection(m.taskInfo.task, "view")
-			}
-		}
-		// Fall through to handle this key normally
-	}
-
-	// Handle second key after "e" prefix
-	if m.pendingE {
-		m.pendingE = false
-		switch keyStr {
-		case "a":
-			if m.taskInfo.task != nil {
-				return m.openArtifactSelection(m.taskInfo.task, "edit")
-			}
-		case "d":
-			if m.taskInfo.task != nil {
-				return m, m.openEditorForField(m.taskInfo.task.ID, "description", m.taskInfo.task.Description)
-			}
-		case "t":
-			if m.taskInfo.task != nil {
-				return m, m.openEditorForField(m.taskInfo.task.ID, "title", m.taskInfo.task.Title)
-			}
-		case "c":
-			if m.taskInfo.task != nil {
-				return m, m.openEditorForField(m.taskInfo.task.ID, "context", m.taskInfo.task.Context)
-			}
-		}
-		// Fall through to handle this key normally
 	}
 
 	// Handle "o" key — start "oa" sequence

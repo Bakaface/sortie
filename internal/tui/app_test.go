@@ -2510,6 +2510,129 @@ func TestHandleListKey_OAMultipleArtifactsShowsSelection(t *testing.T) {
 	}
 }
 
+func TestHandleListKey_ETOpensEditTitle(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		client: &client.Client{},
+	}
+	m.list.SetSize(100, 30)
+	m.list.SetTasks([]daemon.TaskInfo{
+		{ID: 1, Title: "Original title", Status: "pending"},
+	})
+
+	// Press "e" to enter pending state
+	eMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
+	result, _ := m.handleListKey(eMsg)
+	updated := result.(Model)
+	if !updated.pendingE {
+		t.Error("expected pendingE to be true after 'e'")
+	}
+
+	// Press "t" to trigger edit title
+	tMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
+	result, cmd := updated.handleListKey(tMsg)
+	updated = result.(Model)
+
+	if updated.pendingE {
+		t.Error("expected pendingE to be false after 'et' sequence")
+	}
+	// The command should be non-nil (opens editor)
+	if cmd == nil {
+		t.Error("expected a command to open editor for title, got nil")
+	}
+}
+
+func TestHandleTaskInfoKey_ETOpensEditTitle(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false, ""),
+		detail:   newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		client:   &client.Client{},
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Original title", Status: "pending"}
+	m.taskInfo.SetTask(&task)
+
+	// Press "e" to enter pending state
+	eMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
+	result, _ := m.handleTaskInfoKey(eMsg)
+	updated := result.(Model)
+	if !updated.pendingE {
+		t.Error("expected pendingE to be true after 'e'")
+	}
+
+	// Press "t" to trigger edit title
+	tMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
+	result, cmd := updated.handleTaskInfoKey(tMsg)
+	updated = result.(Model)
+
+	if updated.pendingE {
+		t.Error("expected pendingE to be false after 'et' sequence")
+	}
+	if cmd == nil {
+		t.Error("expected a command to open editor for title, got nil")
+	}
+}
+
+func TestHandleListKey_ETNoTaskSelected(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		client: &client.Client{},
+	}
+	m.list.SetSize(100, 30)
+	// No tasks set — no task selected
+
+	// Press "e" then "t"
+	eMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
+	result, _ := m.handleListKey(eMsg)
+	updated := result.(Model)
+
+	tMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}}
+	result, cmd := updated.handleListKey(tMsg)
+	updated = result.(Model)
+
+	if updated.pendingE {
+		t.Error("expected pendingE to be false")
+	}
+	if cmd != nil {
+		t.Error("expected no command when no task is selected")
+	}
+}
+
+func TestTaskFieldUpdatedMsg_TitleUpdatesStatus(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		client: &client.Client{},
+	}
+
+	msg := taskFieldUpdatedMsg{field: "title"}
+	result, cmd := m.Update(msg)
+	updated := result.(Model)
+
+	if updated.statusMessage != "Title updated" {
+		t.Errorf("expected status message 'Title updated', got %q", updated.statusMessage)
+	}
+	if updated.statusMessageTTL != 2 {
+		t.Errorf("expected statusMessageTTL 2, got %d", updated.statusMessageTTL)
+	}
+	if !updated.list.refreshing {
+		t.Error("expected list to be refreshing after field update")
+	}
+	if cmd == nil {
+		t.Error("expected refresh command after field update")
+	}
+}
+
 func TestHandleListKey_EAOpensEditArtifact(t *testing.T) {
 	dir := t.TempDir()
 	artifactDir := filepath.Join(dir, ".sortie", "artifacts")
