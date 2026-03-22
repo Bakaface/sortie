@@ -702,11 +702,11 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	if req.TmuxDirect {
 		go s.setupTmuxDirect(t.ID, t.ProjectID, title)
 	} else {
-		go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, t.CheckoutBranch, description, title)
+		go s.refineTaskTitle(t.ID, t.ProjectID, t.BranchName, t.Worktree, t.CheckoutBranch, description, title, req.Title)
 	}
 }
 
-func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string, initialTitle string) {
+func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string, initialTitle string, manualTitle string) {
 	projCfg := s.cfg
 	if pc, err := s.getProjectContext(projectID); err == nil {
 		projCfg = pc.cfg
@@ -714,8 +714,11 @@ func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, wor
 
 	var title string
 
-	// Skip AI title generation when description is empty (existing branch with no prompt)
-	if description == "" {
+	// Use manual title if provided, skipping AI generation
+	if manualTitle != "" {
+		title = manualTitle
+	} else if description == "" {
+		// Skip AI title generation when description is empty (existing branch with no prompt)
 		title = initialTitle
 	} else {
 		ctx, cancel := context.WithTimeout(s.ctx, titleGenerationTimeout)

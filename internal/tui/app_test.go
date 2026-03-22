@@ -5509,7 +5509,7 @@ func TestPromptFullHelpContainsAllBindings(t *testing.T) {
 	}
 
 	// FullHelp should contain all prompt bindings
-	for _, expected := range []string{"submit", "cancel", "switch field", "newline", "worktree", "editor", "remove last image", "help"} {
+	for _, expected := range []string{"submit", "cancel", "next/prev field", "newline", "worktree", "editor", "remove last image", "help"} {
 		if !allDescs[expected] {
 			t.Errorf("expected FullHelp to contain binding for %q", expected)
 		}

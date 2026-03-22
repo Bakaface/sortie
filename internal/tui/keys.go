@@ -425,7 +425,7 @@ func newPromptKeyMap() promptKeyMap {
 		),
 		SwitchField: key.NewBinding(
 			key.WithKeys("tab"),
-			key.WithHelp("tab", "switch field"),
+			key.WithHelp("tab/s-tab", "next/prev field"),
 		),
 		Newline: key.NewBinding(
 			key.WithKeys("ctrl+j"),

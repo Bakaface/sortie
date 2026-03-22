@@ -112,6 +112,7 @@ type ListTasksRequest struct {
 }
 
 type CreateTaskRequest struct {
+	Title       string   `json:"title,omitempty"`
 	Description string   `json:"description"`
 	Workflow    string   `json:"workflow,omitempty"`
 	Priority    string   `json:"priority,omitempty"`

@@ -25,7 +25,8 @@ var imageExtensions = map[string]bool{
 type promptField int
 
 const (
-	promptFieldDescription  promptField = iota
+	promptFieldTitle       promptField = iota
+	promptFieldDescription
 	promptFieldBranch
 	promptFieldCheckout
 	promptFieldTargetBranch
@@ -40,6 +41,7 @@ const (
 
 type promptView struct {
 	textarea          textarea.Model
+	titleInput        textinput.Model
 	branchInput       textinput.Model
 	checkoutInput     textinput.Model
 	targetBranchInput textinput.Model
@@ -66,6 +68,10 @@ func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
 	ta.KeyMap.WordForward = key.NewBinding(key.WithKeys("alt+right", "ctrl+right", "alt+f"), key.WithHelp("ctrl+right", "word forward"))
 	ta.KeyMap.WordBackward = key.NewBinding(key.WithKeys("alt+left", "ctrl+left", "alt+b"), key.WithHelp("ctrl+left", "word backward"))
 
+	titleIn := textinput.New()
+	titleIn.Placeholder = "auto-generated if left blank"
+	titleIn.CharLimit = 200
+
 	bi := textinput.New()
 	bi.Placeholder = "sortie/{{task_id}}-{{task_slug}}"
 	bi.CharLimit = 200
@@ -83,6 +89,7 @@ func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
 
 	return promptView{
 		textarea:          ta,
+		titleInput:        titleIn,
 		branchInput:       bi,
 		checkoutInput:     ci,
 		targetBranchInput: ti,
@@ -97,6 +104,7 @@ func (p *promptView) SetSize(width, height int) {
 	p.width = width
 	p.height = height
 	p.textarea.SetWidth(width - 4)
+	p.titleInput.Width = width - 4 - lipgloss.Width("Title: ")
 	p.branchInput.Width = width - 4 - lipgloss.Width("Branch: ")
 	p.checkoutInput.Width = width - 4 - lipgloss.Width("Checkout: ")
 	p.targetBranchInput.Width = width - 4 - lipgloss.Width("Target: ")
@@ -105,7 +113,7 @@ func (p *promptView) SetSize(width, height int) {
 
 // maxHeight returns the maximum textarea height available within the terminal.
 func (p *promptView) maxHeight() int {
-	h := p.height - 12 // reserve space for title(2) + worktree(2) + branch/checkout(2) + target(2) + images + help(2)
+	h := p.height - 14 // reserve space for title(2) + titleInput(2) + worktree(2) + branch/checkout(2) + target(2) + images + help(2)
 	if h < 1 {
 		h = 1
 	}
@@ -155,6 +163,8 @@ func (p *promptView) visualLineCount() int {
 
 func (p *promptView) Reset() {
 	p.textarea.Reset()
+	p.titleInput.Reset()
+	p.titleInput.Blur()
 	p.branchInput.Reset()
 	p.checkoutInput.Reset()
 	p.targetBranchInput.Reset()
@@ -171,6 +181,10 @@ func (p *promptView) Reset() {
 
 func (p *promptView) Value() string {
 	return strings.TrimSpace(p.textarea.Value())
+}
+
+func (p *promptView) TitleValue() string {
+	return strings.TrimSpace(p.titleInput.Value())
 }
 
 func (p *promptView) BranchName() string {
@@ -195,8 +209,9 @@ func (p *promptView) Worktree() bool {
 
 func (p *promptView) ToggleWorktree() {
 	p.worktree = !p.worktree
-	if !p.worktree && p.focusField != promptFieldDescription {
+	if !p.worktree && p.focusField != promptFieldDescription && p.focusField != promptFieldTitle {
 		p.focusField = promptFieldDescription
+		p.titleInput.Blur()
 		p.branchInput.Blur()
 		p.checkoutInput.Blur()
 		p.targetBranchInput.Blur()
@@ -213,6 +228,7 @@ func (p *promptView) ToggleBranchMode() {
 	// Reset focus to description when switching modes
 	p.focusField = promptFieldDescription
 	p.textarea.Focus()
+	p.titleInput.Blur()
 	p.branchInput.Blur()
 	p.checkoutInput.Blur()
 	p.targetBranchInput.Blur()
@@ -222,6 +238,8 @@ func (p *promptView) ToggleBranchMode() {
 func (p *promptView) Update(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
 	switch p.focusField {
+	case promptFieldTitle:
+		p.titleInput, cmd = p.titleInput.Update(msg)
 	case promptFieldDescription:
 		// Pre-expand textarea to max height so the internal viewport doesn't
 		// scroll when content grows beyond the current height.
@@ -241,43 +259,106 @@ func (p *promptView) Update(msg tea.Msg) tea.Cmd {
 }
 
 // SwitchFocus cycles through the visible fields based on current branch mode.
-// When worktree mode is off, branch inputs are hidden so tab is a no-op.
-func (p *promptView) SwitchFocus() {
-	if !p.worktree {
-		return // branch inputs are hidden
-	}
-
+// forward=true moves to the next field (Tab), forward=false moves to the previous (Shift+Tab).
+func (p *promptView) SwitchFocus(forward bool) {
 	// Blur all
 	p.textarea.Blur()
+	p.titleInput.Blur()
 	p.branchInput.Blur()
 	p.checkoutInput.Blur()
 	p.targetBranchInput.Blur()
 
+	if !p.worktree {
+		// Only title ↔ description when worktree is off
+		if forward {
+			switch p.focusField {
+			case promptFieldTitle:
+				p.focusField = promptFieldDescription
+				p.textarea.Focus()
+			default:
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			}
+		} else {
+			switch p.focusField {
+			case promptFieldDescription:
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			default:
+				p.focusField = promptFieldDescription
+				p.textarea.Focus()
+			}
+		}
+		return
+	}
+
 	if p.branchMode == branchModeNew {
-		// Cycle: description → branch → targetBranch → description
-		switch p.focusField {
-		case promptFieldDescription:
-			p.focusField = promptFieldBranch
-			p.branchInput.Focus()
-		case promptFieldBranch:
-			p.focusField = promptFieldTargetBranch
-			p.targetBranchInput.Focus()
-		default:
-			p.focusField = promptFieldDescription
-			p.textarea.Focus()
+		// Forward: title → description → branch → targetBranch → title
+		// Backward: title → targetBranch → branch → description → title
+		if forward {
+			switch p.focusField {
+			case promptFieldTitle:
+				p.focusField = promptFieldDescription
+				p.textarea.Focus()
+			case promptFieldDescription:
+				p.focusField = promptFieldBranch
+				p.branchInput.Focus()
+			case promptFieldBranch:
+				p.focusField = promptFieldTargetBranch
+				p.targetBranchInput.Focus()
+			default:
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			}
+		} else {
+			switch p.focusField {
+			case promptFieldTitle:
+				p.focusField = promptFieldTargetBranch
+				p.targetBranchInput.Focus()
+			case promptFieldTargetBranch:
+				p.focusField = promptFieldBranch
+				p.branchInput.Focus()
+			case promptFieldBranch:
+				p.focusField = promptFieldDescription
+				p.textarea.Focus()
+			default:
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			}
 		}
 	} else {
-		// Cycle: description → checkout → targetBranch → description
-		switch p.focusField {
-		case promptFieldDescription:
-			p.focusField = promptFieldCheckout
-			p.checkoutInput.Focus()
-		case promptFieldCheckout:
-			p.focusField = promptFieldTargetBranch
-			p.targetBranchInput.Focus()
-		default:
-			p.focusField = promptFieldDescription
-			p.textarea.Focus()
+		// Forward: title → description → checkout → targetBranch → title
+		// Backward: title → targetBranch → checkout → description → title
+		if forward {
+			switch p.focusField {
+			case promptFieldTitle:
+				p.focusField = promptFieldDescription
+				p.textarea.Focus()
+			case promptFieldDescription:
+				p.focusField = promptFieldCheckout
+				p.checkoutInput.Focus()
+			case promptFieldCheckout:
+				p.focusField = promptFieldTargetBranch
+				p.targetBranchInput.Focus()
+			default:
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			}
+		} else {
+			switch p.focusField {
+			case promptFieldTitle:
+				p.focusField = promptFieldTargetBranch
+				p.targetBranchInput.Focus()
+			case promptFieldTargetBranch:
+				p.focusField = promptFieldCheckout
+				p.checkoutInput.Focus()
+			case promptFieldCheckout:
+				p.focusField = promptFieldDescription
+				p.textarea.Focus()
+			default:
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			}
 		}
 	}
 }
@@ -285,6 +366,8 @@ func (p *promptView) SwitchFocus() {
 // Focus focuses the currently active input
 func (p *promptView) Focus() {
 	switch p.focusField {
+	case promptFieldTitle:
+		p.titleInput.Focus()
 	case promptFieldDescription:
 		p.textarea.Focus()
 	case promptFieldBranch:
@@ -299,6 +382,7 @@ func (p *promptView) Focus() {
 // Blur unfocuses all inputs
 func (p *promptView) Blur() {
 	p.textarea.Blur()
+	p.titleInput.Blur()
 	p.branchInput.Blur()
 	p.checkoutInput.Blur()
 	p.targetBranchInput.Blur()
@@ -399,6 +483,14 @@ func (p *promptView) View() string {
 	}
 	b.WriteString("\n\n")
 
+	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
+
+	// Title input
+	b.WriteString("  ")
+	b.WriteString(labelStyle.Render("Title: "))
+	b.WriteString(p.titleInput.View())
+	b.WriteString("\n\n")
+
 	// Pre-expand textarea to max height so its internal viewport doesn't
 	// scroll, then truncate the rendered output to show only the lines
 	// that contain actual content, achieving the auto-grow visual effect.
@@ -418,8 +510,6 @@ func (p *promptView) View() string {
 	taStyle := lipgloss.NewStyle().PaddingLeft(2)
 	b.WriteString(taStyle.Render(strings.Join(lines, "\n")))
 	b.WriteString("\n")
-
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
 
 	// Worktree mode indicator
 	b.WriteString("\n")

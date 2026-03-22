@@ -216,13 +216,14 @@ func (m Model) addTaskDependency(taskID, blockedByID int64) tea.Cmd {
 	}
 }
 
-func (m Model) createTaskWithPrompt(description, branchName string, worktree bool, images []string, targetBranch, checkoutBranch string) tea.Cmd {
+func (m Model) createTaskWithPrompt(title, description, branchName string, worktree bool, images []string, targetBranch, checkoutBranch string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
 
 		req := daemon.CreateTaskRequest{
+			Title:          title,
 			Description:    description,
 			Workflow:       m.selectedWorkflow,
 			BranchName:     branchName,

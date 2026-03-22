@@ -332,7 +332,7 @@ func TestPromptView_NewlinePreservesFirstLine_SmallTerminal(t *testing.T) {
 			p.Update(tea.KeyMsg{Type: tea.KeyCtrlJ})
 			view := p.View()
 
-			maxH := termHeight - 12 // must match promptView.maxHeight() reserved space
+			maxH := termHeight - 14 // must match promptView.maxHeight() reserved space
 			if maxH >= 2 {          // Only check if terminal is big enough for 2 lines
 				if !strings.Contains(view, "hello") {
 					t.Errorf("first line disappeared at terminal height %d! view:\n%s", termHeight, view)
@@ -577,5 +577,151 @@ func TestIsImagePath(t *testing.T) {
 				t.Errorf("isImagePath(%q) = %v, want %v", tc.input, result, tc.expected)
 			}
 		})
+	}
+}
+
+func TestPromptView_TitleInput(t *testing.T) {
+	p := newPromptView(true, "")
+	p.SetSize(80, 24)
+
+	// Title input should start empty
+	if got := p.TitleValue(); got != "" {
+		t.Errorf("expected empty TitleValue initially, got %q", got)
+	}
+
+	// Set a value and verify TitleValue returns it trimmed
+	p.titleInput.SetValue("  My Task  ")
+	if got := p.TitleValue(); got != "My Task" {
+		t.Errorf("expected TitleValue() = %q, got %q", "My Task", got)
+	}
+}
+
+func TestPromptView_TitleInputPlaceholder(t *testing.T) {
+	p := newPromptView(true, "")
+
+	if p.titleInput.Placeholder != "auto-generated if left blank" {
+		t.Errorf("expected placeholder %q, got %q", "auto-generated if left blank", p.titleInput.Placeholder)
+	}
+}
+
+func TestPromptView_TitleInputInView(t *testing.T) {
+	p := newPromptView(true, "")
+	p.SetSize(80, 24)
+
+	view := p.View()
+	if !strings.Contains(view, "Title:") {
+		t.Errorf("expected 'Title:' label in view, got:\n%s", view)
+	}
+}
+
+func TestPromptView_ResetClearsTitleInput(t *testing.T) {
+	p := newPromptView(true, "")
+	p.SetSize(80, 24)
+
+	p.titleInput.SetValue("some title")
+	p.Reset()
+
+	if got := p.TitleValue(); got != "" {
+		t.Errorf("expected empty TitleValue after Reset, got %q", got)
+	}
+}
+
+func TestPromptView_DefaultFocusIsDescription(t *testing.T) {
+	p := newPromptView(true, "")
+
+	if p.focusField != promptFieldDescription {
+		t.Errorf("expected default focus to be promptFieldDescription, got %v", p.focusField)
+	}
+}
+
+func TestPromptView_SwitchFocusForward(t *testing.T) {
+	// Without worktree: title → description → title
+	p := newPromptView(false, "")
+	p.SetSize(80, 24)
+
+	// Start on description (default)
+	if p.focusField != promptFieldDescription {
+		t.Fatalf("expected starting focus on description, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(true)
+	if p.focusField != promptFieldTitle {
+		t.Errorf("expected focus on title after forward switch, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(true)
+	if p.focusField != promptFieldDescription {
+		t.Errorf("expected focus back on description after second forward switch, got %v", p.focusField)
+	}
+}
+
+func TestPromptView_SwitchFocusForwardWithWorktree(t *testing.T) {
+	// With worktree and branchModeNew: title → description → branch → targetBranch → title
+	p := newPromptView(true, "")
+	p.SetSize(80, 24)
+
+	// Start on description
+	p.SwitchFocus(true)
+	if p.focusField != promptFieldBranch {
+		t.Errorf("expected focus on branch after forward from description, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(true)
+	if p.focusField != promptFieldTargetBranch {
+		t.Errorf("expected focus on targetBranch, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(true)
+	if p.focusField != promptFieldTitle {
+		t.Errorf("expected focus on title after wrapping, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(true)
+	if p.focusField != promptFieldDescription {
+		t.Errorf("expected focus on description after title, got %v", p.focusField)
+	}
+}
+
+func TestPromptView_SwitchFocusBackward(t *testing.T) {
+	// Without worktree: backward from description → title → description
+	p := newPromptView(false, "")
+	p.SetSize(80, 24)
+
+	// Start on description
+	p.SwitchFocus(false)
+	if p.focusField != promptFieldTitle {
+		t.Errorf("expected focus on title after backward switch, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(false)
+	if p.focusField != promptFieldDescription {
+		t.Errorf("expected focus back on description after second backward switch, got %v", p.focusField)
+	}
+}
+
+func TestPromptView_SwitchFocusBackwardWithWorktree(t *testing.T) {
+	// With worktree: backward from description → title → targetBranch → branch → description
+	p := newPromptView(true, "")
+	p.SetSize(80, 24)
+
+	// Start on description, go backward
+	p.SwitchFocus(false)
+	if p.focusField != promptFieldTitle {
+		t.Errorf("expected focus on title after backward from description, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(false)
+	if p.focusField != promptFieldTargetBranch {
+		t.Errorf("expected focus on targetBranch, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(false)
+	if p.focusField != promptFieldBranch {
+		t.Errorf("expected focus on branch, got %v", p.focusField)
+	}
+
+	p.SwitchFocus(false)
+	if p.focusField != promptFieldDescription {
+		t.Errorf("expected focus on description after wrapping backward, got %v", p.focusField)
 	}
 }

@@ -145,3 +145,71 @@ func TestRefineTaskTitle_SkipsAIForEmptyDescription(t *testing.T) {
 		t.Error("expected non-empty slug")
 	}
 }
+
+func TestRefineTaskTitle_ManualTitleSkipsGeneration(t *testing.T) {
+	// When manualTitle is non-empty, it should be used directly regardless of description
+	tests := []struct {
+		name        string
+		description string
+		manualTitle string
+		wantTitle   string
+	}{
+		{
+			name:        "manual title overrides AI generation",
+			description: "some description that would trigger AI",
+			manualTitle: "My Custom Title",
+			wantTitle:   "My Custom Title",
+		},
+		{
+			name:        "manual title used when description is also empty",
+			description: "",
+			manualTitle: "Manual Only Title",
+			wantTitle:   "Manual Only Title",
+		},
+		{
+			name:        "empty manual title falls through to normal logic",
+			description: "",
+			manualTitle: "",
+			wantTitle:   "initial-title", // uses initialTitle when description is empty
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			initialTitle := "initial-title"
+
+			// Simulate the logic from refineTaskTitle with manualTitle parameter
+			var title string
+			if tt.manualTitle != "" {
+				title = tt.manualTitle
+			} else if tt.description == "" {
+				title = initialTitle
+			} else {
+				// Would call AI generation in real code; not tested here
+				title = task.SanitizeTitle(tt.description)
+			}
+
+			if title != tt.wantTitle {
+				t.Errorf("got title %q, want %q", title, tt.wantTitle)
+			}
+		})
+	}
+}
+
+func TestCreateTaskRequest_TitleField(t *testing.T) {
+	// Verify that CreateTaskRequest properly includes the Title field
+	req := CreateTaskRequest{
+		Title:       "My Manual Title",
+		Description: "task description",
+	}
+
+	if req.Title != "My Manual Title" {
+		t.Errorf("expected Title %q, got %q", "My Manual Title", req.Title)
+	}
+
+	// Empty title should be the zero value
+	req2 := CreateTaskRequest{Description: "task description"}
+	if req2.Title != "" {
+		t.Errorf("expected empty Title, got %q", req2.Title)
+	}
+}

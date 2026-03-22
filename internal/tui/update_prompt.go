@@ -38,16 +38,22 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if description == "" && checkoutBranch == "" {
 			return m, nil
 		}
+		title := m.prompt.TitleValue()
 		images := m.prompt.Images()
 		branchName := m.prompt.BranchName()
 		targetBranch := m.prompt.TargetBranch()
 		worktree := m.prompt.Worktree()
 		m.view = viewList
-		return m, m.createTaskWithPrompt(description, branchName, worktree, images, targetBranch, checkoutBranch)
+		return m, m.createTaskWithPrompt(title, description, branchName, worktree, images, targetBranch, checkoutBranch)
 
-	case "tab":
-		// Switch focus between description and branch name
-		m.prompt.SwitchFocus()
+	case "tab", "ctrl+n":
+		// Switch focus to next field
+		m.prompt.SwitchFocus(true)
+		return m, nil
+
+	case "shift+tab", "ctrl+p":
+		// Switch focus to previous field
+		m.prompt.SwitchFocus(false)
 		return m, nil
 
 	case "esc":
