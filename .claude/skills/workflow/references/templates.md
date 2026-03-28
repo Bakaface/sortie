@@ -5,7 +5,8 @@
 ```go
 type TemplateContext struct {
     Task      TaskVars
-    Artifacts map[string]string   // step_name -> artifact content
+    Steps     map[string]string   // step_name -> step context (from DB task_steps table)
+    Artifacts map[string]string   // step_name -> step context (backward compat alias for Steps)
     Git       GitVars
     Loop      LoopVars
 }
@@ -38,6 +39,7 @@ type LoopVars struct {
 | `{{git.repo_root}}` | Repository root path |
 | `{{loop.iteration}}` | Current loop iteration |
 | `{{loop.max_iterations}}` | Max iterations configured |
-| `{{artifacts.step_name}}` | Content of named step's artifact |
+| `{{steps.step_name.context}}` | Step context from DB (captured from Claude's `result` event) |
+| `{{artifacts.step_name}}` | Backward compat alias for `{{steps.step_name.context}}` |
 
 Pattern: regex `\{\{([a-zA-Z0-9_.]+)\}\}` — unknown keys pass through unchanged.

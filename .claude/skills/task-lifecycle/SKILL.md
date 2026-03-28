@@ -41,7 +41,6 @@ type Task struct {
 init -> pending -> running -+-> summarizing -> completed
                             +-> awaiting-approval -> running (resumed)
                             +-> tmux -> finalizing -> summarizing -> completed
-                            +-> artifact-missing -> running (continued)
                             +-> merge-blocked -> completed
                             +-> failed
 ```
@@ -49,11 +48,11 @@ init -> pending -> running -+-> summarizing -> completed
 **Title refinement**: During `init`, an async goroutine generates an AI title (haiku model, 30s timeout). On success, `FinalizeTaskIdentity()` updates title/slug/branch before transitioning to `pending`. On failure, the sanitized description is kept as title.
 
 **Terminal:** `completed`, `failed`
-**Active:** `running`, `awaiting-approval`, `tmux`, `finalizing`, `summarizing`, `merge-blocked`, `artifact-missing`
+**Active:** `running`, `awaiting-approval`, `tmux`, `finalizing`, `summarizing`, `merge-blocked`
 
 ```go
 func (s Status) IsTerminal() bool  // completed, failed
-func (s Status) IsActive() bool    // running, awaiting-approval, tmux, finalizing, summarizing, merge-blocked, artifact-missing
+func (s Status) IsActive() bool    // running, awaiting-approval, tmux, finalizing, summarizing, merge-blocked
 ```
 
 ## Priority

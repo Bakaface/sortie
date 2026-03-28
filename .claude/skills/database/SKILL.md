@@ -12,7 +12,24 @@ SQLite with WAL mode, single writer (`MaxOpenConns=1`), foreign keys enabled. Sc
 
 ## Schema
 
-Read `internal/db/schema.sql` for the canonical table definitions. Core tables: `projects`, `tasks`, `task_dependencies`. Migrations use `if version < N` blocks in `db.go:migrate()` — append the next version check; auto-applied on startup. Fresh databases apply the embedded `schema.sql` directly as version 10.
+Read `internal/db/schema.sql` for the canonical table definitions. Core tables: `projects`, `tasks`, `task_dependencies`, `task_steps`. Migrations use `if version < N` blocks in `db.go:migrate()` — append the next version check; auto-applied on startup. Fresh databases apply the embedded `schema.sql` directly as version 10.
+
+### `task_steps` Table
+
+Stores per-step execution results for each task run. Populated by the workflow engine after each step completes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | INTEGER PK | Auto-increment |
+| `task_id` | INTEGER FK | References `tasks.id` |
+| `step_name` | TEXT | Step identifier (matches workflow step `name`) |
+| `status` | TEXT | Step execution status |
+| `context` | TEXT | Step result captured from Claude's NDJSON `result` event |
+| `exit_code` | INTEGER | Claude process exit code |
+| `started_at` | DATETIME | When step execution began |
+| `completed_at` | DATETIME | When step execution finished |
+
+Step contexts are fetched via daemon RPC for TUI display. Template access: `{{steps.<step_name>.context}}` (or backward-compat `{{artifacts.<step_name>}}`).
 
 ## Project Operations
 

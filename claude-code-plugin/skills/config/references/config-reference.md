@@ -43,8 +43,6 @@ git:
 
 ```yaml
 verification:
-  artifact_retry: true       # Retry step if artifact file is missing/empty
-  max_retries: 3             # Max retry attempts (defaults to 1 if artifact_retry is true)
   verify_summarizer: true    # Retry summarizer if context comes back empty
 ```
 
@@ -68,26 +66,24 @@ notifications:
 
 Go duration strings: `"30m"`, `"1h"`, `"1h30m"`, `"45m"`, `"2h"`. Default: `"30m"`.
 
-### Artifact Flow
+### Step Context Flow
 
-When `artifact: true`, Claude writes a summary to `.sortie/artifacts/<step_name>.md`. This content is available to subsequent steps via `{{artifacts.<step_name>}}`.
+After each step completes, the result from Claude's output is captured as step context and stored in the `task_steps` database table. This context is available to subsequent steps via `{{steps.<step_name>.context}}` (or the backward-compat alias `{{artifacts.<step_name>}}`).
 
-Example multi-step with artifacts:
+Example multi-step with step context:
 
 ```yaml
 steps:
   - name: analyzing
     prompt: "Analyze the requirements: {{task.description}}"
-    artifact: true
   - name: implementing
     prompt: |
       Implement based on the analysis:
-      {{artifacts.analyzing}}
-    artifact: true
+      {{steps.analyzing.context}}
   - name: reviewing
     prompt: |
       Review the implementation:
-      {{artifacts.implementing}}
+      {{steps.implementing.context}}
     human: true
 ```
 
@@ -116,19 +112,16 @@ Loops allow iterative refinement (e.g., implement → review → fix → review 
 steps:
   - name: implementing
     prompt: "Implement {{task.description}}"
-    artifact: true
   - name: reviewing
-    prompt: "Review: {{artifacts.implementing}}"
-    artifact: true
+    prompt: "Review: {{steps.implementing.context}}"
     human: true
   - name: fixing
-    prompt: "Fix issues: {{artifacts.reviewing}}"
-    artifact: true
+    prompt: "Fix issues: {{steps.reviewing.context}}"
     loop:
       goto: reviewing
       max_iterations: 3
       exit_condition:
-        artifact_empty: reviewing
+        step_context_empty: reviewing
 ```
 
 **Validation rules:**
@@ -155,7 +148,6 @@ steps:
 | `merge-blocked` | Merge conflicts or merge failure |
 | `completed` | Successfully finished |
 | `failed` | Execution failed |
-| `artifact-missing` | Required artifact was not produced |
 
 ---
 
@@ -219,15 +211,12 @@ workflow:
 max_workers: 3
 default_priority: medium
 yolo: true
-validate_artifact: true
 tmux_nested_attach_behavior: switch
 system_prompt: |
   You are an autonomous coding agent. Work autonomously without asking for user input.
   Make decisions and implement them directly. If something is ambiguous, pick the best option and proceed.
 
 verification:
-  artifact_retry: true
-  max_retries: 3
   verify_summarizer: true
 
 git:
@@ -251,27 +240,24 @@ workflows:
             Implement task #{{task.id}}: {{task.title}}
 
             {{task.description}}
-          artifact: true
           timeout: 45m
         - name: reviewing
           prompt: |
             Review the implementation for task #{{task.id}}.
             Implementation summary:
-            {{artifacts.implementing}}
-          artifact: true
+            {{steps.implementing.context}}
           human: true
           timeout: 20m
         - name: fixing
           prompt: |
             Fix the issues found during review:
-            {{artifacts.reviewing}}
-          artifact: true
+            {{steps.reviewing.context}}
           timeout: 30m
           loop:
             goto: reviewing
             max_iterations: 3
             exit_condition:
-              artifact_empty: reviewing
+              step_context_empty: reviewing
 
     - name: quick
       tmux: true
@@ -288,12 +274,11 @@ workflows:
       steps:
         - name: auditing
           prompt: "Audit the codebase for code smells, unused dependencies, and dead code"
-          artifact: true
           timeout: 20m
         - name: cleaning
           prompt: |
             Apply the following cleanups:
-            {{artifacts.auditing}}
+            {{steps.auditing.context}}
           timeout: 30m
 
   init:
@@ -304,6 +289,5 @@ workflows:
           prompt: |
             Analyze the PRD and break it into implementable tasks.
             Create sortie tasks for each piece of work.
-          artifact: true
           timeout: 30m
 ```

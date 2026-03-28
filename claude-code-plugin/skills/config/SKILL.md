@@ -48,8 +48,7 @@ workflows:
 | `max_workers` | int | `3` | Max concurrent Claude agents |
 | `default_priority` | string | `"medium"` | `low`, `medium`, `high`, `urgent` |
 | `yolo` | bool | `false` | Pass `--dangerously-skip-permissions` to Claude |
-| `validate_artifact` | bool | `false` | Validate artifact files are non-empty after steps |
-| `verification` | object | — | Artifact retry and summarizer verification settings |
+| `verification` | object | — | Summarizer verification settings |
 | `git` | object | — | Branch naming, base branch, completion action |
 | `workflows` | object | — | **Primary config block** — defines all workflow pipelines |
 | `notifications` | object | — | Desktop notification toggles |
@@ -79,12 +78,11 @@ Workflows are organized into three categories under `workflows:`:
       tmux: true/false       # per-step override (omit to inherit workflow default)
       timeout: "30m"         # Go duration string
       human: false           # pause for human approval
-      artifact: false        # write summary to .sortie/artifacts/<step_name>.md
       loop:                  # optional: jump back to earlier step
         goto: "step-name"    # must reference an earlier step
         max_iterations: 3    # >= 1
         exit_condition:
-          artifact_empty: "step-name"  # exit early if this step's artifact is empty
+          step_context_empty: "step-name"  # exit early if this step's context is empty
 ```
 
 ## Template Variables (for step prompts)
@@ -101,7 +99,8 @@ Workflows are organized into three categories under `workflows:`:
 | `{{git.repo_root}}` | Repository root path |
 | `{{loop.iteration}}` | Current loop iteration (in loops) |
 | `{{loop.max_iterations}}` | Max loop iterations (in loops) |
-| `{{artifacts.<step_name>}}` | Content of a prior step's artifact |
+| `{{steps.<step_name>.context}}` | Context captured from a prior step's result |
+| `{{artifacts.<step_name>}}` | Backward compat alias for `{{steps.<step_name>.context}}` |
 
 ## Decision Tree
 
@@ -110,7 +109,7 @@ When the user describes what they want, follow this:
 1. **"Just implement tasks"** → Single task workflow with an `implementing` step
 2. **"Review before completing"** → Add a step with `human: true`
 3. **"Interactive tmux session"** → Set `tmux: true` on workflow or step
-4. **"Multi-step pipeline"** → Multiple steps with artifacts passing context
+4. **"Multi-step pipeline"** → Multiple steps with step context passing results between steps
 5. **"Iterative review loop"** → Use `loop` config on a fix step pointing back to review
 6. **"Predefined maintenance job"** → Use `workflows.one-off`
 7. **"Bootstrap from PRD"** → Use `workflows.init`

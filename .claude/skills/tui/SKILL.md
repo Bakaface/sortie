@@ -39,7 +39,7 @@ Model (app.go)
 | `detail.go` | Viewport-based log viewer with follow mode, ANSI stripping |
 | `prompt.go` | Dual-field form (textarea + textinput), worktree toggle (`alt+w`), image detection |
 | `task_info.go` | Metadata display + workflow step progress (icons: `○`/`●`/`✓`/`✗`) |
-| `artifact_view.go` | Artifact content viewer |
+| `artifact_view.go` | Step context viewer (fetches from daemon RPC, not disk) |
 
 ### Update Handlers
 
@@ -106,4 +106,4 @@ The `promptView` includes a worktree toggle (`alt+w`):
 - **daemon** via `client.Client`: task CRUD, subscriptions, log streaming
 - **config**: `ListWorkflowNames()`, `GetWorkflow()`, `ListPredefinedTaskNames()`
 - **tmux**: `ListSessions()`, `AttachCommand()`, `SwitchClientCommand()`
-- **workflow**: `ArtifactsDir()`, `ReadArtifact()`, `ProjectLogsDir()`
+- **workflow**: `ProjectLogsDir()`

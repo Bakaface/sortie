@@ -27,7 +27,7 @@ claude-code-plugin/  Claude Code plugin with sortie-config skill
 
 - **Workflow steps** are defined in `.sortie.yml` with templated prompts (`{{task.id}}`, `{{task.title}}`, etc.)
 - **`BuildSystemPrompt()`** in `internal/workflow/system-prompt.go` constructs the system prompt passed to spawned Claude agents via `--system-prompt`
-- **Template resolution** (`internal/workflow/template.go`) interpolates task variables and prior step artifacts into prompts
+- **Template resolution** (`internal/workflow/template.go`) interpolates task variables and prior step contexts into prompts
 - **Git worktrees** isolate each task so parallel agents don't conflict
 
 ## Development
