@@ -13,58 +13,76 @@ import (
 	"github.com/aface/sortie/internal/task"
 )
 
-func TestCollectArtifactsFromAllSteps(t *testing.T) {
-	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
-	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
+func TestGetStepContextsFromDB(t *testing.T) {
+	// Verify that GetTaskStepContexts returns contexts keyed by step name.
+	d, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	proj, err := d.GetOrCreateProject("/tmp/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := d.CreateTask(proj.ID, "test task", "", "test-task", "default", "main", task.StatusPending, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Write artifacts for two steps
-	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("implementation notes"), 0644)
-	os.WriteFile(filepath.Join(artifactsDir, "review.md"), []byte("review notes"), 0644)
-
-	steps := []config.StepConfig{
-		{Name: "implement"},
-		{Name: "review"},
+	// Create two step records with contexts
+	if err := d.CreateTaskStep(tk.ID, "implement"); err != nil {
+		t.Fatal(err)
+	}
+	ctx1 := "implementation notes"
+	if err := d.CompleteTaskStep(tk.ID, "implement", &ctx1, 0); err != nil {
+		t.Fatal(err)
 	}
 
-	// Collect all step names like the engine does
-	var priorStepNames []string
-	for _, s := range steps {
-		priorStepNames = append(priorStepNames, s.Name)
+	if err := d.CreateTaskStep(tk.ID, "review"); err != nil {
+		t.Fatal(err)
+	}
+	ctx2 := "review notes"
+	if err := d.CompleteTaskStep(tk.ID, "review", &ctx2, 0); err != nil {
+		t.Fatal(err)
 	}
 
-	artifacts := CollectArtifacts(dir, priorStepNames)
-
-	if _, ok := artifacts["implement"]; !ok {
-		t.Error("expected implement artifact to be collected")
+	contexts, err := d.GetTaskStepContexts(tk.ID, []string{"implement", "review"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, ok := artifacts["review"]; !ok {
-		t.Error("expected review artifact to be collected")
+
+	if _, ok := contexts["implement"]; !ok {
+		t.Error("expected implement context to be present")
+	}
+	if _, ok := contexts["review"]; !ok {
+		t.Error("expected review context to be present")
 	}
 }
 
-func TestCollectArtifactsEmptyWhenNoFiles(t *testing.T) {
-	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
-	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
+func TestGetStepContextsEmptyWhenNoSteps(t *testing.T) {
+	d, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	proj, err := d.GetOrCreateProject("/tmp/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := d.CreateTask(proj.ID, "test task", "", "test-task", "default", "main", task.StatusPending, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	steps := []config.StepConfig{
-		{Name: "implement"},
+	contexts, err := d.GetTaskStepContexts(tk.ID, []string{"implement"})
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	var priorStepNames []string
-	for _, s := range steps {
-		priorStepNames = append(priorStepNames, s.Name)
-	}
-
-	artifacts := CollectArtifacts(dir, priorStepNames)
-
-	if len(artifacts) != 0 {
-		t.Errorf("expected 0 artifacts when no files exist, got %d", len(artifacts))
+	if len(contexts) != 0 {
+		t.Errorf("expected 0 contexts when no steps exist, got %d", len(contexts))
 	}
 }
 
@@ -89,75 +107,83 @@ func TestSummarizerStepNameCollection(t *testing.T) {
 	}
 }
 
-func TestSummarizerCollectsArtifactsWhenFilesExist(t *testing.T) {
-	// Artifacts are collected from all steps that have files on disk.
-	steps := []config.StepConfig{
-		{Name: "implement"},
-		{Name: "review"},
-	}
-
-	var stepNames []string
-	for _, s := range steps {
-		stepNames = append(stepNames, s.Name)
-	}
-
-	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
-	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
+func TestSummarizerStepContextsFromDB(t *testing.T) {
+	// Verify that step contexts are retrieved from DB for summarizer use.
+	d, err := db.Open(":memory:")
+	if err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("notes"), 0644)
+	defer d.Close()
 
-	artifacts := CollectArtifacts(dir, stepNames)
-	if len(artifacts) != 1 {
-		t.Errorf("expected 1 artifact when implement.md exists, got %d", len(artifacts))
+	proj, err := d.GetOrCreateProject("/tmp/test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := d.CreateTask(proj.ID, "test task", "", "test-task", "default", "main", task.StatusPending, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.CreateTaskStep(tk.ID, "implement"); err != nil {
+		t.Fatal(err)
+	}
+	notes := "notes"
+	if err := d.CompleteTaskStep(tk.ID, "implement", &notes, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	stepNames := []string{"implement", "review"}
+	contexts, err := d.GetTaskStepContexts(tk.ID, stepNames)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contexts) != 1 {
+		t.Errorf("expected 1 context when only implement has a completed record, got %d", len(contexts))
 	}
 }
 
-func TestSummarizerPromptBuildWithArtifacts(t *testing.T) {
-	// Verify that when artifacts are present, the prompt includes artifact content
-	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
-	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
-		t.Fatal(err)
+func TestSummarizerPromptBuildWithStepContexts(t *testing.T) {
+	// Verify that when step contexts are present, the prompt includes content.
+	stepContexts := map[string]string{
+		"implement": "Added feature X",
 	}
-	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("Added feature X"), 0644)
 
-	stepNames := []string{"implement"}
-	artifacts := CollectArtifacts(dir, stepNames)
-
-	if len(artifacts) != 1 {
-		t.Fatalf("expected 1 artifact, got %d", len(artifacts))
+	if len(stepContexts) != 1 {
+		t.Fatalf("expected 1 step context, got %d", len(stepContexts))
 	}
-	if artifacts["implement"] != "Added feature X" {
-		t.Errorf("expected artifact content 'Added feature X', got %q", artifacts["implement"])
+	if stepContexts["implement"] != "Added feature X" {
+		t.Errorf("expected step context content 'Added feature X', got %q", stepContexts["implement"])
 	}
 }
 
-func TestSummarizerPromptBuildWithoutArtifacts(t *testing.T) {
-	// Verify that when no artifact files exist on disk,
+func TestSummarizerFallsBackToDiffStatWhenNoContexts(t *testing.T) {
+	// Verify that when no step contexts exist in DB,
 	// the summarizer falls through to the git diff stat path.
-	steps := []config.StepConfig{
-		{Name: "implementing"},
+	d, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
 	}
+	defer d.Close()
 
-	var stepNames []string
-	for _, s := range steps {
-		stepNames = append(stepNames, s.Name)
+	proj, err := d.GetOrCreateProject("/tmp/test")
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".sortie", "artifacts"), 0755); err != nil {
+	tk, err := d.CreateTask(proj.ID, "test task", "", "test-task", "default", "main", task.StatusPending, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	// No artifact files on disk → CollectArtifacts returns empty map
-	artifacts := CollectArtifacts(dir, stepNames)
-	if len(artifacts) != 0 {
-		t.Fatalf("expected 0 artifacts when no files exist, got %d", len(artifacts))
+	// No step records in DB → GetTaskStepContexts returns empty map
+	contexts, err := d.GetTaskStepContexts(tk.ID, []string{"implementing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contexts) != 0 {
+		t.Fatalf("expected 0 contexts when no steps exist, got %d", len(contexts))
 	}
 
-	// The empty artifacts map triggers the fallback path in the summarizer.
+	// The empty contexts map triggers the fallback path in the summarizer.
 }
 
 func TestCopyImagesToWorktree(t *testing.T) {
@@ -511,12 +537,10 @@ func TestSummarizerLogFnCalledWithArtifacts(t *testing.T) {
 	os.WriteFile(script, []byte("#!/bin/sh\necho 'task summary output'\n"), 0755)
 
 	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
-	os.MkdirAll(artifactsDir, 0755)
-	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("Added feature X"), 0644)
 
 	// Create a real SQLite database for the test
 	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	os.MkdirAll(filepath.Join(dir, ".sortie"), 0755)
 	database, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open test database: %v", err)
@@ -533,6 +557,15 @@ func TestSummarizerLogFnCalledWithArtifacts(t *testing.T) {
 		t.Fatalf("failed to create task: %v", err)
 	}
 	taskObj.WorktreePath = dir
+
+	// Seed step context in DB (replaces artifact file)
+	if err := database.CreateTaskStep(taskObj.ID, "implement"); err != nil {
+		t.Fatal(err)
+	}
+	ctx1 := "Added feature X"
+	if err := database.CompleteTaskStep(taskObj.ID, "implement", &ctx1, 0); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := &config.Config{
 		Claude: config.ClaudeConfig{Command: script},
@@ -556,16 +589,16 @@ func TestSummarizerLogFnCalledWithArtifacts(t *testing.T) {
 		t.Fatalf("runSummarizer failed: %v", err)
 	}
 
-	// Verify that the log messages contain the artifact description
+	// Verify that the log messages contain the step context description
 	found := false
 	for _, msg := range logMessages {
-		if strings.Contains(msg, "Summarizing task #") && strings.Contains(msg, "with artifacts: implement") {
+		if strings.Contains(msg, "Summarizing task #") && strings.Contains(msg, "implement") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected log message about summarizing with artifacts, got: %v", logMessages)
+		t.Errorf("expected log message about summarizing with step contexts, got: %v", logMessages)
 	}
 }
 
@@ -575,9 +608,7 @@ func TestSummarizerLogFnCalledWithNilLogFn(t *testing.T) {
 	os.WriteFile(script, []byte("#!/bin/sh\necho 'summary'\n"), 0755)
 
 	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
-	os.MkdirAll(artifactsDir, 0755)
-	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("notes"), 0644)
+	os.MkdirAll(filepath.Join(dir, ".sortie"), 0755)
 
 	// Create a real SQLite database for the test
 	dbPath := filepath.Join(dir, ".sortie", "test.db")

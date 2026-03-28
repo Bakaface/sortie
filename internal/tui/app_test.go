@@ -2510,32 +2510,16 @@ func TestTaskCreatedMsg_CursorMovesToTop(t *testing.T) {
 // --- Artifact keybinding tests ---
 
 func TestHandleListKey_OAOpensArtifactSelection(t *testing.T) {
-	dir := t.TempDir()
-	// Create artifact file
-	artifactDir := filepath.Join(dir, ".sortie", "artifacts")
-	os.MkdirAll(artifactDir, 0755)
-	os.WriteFile(filepath.Join(artifactDir, "implement.md"), []byte("artifact content"), 0644)
-
 	m := Model{
 		keys:     newKeyMap(),
 		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
-		cfg: &config.Config{
-			Workflows: []config.WorkflowConfig{
-				{
-					Name: "default",
-					Steps: []config.StepConfig{
-						{Name: "implement"},
-						{Name: "review"},
-					},
-				},
-			},
-		},
+		client:   &client.Client{},
 	}
 	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Test task", Status: "running", Workflow: "default", WorktreePath: dir},
+		{ID: 1, Title: "Test task", Status: "running", Workflow: "default", WorktreePath: "/tmp/test"},
 	})
 
 	// First "o" sets pendingO
@@ -2546,7 +2530,7 @@ func TestHandleListKey_OAOpensArtifactSelection(t *testing.T) {
 		t.Error("expected pendingO to be true after 'o'")
 	}
 
-	// "a" triggers artifact — single artifact so it should skip selection and load
+	// "a" triggers step context fetch — should return a cmd (async daemon call)
 	aMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
 	result, cmd := updated.handleListKey(aMsg)
 	updated = result.(Model)
@@ -2554,42 +2538,26 @@ func TestHandleListKey_OAOpensArtifactSelection(t *testing.T) {
 	if updated.pendingO {
 		t.Error("expected pendingO to be false after 'oa'")
 	}
-	// With single artifact, should go directly to load (cmd != nil)
+	// Should return a cmd to fetch step contexts from daemon
 	if cmd == nil {
-		t.Error("expected load artifact command, got nil")
+		t.Error("expected load step context command, got nil")
 	}
 }
 
 func TestHandleListKey_OAMultipleArtifactsShowsSelection(t *testing.T) {
-	dir := t.TempDir()
-	artifactDir := filepath.Join(dir, ".sortie", "artifacts")
-	os.MkdirAll(artifactDir, 0755)
-	os.WriteFile(filepath.Join(artifactDir, "implement.md"), []byte("content 1"), 0644)
-	os.WriteFile(filepath.Join(artifactDir, "review.md"), []byte("content 2"), 0644)
-
 	m := Model{
 		keys:     newKeyMap(),
 		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
-		cfg: &config.Config{
-			Workflows: []config.WorkflowConfig{
-				{
-					Name: "default",
-					Steps: []config.StepConfig{
-						{Name: "implement"},
-						{Name: "review"},
-					},
-				},
-			},
-		},
+		client:   &client.Client{},
 	}
 	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Test task", Status: "completed", Workflow: "default", WorktreePath: dir},
+		{ID: 1, Title: "Test task", Status: "completed", Workflow: "default", WorktreePath: "/tmp/test"},
 	})
 
-	// Press "o" then "a"
+	// Press "o" then "a" — triggers async fetch
 	oMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}}
 	result, _ := m.handleListKey(oMsg)
 	updated := result.(Model)
@@ -2598,18 +2566,25 @@ func TestHandleListKey_OAMultipleArtifactsShowsSelection(t *testing.T) {
 	result, cmd := updated.handleListKey(aMsg)
 	updated = result.(Model)
 
-	// Multiple artifacts — should show selection menu
-	if !updated.selectingArtifact {
-		t.Error("expected selectingArtifact to be true with multiple artifacts")
+	// Should have returned a cmd to fetch step contexts from daemon
+	if cmd == nil {
+		t.Error("expected fetch step contexts command, got nil")
 	}
-	if len(updated.artifactNames) != 2 {
-		t.Errorf("expected 2 artifact names, got %d", len(updated.artifactNames))
+
+	// Simulate receiving step contexts from daemon (multiple steps)
+	contexts := map[string]string{"implement": "impl content", "review": "review content"}
+	msg := stepContextsLoadedMsg{taskID: 1, contexts: contexts, action: "view"}
+	result2, _ := updated.Update(msg)
+	updated2 := result2.(Model)
+
+	if !updated2.selectingArtifact {
+		t.Error("expected selectingArtifact to be true with multiple step contexts")
 	}
-	if updated.artifactAction != "view" {
-		t.Errorf("expected artifactAction 'view', got %q", updated.artifactAction)
+	if len(updated2.artifactNames) != 2 {
+		t.Errorf("expected 2 artifact names, got %d", len(updated2.artifactNames))
 	}
-	if cmd != nil {
-		t.Error("expected no command (selection pending), got non-nil")
+	if updated2.artifactAction != "view" {
+		t.Errorf("expected artifactAction 'view', got %q", updated2.artifactAction)
 	}
 }
 
@@ -2736,33 +2711,23 @@ func TestTaskFieldUpdatedMsg_TitleUpdatesStatus(t *testing.T) {
 	}
 }
 
-func TestHandleListKey_EAOpensEditArtifact(t *testing.T) {
-	dir := t.TempDir()
-	artifactDir := filepath.Join(dir, ".sortie", "artifacts")
-	os.MkdirAll(artifactDir, 0755)
-	os.WriteFile(filepath.Join(artifactDir, "implement.md"), []byte("content"), 0644)
-	os.WriteFile(filepath.Join(artifactDir, "review.md"), []byte("content"), 0644)
-
+func TestHandleListKey_EAReturnsCommand(t *testing.T) {
+	// "ea" now fetches step contexts from daemon asynchronously
 	m := Model{
 		keys:     newKeyMap(),
 		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewList,
+		client:   &client.Client{}, // non-nil client to pass the check
 		cfg: &config.Config{
 			Workflows: []config.WorkflowConfig{
-				{
-					Name: "default",
-					Steps: []config.StepConfig{
-						{Name: "implement"},
-						{Name: "review"},
-					},
-				},
+				{Name: "default", Steps: []config.StepConfig{{Name: "implement"}}},
 			},
 		},
 	}
 	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Test task", Status: "completed", Workflow: "default", WorktreePath: dir},
+		{ID: 1, Title: "Test task", Status: "completed", Workflow: "default"},
 	})
 
 	// Press "e" then "a"
@@ -2774,14 +2739,12 @@ func TestHandleListKey_EAOpensEditArtifact(t *testing.T) {
 	}
 
 	aMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
-	result, _ = updated.handleListKey(aMsg)
-	updated = result.(Model)
+	result, cmd := updated.handleListKey(aMsg)
+	_ = result.(Model)
 
-	if !updated.selectingArtifact {
-		t.Error("expected selectingArtifact to be true")
-	}
-	if updated.artifactAction != "edit" {
-		t.Errorf("expected artifactAction 'edit', got %q", updated.artifactAction)
+	// Should return a command (async daemon fetch)
+	if cmd == nil {
+		t.Error("expected async fetch command, got nil")
 	}
 }
 
@@ -2866,7 +2829,7 @@ func TestHandleTaskInfoKey_YCCopiesContext(t *testing.T) {
 	}
 }
 
-func TestHandleListKey_OANoWorktreeShowsError(t *testing.T) {
+func TestHandleListKey_OANoDaemonShowsError(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
 		list:     newListView(false, ""),
@@ -2880,10 +2843,10 @@ func TestHandleListKey_OANoWorktreeShowsError(t *testing.T) {
 		},
 	}
 	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Pending task", Status: "pending", Workflow: "default", WorktreePath: ""},
+		{ID: 1, Title: "Pending task", Status: "pending", Workflow: "default"},
 	})
 
-	// Press "o" then "a"
+	// Press "o" then "a" — no client connected
 	oMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}}
 	result, _ := m.handleListKey(oMsg)
 	updated := result.(Model)
@@ -2893,48 +2856,10 @@ func TestHandleListKey_OANoWorktreeShowsError(t *testing.T) {
 	updated = result.(Model)
 
 	if updated.err == nil {
-		t.Error("expected error for task with no worktree")
+		t.Error("expected error when not connected to daemon")
 	}
-	if !strings.Contains(updated.err.Error(), "no worktree") {
-		t.Errorf("expected 'no worktree' error, got: %v", updated.err)
-	}
-}
-
-func TestHandleListKey_OANoArtifactsShowsError(t *testing.T) {
-	dir := t.TempDir()
-	// Create artifacts dir but no artifact files
-	os.MkdirAll(filepath.Join(dir, ".sortie", "artifacts"), 0755)
-
-	m := Model{
-		keys:     newKeyMap(),
-		list:     newListView(false, ""),
-		detail:   newDetailView(),
-		taskInfo: newTaskInfoView(),
-		view:     viewList,
-		cfg: &config.Config{
-			Workflows: []config.WorkflowConfig{
-				{Name: "default", Steps: []config.StepConfig{{Name: "implement"}}},
-			},
-		},
-	}
-	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Task", Status: "running", Workflow: "default", WorktreePath: dir},
-	})
-
-	// Press "o" then "a"
-	oMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}}
-	result, _ := m.handleListKey(oMsg)
-	updated := result.(Model)
-
-	aMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
-	result, _ = updated.handleListKey(aMsg)
-	updated = result.(Model)
-
-	if updated.err == nil {
-		t.Error("expected error for task with no artifacts on disk")
-	}
-	if !strings.Contains(updated.err.Error(), "no artifacts") {
-		t.Errorf("expected 'no artifacts' error, got: %v", updated.err)
+	if !strings.Contains(updated.err.Error(), "not connected") {
+		t.Errorf("expected 'not connected' error, got: %v", updated.err)
 	}
 }
 
@@ -2997,8 +2922,12 @@ func TestHandleArtifactSelectKey_Navigation(t *testing.T) {
 		selectingArtifact: true,
 		artifactCursor:    0,
 		artifactNames:     []string{"implement", "review", "test"},
-		artifactWorktree:  "/tmp/test",
 		artifactAction:    "view",
+		stepContexts: map[string]string{
+			"implement": "implement content",
+			"review":    "review content",
+			"test":      "test content",
+		},
 	}
 
 	// Move down
@@ -3111,32 +3040,21 @@ func TestHandleTaskInfoKey_YDNoTaskNoError(t *testing.T) {
 	}
 }
 
-func TestHandleTaskInfoKey_OAOpensArtifactSelection(t *testing.T) {
-	dir := t.TempDir()
-	artifactDir := filepath.Join(dir, ".sortie", "artifacts")
-	os.MkdirAll(artifactDir, 0755)
-	os.WriteFile(filepath.Join(artifactDir, "implement.md"), []byte("content"), 0644)
-	os.WriteFile(filepath.Join(artifactDir, "review.md"), []byte("content"), 0644)
-
+func TestHandleTaskInfoKey_OAReturnsCommand(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
 		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
+		client:   &client.Client{}, // non-nil client to pass the check
 		cfg: &config.Config{
 			Workflows: []config.WorkflowConfig{
-				{
-					Name: "default",
-					Steps: []config.StepConfig{
-						{Name: "implement"},
-						{Name: "review"},
-					},
-				},
+				{Name: "default", Steps: []config.StepConfig{{Name: "implement"}}},
 			},
 		},
 	}
-	task := daemon.TaskInfo{ID: 1, Title: "Test", Status: "completed", Workflow: "default", WorktreePath: dir}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Status: "completed", Workflow: "default"}
 	m.taskInfo.SetTask(&task)
 
 	// Press "o" then "a"
@@ -3148,55 +3066,44 @@ func TestHandleTaskInfoKey_OAOpensArtifactSelection(t *testing.T) {
 	}
 
 	aMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
-	result, _ = updated.handleTaskInfoKey(aMsg)
-	updated = result.(Model)
+	result, cmd := updated.handleTaskInfoKey(aMsg)
+	_ = result.(Model)
 
-	if !updated.selectingArtifact {
-		t.Error("expected selectingArtifact to be true")
-	}
-	if updated.artifactAction != "view" {
-		t.Errorf("expected artifactAction 'view', got %q", updated.artifactAction)
+	// Should return a command (async daemon fetch)
+	if cmd == nil {
+		t.Error("expected async fetch command, got nil")
 	}
 }
 
-func TestHandleTaskInfoKey_EAOpensEditArtifact(t *testing.T) {
-	dir := t.TempDir()
-	artifactDir := filepath.Join(dir, ".sortie", "artifacts")
-	os.MkdirAll(artifactDir, 0755)
-	os.WriteFile(filepath.Join(artifactDir, "implement.md"), []byte("content"), 0644)
-
+func TestHandleTaskInfoKey_EAReturnsCommand(t *testing.T) {
 	m := Model{
 		keys:     newKeyMap(),
 		list:     newListView(false, ""),
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
+		client:   &client.Client{}, // non-nil client to pass the check
 		cfg: &config.Config{
 			Workflows: []config.WorkflowConfig{
-				{
-					Name: "default",
-					Steps: []config.StepConfig{
-						{Name: "implement"},
-					},
-				},
+				{Name: "default", Steps: []config.StepConfig{{Name: "implement"}}},
 			},
 		},
 	}
-	task := daemon.TaskInfo{ID: 1, Title: "Test", Status: "completed", Workflow: "default", WorktreePath: dir}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Status: "completed", Workflow: "default"}
 	m.taskInfo.SetTask(&task)
 
-	// Press "e" then "a" — single artifact, should return command directly
+	// Press "e" then "a" — should return async fetch command
 	eMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
 	result, _ := m.handleTaskInfoKey(eMsg)
 	updated := result.(Model)
 
 	aMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
 	result, cmd := updated.handleTaskInfoKey(aMsg)
-	updated = result.(Model)
+	_ = result.(Model)
 
-	// Single artifact, edit action — should return a command (tea.ExecProcess)
+	// Should return a command (async daemon fetch)
 	if cmd == nil {
-		t.Error("expected edit command for single artifact, got nil")
+		t.Error("expected async fetch command, got nil")
 	}
 }
 
@@ -3248,7 +3155,7 @@ func TestHandleTaskInfoKey_YCEmptyContextNoOp(t *testing.T) {
 	}
 }
 
-func TestViewRendersArtifactSelection(t *testing.T) {
+func TestViewRendersStepContextSelection(t *testing.T) {
 	m := Model{
 		keys:              newKeyMap(),
 		list:              newListView(false, ""),
@@ -3262,55 +3169,36 @@ func TestViewRendersArtifactSelection(t *testing.T) {
 
 	output := m.View()
 
-	if !strings.Contains(output, "Select Artifact") {
-		t.Error("expected artifact selection screen to contain 'Select Artifact' title")
+	if !strings.Contains(output, "Select Step Context") {
+		t.Error("expected selection screen to contain 'Select Step Context' title")
 	}
 	if !strings.Contains(output, "implement") {
-		t.Error("expected artifact selection to contain 'implement'")
+		t.Error("expected selection to contain 'implement'")
 	}
 	if !strings.Contains(output, "review") {
-		t.Error("expected artifact selection to contain 'review'")
-	}
-}
-
-func TestViewRendersEditArtifactTitle(t *testing.T) {
-	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingArtifact: true,
-		artifactCursor:    0,
-		artifactNames:     []string{"implement"},
-		artifactAction:    "edit",
-	}
-
-	output := m.View()
-
-	if !strings.Contains(output, "Edit Artifact") {
-		t.Error("expected artifact selection screen to contain 'Edit Artifact' title when action is edit")
+		t.Error("expected selection to contain 'review'")
 	}
 }
 
 func TestArtifactViewState_View(t *testing.T) {
 	v := &artifactViewState{}
 	v.SetSize(80, 24)
-	v.SetContent("implement", "This is the artifact content.\nLine 2.")
+	v.SetContent("implement", "This is the step context content.\nLine 2.")
 
 	output := v.View()
 
-	if !strings.Contains(output, "Artifact: implement") {
-		t.Error("expected artifact view to contain 'Artifact: implement'")
+	if !strings.Contains(output, "Step Context: implement") {
+		t.Error("expected view to contain 'Step Context: implement'")
 	}
-	if !strings.Contains(output, "artifact content") {
-		t.Error("expected artifact view to contain artifact content")
+	if !strings.Contains(output, "step context content") {
+		t.Error("expected view to contain step context content")
 	}
 	if !strings.Contains(output, "esc/q") {
-		t.Error("expected artifact view help to contain 'esc/q'")
+		t.Error("expected view help to contain 'esc/q'")
 	}
 }
 
-func TestArtifactLoadedMsg_SwitchesToArtifactView(t *testing.T) {
+func TestStepContextsLoadedMsg_SwitchesToArtifactView(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
 		list: newListView(false, ""),
@@ -3318,7 +3206,11 @@ func TestArtifactLoadedMsg_SwitchesToArtifactView(t *testing.T) {
 	}
 	m.artifactView.SetSize(80, 24)
 
-	msg := artifactLoadedMsg{name: "implement", content: "test content"}
+	msg := stepContextsLoadedMsg{
+		taskID:   1,
+		contexts: map[string]string{"implement": "test content"},
+		action:   "view",
+	}
 	result, _ := m.Update(msg)
 	updated := result.(Model)
 
@@ -3327,50 +3219,28 @@ func TestArtifactLoadedMsg_SwitchesToArtifactView(t *testing.T) {
 	}
 }
 
-func TestHandleListKey_OAFiltersNonExistentArtifacts(t *testing.T) {
-	dir := t.TempDir()
-	artifactDir := filepath.Join(dir, ".sortie", "artifacts")
-	os.MkdirAll(artifactDir, 0755)
-	// Only create artifact for "implement", not for "review"
-	os.WriteFile(filepath.Join(artifactDir, "implement.md"), []byte("content"), 0644)
-
+func TestStepContextsLoadedMsg_SingleContextShowsDirectly(t *testing.T) {
+	// When only one step context is returned, it should be shown directly without selection
 	m := Model{
-		keys:     newKeyMap(),
-		list:     newListView(false, ""),
-		detail:   newDetailView(),
-		taskInfo: newTaskInfoView(),
-		view:     viewList,
-		cfg: &config.Config{
-			Workflows: []config.WorkflowConfig{
-				{
-					Name: "default",
-					Steps: []config.StepConfig{
-						{Name: "implement"},
-						{Name: "review"}, // artifact: true but no file on disk
-					},
-				},
-			},
-		},
+		keys: newKeyMap(),
+		list: newListView(false, ""),
+		view: viewList,
 	}
-	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Task", Status: "completed", Workflow: "default", WorktreePath: dir},
-	})
+	m.artifactView.SetSize(80, 24)
 
-	// Press "o" then "a" — only one artifact exists on disk, should skip selection
-	oMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}}
-	result, _ := m.handleListKey(oMsg)
+	msg := stepContextsLoadedMsg{
+		taskID:   1,
+		contexts: map[string]string{"implement": "step output"},
+		action:   "view",
+	}
+	result, _ := m.Update(msg)
 	updated := result.(Model)
 
-	aMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
-	result, cmd := updated.handleListKey(aMsg)
-	updated = result.(Model)
-
-	// Only "implement" exists on disk — should skip selection and load directly
 	if updated.selectingArtifact {
-		t.Error("expected selectingArtifact to be false when only one artifact exists on disk")
+		t.Error("expected selectingArtifact to be false for single context")
 	}
-	if cmd == nil {
-		t.Error("expected load command for single existing artifact")
+	if updated.view != viewArtifact {
+		t.Errorf("expected view to be viewArtifact, got %d", updated.view)
 	}
 }
 

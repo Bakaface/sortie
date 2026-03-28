@@ -851,25 +851,6 @@ func readLogTail(path string, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-// buildArtifactRetryPrompt constructs the prompt for an artifact recovery agent.
-func buildArtifactRetryPrompt(logContent, artifactPath string) string {
-	var sb strings.Builder
-	sb.WriteString("The previous agent session completed a workflow step but did not write the required artifact file.\n\n")
-	if logContent != "" {
-		sb.WriteString("Below is the session log from that step:\n\n")
-		sb.WriteString("```\n")
-		sb.WriteString(logContent)
-		sb.WriteString("\n```\n\n")
-	}
-	sb.WriteString(fmt.Sprintf("Based on the session log above, write a summary to `%s`.\n\n", artifactPath))
-	sb.WriteString("Include:\n")
-	sb.WriteString("- What was done in the step\n")
-	sb.WriteString("- Reasoning and decisions made\n")
-	sb.WriteString("- Files changed\n")
-	sb.WriteString("- Any issues encountered\n\n")
-	sb.WriteString("Do NOT make any code changes. Only write the artifact file.")
-	return sb.String()
-}
 
 // runClaudeStepTmux starts a Claude session in a detached tmux session and returns
 // immediately. The tmux session persists for the user to attach and interact with.

@@ -267,7 +267,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "c":
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "awaiting-approval" || task.Status == "artifact-missing" {
+			if task.Status == "awaiting-approval" {
 				m.confirmAction = "continue"
 				m.confirmTaskID = task.ID
 				return m, nil

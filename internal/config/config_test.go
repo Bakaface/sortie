@@ -46,7 +46,6 @@ tasks:
     steps:
       - name: audit
         prompt: "Identify code smells"
-        artifact: true
       - name: refactor
         prompt: "Apply refactoring based on audit"
         human: true
@@ -1080,7 +1079,6 @@ workflows:
       steps:
         - name: analyzing
           prompt: "Analyze PRD"
-          artifact: true
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
