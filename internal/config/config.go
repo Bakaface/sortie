@@ -141,13 +141,14 @@ type WorkflowConfig struct {
 }
 
 type StepConfig struct {
-	Name             string      `yaml:"name"`
-	Prompt           string      `yaml:"prompt"`
-	Mode             string      `yaml:"mode"`
-	Tmux             *bool       `yaml:"tmux,omitempty"`
-	Timeout          string      `yaml:"timeout"`
-	Human            bool        `yaml:"human"`
-	Loop             *LoopConfig `yaml:"loop,omitempty"`
+	Name                  string      `yaml:"name"`
+	Prompt                string      `yaml:"prompt"`
+	Mode                  string      `yaml:"mode"`
+	Tmux                  *bool       `yaml:"tmux,omitempty"`
+	Timeout               string      `yaml:"timeout"`
+	Human                 bool        `yaml:"human"`
+	Loop                  *LoopConfig `yaml:"loop,omitempty"`
+	SummarizationStrategy string      `yaml:"summarization_strategy,omitempty"`
 }
 
 // LoopConfig defines a closed-loop jump back to an earlier step.

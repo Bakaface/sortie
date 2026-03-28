@@ -286,10 +286,19 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 		}
 
-		// Record step completion with result text
+		// Record step completion with context
+		stepContextText := resultText
+		if step.SummarizationStrategy == "summarize_chat" {
+			logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
+			if summary, err := e.summarizeChatLog(ctx, t, step.Name, logPath); err != nil {
+				log.Printf("Warning: summarize_chat failed for step %q of task #%d: %v", step.Name, t.ID, err)
+			} else if summary != "" {
+				stepContextText = summary
+			}
+		}
 		var ctxPtr *string
-		if resultText != "" {
-			ctxPtr = &resultText
+		if stepContextText != "" {
+			ctxPtr = &stepContextText
 		}
 		if err := e.database.CompleteTaskStep(t.ID, step.Name, ctxPtr, exitCode); err != nil {
 			log.Printf("Warning: failed to complete task step record: %v", err)
@@ -1101,6 +1110,36 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 	t.Context = summary
 	logMsg("Summarizer completed for task #%d (%d chars)", t.ID, len(summary))
 	return nil
+}
+
+// summarizeChatLog reads a step's log file and uses haiku to produce a summary
+// of the full conversation as step context.
+func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName string, logPath string) (string, error) {
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read step log: %w", err)
+	}
+	chatLog := strings.TrimSpace(string(data))
+	if chatLog == "" {
+		return "", nil
+	}
+
+	prompt := fmt.Sprintf(
+		"Summarize the following Claude Code conversation log from step %q of task #%d: %s\n\n"+
+			"Focus on: what was accomplished, key decisions made, files changed, and any issues encountered.\n"+
+			"Be concise but comprehensive. This summary will be passed as context to subsequent workflow steps.\n\n"+
+			"--- CONVERSATION LOG ---\n%s",
+		stepName, t.ID, t.Title, chatLog,
+	)
+
+	log.Printf("Running summarize_chat for step %q of task #%d", stepName, t.ID)
+	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath)
+	if err != nil {
+		return "", fmt.Errorf("summarize_chat claude invocation failed: %w", err)
+	}
+	summary = strings.TrimSpace(summary)
+	log.Printf("summarize_chat completed for step %q of task #%d (%d chars)", stepName, t.ID, len(summary))
+	return summary, nil
 }
 
 // summarizationDescription returns a human-readable description of the summarization
