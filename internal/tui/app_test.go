@@ -2217,6 +2217,112 @@ func TestCommandMode_BackspaceExitsWhenEmpty(t *testing.T) {
 	}
 }
 
+func TestDeleteWordBackward(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", ""},
+		{"hello", ""},
+		{"hello world", "hello "},
+		{"hello world ", "hello "},
+		{"one two three", "one two "},
+		{"a", ""},
+		{"a b", "a "},
+		{"  ", ""},
+	}
+	for _, tc := range tests {
+		got := deleteWordBackward(tc.input)
+		if got != tc.expected {
+			t.Errorf("deleteWordBackward(%q) = %q, want %q", tc.input, got, tc.expected)
+		}
+	}
+}
+
+func TestCommandMode_CtrlW_DeletesWord(t *testing.T) {
+	m := newTestModelWithTasks(5)
+
+	// Enter command mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Type "RunTask Refactor"
+	for _, ch := range "RunTask Refactor" {
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}}
+		result, _ = updated.handleListKey(msg)
+		updated = result.(Model)
+	}
+	if updated.commandInput != "RunTask Refactor" {
+		t.Fatalf("expected commandInput 'RunTask Refactor', got %q", updated.commandInput)
+	}
+
+	// Press ctrl+w to delete "Refactor"
+	msg = tea.KeyMsg{Type: tea.KeyCtrlW}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.commandInput != "RunTask " {
+		t.Errorf("expected commandInput 'RunTask ' after ctrl+w, got %q", updated.commandInput)
+	}
+	if !updated.commandMode {
+		t.Error("expected to still be in command mode")
+	}
+
+	// Press ctrl+w again to delete "RunTask"
+	msg = tea.KeyMsg{Type: tea.KeyCtrlW}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.commandInput != "" {
+		t.Errorf("expected commandInput '' after second ctrl+w, got %q", updated.commandInput)
+	}
+	// Should exit command mode when empty
+	if updated.commandMode {
+		t.Error("expected commandMode to exit when ctrl+w empties input")
+	}
+}
+
+func TestSearchMode_CtrlW_DeletesWord(t *testing.T) {
+	m := newTestModelWithTasks(5)
+
+	// Enter search mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	result, _ := m.handleListKey(msg)
+	updated := result.(Model)
+
+	// Type "hello world"
+	for _, ch := range "hello world" {
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}}
+		result, _ = updated.handleListKey(msg)
+		updated = result.(Model)
+	}
+	if updated.searchQuery != "hello world" {
+		t.Fatalf("expected searchQuery 'hello world', got %q", updated.searchQuery)
+	}
+
+	// Press ctrl+w to delete "world"
+	msg = tea.KeyMsg{Type: tea.KeyCtrlW}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.searchQuery != "hello " {
+		t.Errorf("expected searchQuery 'hello ' after ctrl+w, got %q", updated.searchQuery)
+	}
+	if !updated.searchMode {
+		t.Error("expected to still be in search mode")
+	}
+
+	// Press ctrl+w again to delete "hello"
+	msg = tea.KeyMsg{Type: tea.KeyCtrlW}
+	result, _ = updated.handleListKey(msg)
+	updated = result.(Model)
+	if updated.searchQuery != "" {
+		t.Errorf("expected searchQuery '' after second ctrl+w, got %q", updated.searchQuery)
+	}
+	// Should exit search mode when empty
+	if updated.searchMode {
+		t.Error("expected searchMode to exit when ctrl+w empties query")
+	}
+}
+
 func TestCommandMode_GotoLine(t *testing.T) {
 	m := newTestModelWithTasks(5)
 

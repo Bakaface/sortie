@@ -1,8 +1,26 @@
 package tui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
+
+// deleteWordBackward removes the last word from s, mimicking ctrl+backspace behavior.
+// It first strips trailing whitespace, then removes non-whitespace characters.
+func deleteWordBackward(s string) string {
+	// Trim trailing spaces
+	trimmed := strings.TrimRight(s, " ")
+	if trimmed == "" {
+		return ""
+	}
+	// Find the last space in the trimmed string
+	lastSpace := strings.LastIndex(trimmed, " ")
+	if lastSpace == -1 {
+		return ""
+	}
+	return trimmed[:lastSpace+1]
+}
 
 func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle search mode input
@@ -428,6 +446,13 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "ctrl+w":
+		m.commandInput = deleteWordBackward(m.commandInput)
+		if m.commandInput == "" {
+			m.commandMode = false
+		}
+		return m, nil
+
 	case "backspace":
 		if len(m.commandInput) > 0 {
 			m.commandInput = m.commandInput[:len(m.commandInput)-1]
@@ -461,6 +486,13 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.searchMode = false
 		if query != "" {
 			m.list.performSearchAndJump(query, m.list.table.Cursor(), direction)
+		}
+		return m, nil
+
+	case "ctrl+w":
+		m.searchQuery = deleteWordBackward(m.searchQuery)
+		if m.searchQuery == "" {
+			m.searchMode = false
 		}
 		return m, nil
 
