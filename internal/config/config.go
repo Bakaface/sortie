@@ -68,7 +68,6 @@ type ProjectConfig struct {
 	MaxWorkers               int                  `yaml:"max_workers"`
 	DefaultPriority          string               `yaml:"default_priority"`
 	Yolo                     *bool                `yaml:"yolo,omitempty"`
-	ValidateArtifact         *bool                `yaml:"validate_artifact,omitempty"`
 	Verification             *VerificationConfig  `yaml:"verification,omitempty"`
 	Git                      GitConfig            `yaml:"git"`
 	Workflows                ProjectWorkflows     `yaml:"workflows"`
@@ -110,7 +109,6 @@ func (pw *ProjectWorkflows) IsEmpty() bool {
 }
 
 type VerificationConfig struct {
-	ArtifactRetry    bool `yaml:"artifact_retry"`
 	MaxRetries       int  `yaml:"max_retries"`
 	VerifySummarizer bool `yaml:"verify_summarizer"`
 }
@@ -149,7 +147,6 @@ type StepConfig struct {
 	Tmux             *bool       `yaml:"tmux,omitempty"`
 	Timeout          string      `yaml:"timeout"`
 	Human            bool        `yaml:"human"`
-	Artifact         bool        `yaml:"artifact"`
 	Loop             *LoopConfig `yaml:"loop,omitempty"`
 }
 
@@ -162,7 +159,7 @@ type LoopConfig struct {
 
 // LoopExitCondition defines when a loop should exit early.
 type LoopExitCondition struct {
-	ArtifactEmpty string `yaml:"artifact_empty"` // step name whose artifact to check
+	StepContextEmpty string `yaml:"step_context_empty"` // step name whose context to check
 }
 
 // ValidateLoops checks all loop configurations in a workflow for correctness.
@@ -210,9 +207,9 @@ func (wf *WorkflowConfig) ValidateLoops() error {
 
 		// Validate exit condition
 		if step.Loop.ExitCondition != nil {
-			if step.Loop.ExitCondition.ArtifactEmpty != "" {
-				if _, ok := stepIndex[step.Loop.ExitCondition.ArtifactEmpty]; !ok {
-					return fmt.Errorf("step %q: exit_condition artifact_empty references unknown step %q", step.Name, step.Loop.ExitCondition.ArtifactEmpty)
+			if step.Loop.ExitCondition.StepContextEmpty != "" {
+				if _, ok := stepIndex[step.Loop.ExitCondition.StepContextEmpty]; !ok {
+					return fmt.Errorf("step %q: exit_condition step_context_empty references unknown step %q", step.Name, step.Loop.ExitCondition.StepContextEmpty)
 				}
 			}
 		}
@@ -251,8 +248,6 @@ const (
 	// defaultOutputBufferLines is the default size of the per-agent output ring buffer.
 	defaultOutputBufferLines = 10000
 
-	// defaultMaxRetries is the default number of retries for artifact verification.
-	defaultMaxRetries = 3
 )
 
 // GetStepTimeout parses the step's timeout string or returns the default.
@@ -269,7 +264,6 @@ func (c *Config) GetStepTimeout(step StepConfig) time.Duration {
 type GlobalConfig struct {
 	MaxWorkers               int                 `yaml:"max_workers"`
 	Yolo                     *bool               `yaml:"yolo,omitempty"`
-	ValidateArtifact         *bool               `yaml:"validate_artifact,omitempty"`
 	Verification             *VerificationConfig `yaml:"verification,omitempty"`
 	Notifications            NotificationsConfig `yaml:"notifications"`
 	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`
@@ -311,7 +305,6 @@ type Config struct {
 	// From .sortie.yml (project config)
 	MaxWorkers       int
 	DefaultPriority  string
-	ValidateArtifact bool
 	Verification     VerificationConfig
 	Git              GitConfig
 	Workflows        []WorkflowConfig // flat list for engine resolution (all kinds, with prefixed names)
@@ -379,7 +372,6 @@ type databaseCompat struct {
 type agentsCompat struct {
 	MaxConcurrent     int
 	OutputBufferLines int
-	MaxRetries        int
 }
 
 func defaultConfig() *Config {
@@ -404,7 +396,6 @@ func defaultConfig() *Config {
 		Agents: agentsCompat{
 			MaxConcurrent:     3,
 			OutputBufferLines: 10000,
-			MaxRetries:        3,
 		},
 	}
 }
@@ -517,14 +508,8 @@ func loadGlobalConfig(path string, cfg *Config) error {
 	if global.Yolo != nil {
 		cfg.Claude.Yolo = *global.Yolo
 	}
-	if global.ValidateArtifact != nil {
-		cfg.ValidateArtifact = *global.ValidateArtifact
-	}
 	if global.Verification != nil {
 		cfg.Verification = *global.Verification
-		if cfg.Verification.ArtifactRetry && cfg.Verification.MaxRetries == 0 {
-			cfg.Verification.MaxRetries = 1
-		}
 	}
 	cfg.Notifications = global.Notifications
 	if global.TmuxNestedAttachBehavior != "" {
@@ -574,14 +559,8 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if proj.Yolo != nil {
 		cfg.Claude.Yolo = *proj.Yolo
 	}
-	if proj.ValidateArtifact != nil {
-		cfg.ValidateArtifact = *proj.ValidateArtifact
-	}
 	if proj.Verification != nil {
 		cfg.Verification = *proj.Verification
-		if cfg.Verification.ArtifactRetry && cfg.Verification.MaxRetries == 0 {
-			cfg.Verification.MaxRetries = 1
-		}
 	}
 	if proj.Notifications != nil {
 		cfg.Notifications = *proj.Notifications
@@ -768,7 +747,6 @@ func (c *Config) syncCompat() {
 	c.Agents = agentsCompat{
 		MaxConcurrent:     c.MaxWorkers,
 		OutputBufferLines: defaultOutputBufferLines,
-		MaxRetries:        defaultMaxRetries,
 	}
 	c.Project.AutoDetect = true
 }

@@ -19,7 +19,6 @@ const (
 	StatusMergeBlocked     Status = "merge-blocked"
 	StatusCompleted        Status = "completed"
 	StatusFailed           Status = "failed"
-	StatusArtifactMissing  Status = "artifact-missing"
 )
 
 func (s Status) String() string {
@@ -31,7 +30,7 @@ func (s Status) IsTerminal() bool {
 }
 
 func (s Status) IsActive() bool {
-	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux || s == StatusFinalizing || s == StatusSummarizing || s == StatusMergeBlocked || s == StatusArtifactMissing
+	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux || s == StatusFinalizing || s == StatusSummarizing || s == StatusMergeBlocked
 }
 
 type Priority string

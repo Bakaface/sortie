@@ -16,7 +16,8 @@ import (
 //   - {"type":"user","message":{"content":[...]}} — tool results
 //   - {"type":"result",...} — final result summary
 type StreamParser struct {
-	lastMsgID string // track message ID to detect new turns
+	lastMsgID  string // track message ID to detect new turns
+	resultText string // final result text from the last result event
 }
 
 // streamEvent represents a top-level NDJSON event from Claude's verbose stream-json output.
@@ -31,6 +32,7 @@ type streamEvent struct {
 // resultEvent is decoded separately for "result" type events because the top-level
 // "result" key is a string (the final text), which conflicts with reusing streamEvent.
 type resultEvent struct {
+	Result       string  `json:"result"`
 	DurationMs   float64 `json:"duration_ms"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
 }
@@ -78,11 +80,17 @@ func (p *StreamParser) ParseLine(line []byte) []string {
 		// (the final text output), not an object — which would break streamEvent unmarshal.
 		var res resultEvent
 		if err := json.Unmarshal(line, &res); err == nil {
+			p.resultText = res.Result
 			return []string{fmt.Sprintf("[%s] Done (%.1fs, $%.4f)", ts, res.DurationMs/1000, res.TotalCostUSD)}
 		}
 	}
 
 	return nil
+}
+
+// ResultText returns the final result text from the last result event.
+func (p *StreamParser) ResultText() string {
+	return p.resultText
 }
 
 // parseAssistant extracts human-readable lines from an assistant event.

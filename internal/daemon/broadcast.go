@@ -23,7 +23,7 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 	switch newState {
 	case agent.StateCompleted:
 		refreshedTask, err := s.database.GetTask(a.Task.ID)
-		if err == nil && (refreshedTask.Status == task.StatusAwaitingApproval || refreshedTask.Status == task.StatusTmux || refreshedTask.Status == task.StatusArtifactMissing) {
+		if err == nil && (refreshedTask.Status == task.StatusAwaitingApproval || refreshedTask.Status == task.StatusTmux) {
 			log.Printf("%sAgent %s paused task #%d for approval", prefix, a.ID, a.Task.ID)
 			if err := s.notifier.AgentWaitingForInput(a.ID, taskTitle); err != nil {
 				log.Printf("%sWarning: notification failed: %v", prefix, err)
@@ -128,7 +128,7 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 	}
 	for _, t := range tasks {
 		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusFinalizing, task.StatusSummarizing, task.StatusMergeBlocked, task.StatusInit, task.StatusArtifactMissing:
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusFinalizing, task.StatusSummarizing, task.StatusMergeBlocked, task.StatusInit:
 			return
 		}
 	}

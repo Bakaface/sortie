@@ -161,9 +161,6 @@ func (s *Server) recoverOrphanedTasks() error {
 		if t.Status == task.StatusTmux {
 			tmuxTasksToRestore = append(tmuxTasksToRestore, t)
 		}
-		if t.Status == task.StatusArtifactMissing {
-			log.Printf("%sTask #%d has missing artifact (use 'continue' command to skip)", prefix, t.ID)
-		}
 	}
 
 	// Restore tmux sessions for tasks that had active tmux sessions before daemon restart

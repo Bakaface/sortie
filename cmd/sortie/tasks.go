@@ -345,9 +345,9 @@ var revertCmd = &cobra.Command{
 
 var continueCmd = &cobra.Command{
 	Use:               "continue <task_id>",
-	Short:             "Continue a task (awaiting-approval, completed, failed, or artifact-missing)",
+	Short:             "Continue a task (awaiting-approval, completed, or failed)",
 	Args:              cobra.ExactArgs(1),
-	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval, task.StatusTmux, task.StatusCompleted, task.StatusFailed, task.StatusArtifactMissing),
+	ValidArgsFunction: completeTaskIDs(task.StatusAwaitingApproval, task.StatusTmux, task.StatusCompleted, task.StatusFailed),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {

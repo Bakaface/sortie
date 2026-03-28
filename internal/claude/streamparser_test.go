@@ -103,6 +103,33 @@ func TestParseLineThinking(t *testing.T) {
 	}
 }
 
+func TestStreamParser_ResultText(t *testing.T) {
+	parser := NewStreamParser()
+
+	// Simulate a result event with result text
+	resultLine := `{"type":"result","subtype":"success","result":"Here is the final output from Claude.","duration_ms":5000,"total_cost_usd":0.05}`
+
+	lines := parser.ParseLine([]byte(resultLine))
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line, got %d", len(lines))
+	}
+
+	got := parser.ResultText()
+	want := "Here is the final output from Claude."
+	if got != want {
+		t.Errorf("ResultText() = %q, want %q", got, want)
+	}
+}
+
+func TestStreamParser_ResultTextEmpty(t *testing.T) {
+	parser := NewStreamParser()
+
+	// No result event parsed yet
+	if got := parser.ResultText(); got != "" {
+		t.Errorf("ResultText() before any parsing = %q, want empty", got)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

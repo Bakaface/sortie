@@ -220,21 +220,6 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
-	if t.Status == task.StatusArtifactMissing {
-		if err := s.database.UpdateTaskStep(t.ID, t.StepIndex+1, ""); err != nil {
-			s.sendError(conn, fmt.Sprintf("failed to advance task step: %v", err))
-			return
-		}
-		if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
-			s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
-			return
-		}
-		s.broadcastTaskUpdate(t.ID)
-		log.Printf("%sTask #%d continued past artifact-missing at step %d", s.projectLogPrefix(t.ProjectID), t.ID, t.StepIndex)
-		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d continued past missing artifact", t.ID)})
-		return
-	}
-
 	if !t.Status.IsTerminal() {
 		s.sendError(conn, fmt.Sprintf("task is not in a continuable state (status: %s)", t.Status))
 		return

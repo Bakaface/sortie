@@ -184,12 +184,10 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			log.Printf("Warning: failed to update task step: %v", err)
 		}
 
-		// Collect artifacts from prior steps (only those with artifact: true)
+		// Collect artifacts from prior steps
 		var priorStepNames []string
 		for j := 0; j < i; j++ {
-			if steps[j].Artifact {
-				priorStepNames = append(priorStepNames, steps[j].Name)
-			}
+			priorStepNames = append(priorStepNames, steps[j].Name)
 		}
 		artifacts := CollectArtifacts(t.WorktreePath, priorStepNames)
 
@@ -232,12 +230,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 		resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
 
-		// Append artifact output instructions if step has artifact: true
 		artifactsDir := ArtifactsDir(t.WorktreePath)
-		if step.Artifact {
-			artifactPath := filepath.Join(artifactsDir, step.Name+".md")
-			resolvedPrompt += fmt.Sprintf("\n\n---\n\nIMPORTANT: When you are done, write a summary of what you did to `%s`. Include: files changed, decisions made, and any issues encountered. This artifact is required for subsequent workflow steps.", artifactPath)
-		}
 		sysPrompt := BuildSystemPrompt(resolvedPrompt, e.cfg.SystemPrompt, imageRelPaths)
 
 		// Set environment variables
@@ -286,62 +279,6 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 		}
 
-		// Verify artifact was written for artifact steps
-		if step.Artifact && !useTmux {
-			artifactPath := filepath.Join(artifactsDir, step.Name+".md")
-
-			// Retry with log context if artifact is missing and retry is enabled
-			if !fileExistsAndNonEmpty(artifactPath) && e.cfg.Verification.ArtifactRetry {
-				for attempt := 1; attempt <= e.cfg.Verification.MaxRetries; attempt++ {
-					log.Printf("Task #%d step %q: artifact missing, retry %d/%d with log context",
-						t.ID, step.Name, attempt, e.cfg.Verification.MaxRetries)
-
-					// Read step log for context
-					logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
-					logContent := readLogTail(logPath, 500)
-
-					// Build retry prompt
-					retryPrompt := buildArtifactRetryPrompt(logContent, artifactPath)
-
-					retrySysPrompt := BuildSystemPrompt(retryPrompt, e.cfg.SystemPrompt, nil)
-
-					retryStep := config.StepConfig{
-						Name:    step.Name + "-artifact-retry",
-						Timeout: "5m",
-					}
-					retryEnv := map[string]string{
-						"SORTIE_TASK_ID":  fmt.Sprintf("%d", t.ID),
-						"SORTIE_STEP":     retryStep.Name,
-						"SORTIE_WORKTREE": t.WorktreePath,
-					}
-
-					retryExit, _, retryErr := e.runClaudeStep(ctx, t, retryStep, retryPrompt, retryEnv, outputFn, retrySysPrompt)
-					if retryErr != nil {
-						log.Printf("Warning: artifact retry agent failed: %v", retryErr)
-						break
-					}
-					if retryExit != 0 {
-						log.Printf("Warning: artifact retry agent exited with code %d", retryExit)
-						break
-					}
-
-					if fileExistsAndNonEmpty(artifactPath) {
-						log.Printf("Task #%d step %q: artifact recovered on retry %d", t.ID, step.Name, attempt)
-						break
-					}
-				}
-			}
-
-			// Final check: if still missing, handle based on config
-			if !fileExistsAndNonEmpty(artifactPath) {
-				if e.cfg.ValidateArtifact || e.cfg.Verification.ArtifactRetry {
-					if err := e.database.UpdateTaskStatus(t.ID, task.StatusArtifactMissing); err != nil {
-						log.Printf("Warning: failed to set artifact-missing: %v", err)
-					}
-					return nil
-				}
-			}
-		}
 
 		// Evaluate loop condition
 		if step.Loop != nil {
@@ -354,11 +291,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 			// Check exit condition
 			if shouldLoop && step.Loop.ExitCondition != nil {
-				if step.Loop.ExitCondition.ArtifactEmpty != "" {
-					content, _ := ReadArtifact(t.WorktreePath, step.Loop.ExitCondition.ArtifactEmpty)
+				if step.Loop.ExitCondition.StepContextEmpty != "" {
+					content, _ := ReadArtifact(t.WorktreePath, step.Loop.ExitCondition.StepContextEmpty)
 					if strings.TrimSpace(content) == "" {
 						shouldLoop = false
-						log.Printf("Loop exit: artifact %q is empty for task #%d", step.Loop.ExitCondition.ArtifactEmpty, t.ID)
+						log.Printf("Loop exit: step context %q is empty for task #%d", step.Loop.ExitCondition.StepContextEmpty, t.ID)
 					}
 				}
 			}
@@ -1056,15 +993,11 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 			logFn(format, args...)
 		}
 	}
-	// Collect step names that produce artifacts
+	// Collect all step artifacts
 	var stepNames []string
 	for _, s := range wf.Steps {
-		if s.Artifact {
-			stepNames = append(stepNames, s.Name)
-		}
+		stepNames = append(stepNames, s.Name)
 	}
-
-	// Collect all artifacts
 	artifacts := CollectArtifacts(t.WorktreePath, stepNames)
 
 	// Get git diff stat as fallback context when no artifacts are available

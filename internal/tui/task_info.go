@@ -226,9 +226,6 @@ func (v *taskInfoView) renderMetadata() string {
 			if step.Human {
 				suffix = " [human]"
 			}
-			if step.Artifact {
-				suffix += " [artifact]"
-			}
 			if step.Loop != nil {
 				suffix += fmt.Sprintf(" [loop→%s ×%d]", step.Loop.Goto, step.Loop.MaxIterations)
 			}

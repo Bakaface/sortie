@@ -23,15 +23,13 @@ func (m Model) openArtifactSelection(task *daemon.TaskInfo, action string) (tea.
 		return m, nil
 	}
 
-	// Find steps with artifact: true that have actual files on disk
+	// Find steps that have actual artifact files on disk
 	artifactsDir := workflow.ArtifactsDir(task.WorktreePath)
 	var names []string
 	for _, step := range wf.Steps {
-		if step.Artifact {
-			path := filepath.Join(artifactsDir, step.Name+".md")
-			if _, err := os.Stat(path); err == nil {
-				names = append(names, step.Name)
-			}
+		path := filepath.Join(artifactsDir, step.Name+".md")
+		if _, err := os.Stat(path); err == nil {
+			names = append(names, step.Name)
 		}
 	}
 

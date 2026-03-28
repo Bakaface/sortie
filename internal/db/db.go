@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (15)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (16)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -273,6 +273,28 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to add worktree_detached column: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 15`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 16: Add task_steps table
+	if version < 16 {
+		_, err := db.Exec(`CREATE TABLE IF NOT EXISTS task_steps (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			step_name TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'running',
+			context TEXT,
+			exit_code INTEGER,
+			started_at DATETIME,
+			completed_at DATETIME,
+			UNIQUE(task_id, step_name)
+		)`)
+		if err != nil {
+			return fmt.Errorf("failed to create task_steps table: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 16`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}

@@ -45,3 +45,15 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
     blocked_by INTEGER NOT NULL REFERENCES tasks(id),
     PRIMARY KEY (task_id, blocked_by)
 );
+
+CREATE TABLE IF NOT EXISTS task_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    step_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    context TEXT,
+    exit_code INTEGER,
+    started_at DATETIME,
+    completed_at DATETIME,
+    UNIQUE(task_id, step_name)
+);

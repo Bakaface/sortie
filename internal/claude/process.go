@@ -266,6 +266,14 @@ func (p *Process) CaptureOutput(maxLines int) ([]string, error) {
 	return lines, scanner.Err()
 }
 
+// ResultText returns the final text output from the Claude process.
+// Only meaningful after the process has exited.
+func (p *Process) ResultText() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.parser.ResultText()
+}
+
 // PID returns the process ID, or 0 if not running
 func (p *Process) PID() int {
 	p.mu.RLock()
