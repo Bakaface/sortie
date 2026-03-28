@@ -4163,12 +4163,12 @@ func TestListView_HelperRowPersistsAfterSearchCancel(t *testing.T) {
 		t.Error("expected help row before search")
 	}
 
-	// Enter search mode
+	// Enter search mode — search input replaces help row to prevent UI jump
 	m.searchMode = true
 	m.searchQuery = "test"
 	output = m.View()
-	if !strings.Contains(output, "quit") {
-		t.Error("expected help row during search")
+	if strings.Contains(output, "quit") {
+		t.Error("expected help row to be replaced by search input")
 	}
 	if !strings.Contains(output, "/test") {
 		t.Error("expected search bar during search")
@@ -4343,13 +4343,14 @@ func TestStatusMessage_CountedInExtraLines(t *testing.T) {
 		t.Error("expected status message in output")
 	}
 
-	// With status message + search mode: should have two fewer task lines
+	// With status message + search mode: search replaces help row (no extra lines),
+	// so task count should be the same as status-only.
 	m.searchMode = true
 	m.searchQuery = "test"
 	output = m.View()
 	withBothTaskLines := countTaskLines(output)
-	if withBothTaskLines >= withMsgTaskLines {
-		t.Errorf("expected fewer task lines with search+status: withMsg=%d, withBoth=%d", withMsgTaskLines, withBothTaskLines)
+	if withBothTaskLines != withMsgTaskLines {
+		t.Errorf("expected same task lines with search+status (search replaces help row): withMsg=%d, withBoth=%d", withMsgTaskLines, withBothTaskLines)
 	}
 }
 
@@ -4420,39 +4421,40 @@ func TestBottomBar_PinnedToBottom(t *testing.T) {
 	m.width = 100
 	m.height = 24
 
-	// Command bar should appear on the last non-empty line
+	// Command bar replaces the help row (not appended at bottom)
 	m.commandMode = true
 	m.commandInput = "set"
 	output := m.View()
-	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
-	lastLine := lines[len(lines)-1]
-	if !strings.Contains(lastLine, ":set") {
-		t.Errorf("expected command bar on last line, got %q", lastLine)
+	if !strings.Contains(output, ":set") {
+		t.Error("expected command bar in output")
+	}
+	// Help row should be replaced, not present alongside command bar
+	if strings.Contains(output, "quit") {
+		t.Error("expected help row to be replaced by command bar")
 	}
 
 	// Status message should appear on the last non-empty line
 	m.commandMode = false
 	m.statusMessage = "Copied!"
 	output = m.View()
-	lines = strings.Split(strings.TrimRight(output, "\n"), "\n")
-	lastLine = lines[len(lines)-1]
+	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
+	lastLine := lines[len(lines)-1]
 	if !strings.Contains(lastLine, "Copied!") {
 		t.Errorf("expected status message on last line, got %q", lastLine)
 	}
 
-	// Both command bar and status message: status on last, command on second-to-last
+	// Both command bar (in help row) and status message (at bottom)
 	m.commandMode = true
 	m.commandInput = "42"
 	m.statusMessage = "Done"
 	output = m.View()
+	if !strings.Contains(output, ":42") {
+		t.Error("expected command bar in output")
+	}
 	lines = strings.Split(strings.TrimRight(output, "\n"), "\n")
 	lastLine = lines[len(lines)-1]
-	secondToLast := lines[len(lines)-2]
 	if !strings.Contains(lastLine, "Done") {
 		t.Errorf("expected status message on last line, got %q", lastLine)
-	}
-	if !strings.Contains(secondToLast, ":42") {
-		t.Errorf("expected command bar on second-to-last line, got %q", secondToLast)
 	}
 }
 
@@ -4482,6 +4484,57 @@ func TestBottomBar_OutputStillFitsTerminalHeight(t *testing.T) {
 		if len(lines) > height+1 {
 			t.Errorf("height=%d with bottom bars: output has %d lines, expected <= %d", height, len(lines), height+1)
 		}
+	}
+}
+
+func TestCommandSearchMode_NoExtraLines(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false, ""),
+		view: viewList,
+	}
+	tasks := make([]daemon.TaskInfo, 20)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	m.list.SetTasks(tasks)
+	m.list.SetSize(100, 15)
+
+	// Count task lines without any mode active
+	baseOutput := m.View()
+	baseTaskLines := countTaskLines(baseOutput)
+
+	// Command mode should NOT reduce visible task lines (replaces help row)
+	m.commandMode = true
+	m.commandInput = "42"
+	cmdOutput := m.View()
+	cmdTaskLines := countTaskLines(cmdOutput)
+	if cmdTaskLines != baseTaskLines {
+		t.Errorf("command mode should not change task count: base=%d, cmd=%d", baseTaskLines, cmdTaskLines)
+	}
+	if !strings.Contains(cmdOutput, ":42") {
+		t.Error("expected command input in output")
+	}
+
+	// Search mode should NOT reduce visible task lines (replaces help row)
+	m.commandMode = false
+	m.searchMode = true
+	m.searchQuery = "hello"
+	m.searchDirection = 1
+	searchOutput := m.View()
+	searchTaskLines := countTaskLines(searchOutput)
+	if searchTaskLines != baseTaskLines {
+		t.Errorf("search mode should not change task count: base=%d, search=%d", baseTaskLines, searchTaskLines)
+	}
+	if !strings.Contains(searchOutput, "/hello") {
+		t.Error("expected search input in output")
+	}
+
+	// Backward search
+	m.searchDirection = -1
+	searchOutput = m.View()
+	if !strings.Contains(searchOutput, "?hello") {
+		t.Error("expected backward search input in output")
 	}
 }
 

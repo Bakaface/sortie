@@ -547,16 +547,19 @@ func (m Model) View() string {
 		return b.String()
 	}
 
-	// Build bottom bar lines (command bar, search bar, confirmation, status message).
+	// Build bottom bar lines (confirmation, status message).
 	// These are rendered at the very bottom of the terminal.
+	// Command and search inputs replace the help bar to prevent UI jumps.
 	var bottomLines []string
 	if m.confirmAction != "" {
 		bottomLines = append(bottomLines, fmt.Sprintf("  %s task #%d? (y/n)", capitalize(m.confirmAction), m.confirmTaskID))
 	}
+	// Command/search inputs replace the keybinds help row instead of adding extra lines,
+	// so the interface stays put when entering command or search mode.
+	m.list.helpOverride = ""
 	if m.commandMode {
-		bottomLines = append(bottomLines, fmt.Sprintf("  :%s█", m.commandInput))
-	}
-	if m.searchMode {
+		m.list.helpOverride = fmt.Sprintf("  :%s█", m.commandInput)
+	} else if m.searchMode {
 		searchChar := "/"
 		if m.searchDirection < 0 {
 			searchChar = "?"
@@ -565,7 +568,7 @@ func (m Model) View() string {
 		if len(m.list.matchedIndices) > 0 {
 			matchInfo = fmt.Sprintf(" [%d/%d]", m.list.currentMatchIdx+1, len(m.list.matchedIndices))
 		}
-		bottomLines = append(bottomLines, fmt.Sprintf("%s%s█%s", searchChar, m.searchQuery, matchInfo))
+		m.list.helpOverride = fmt.Sprintf("%s%s█%s", searchChar, m.searchQuery, matchInfo)
 	}
 	if m.statusMessage != "" {
 		bottomLines = append(bottomLines, fmt.Sprintf("  %s", m.statusMessage))

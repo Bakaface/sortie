@@ -31,7 +31,8 @@ type listView struct {
 	matchedIndices  []int // indices of tasks matching current search
 	currentMatchIdx int   // index within matchedIndices
 	scrollOffset       int  // index of first visible task row
-	extraLines         int  // extra lines reserved below the list (search bar, command bar, etc.)
+	extraLines         int    // extra lines reserved below the list (search bar, command bar, etc.)
+	helpOverride       string // when non-empty, replaces the help bar (e.g. command/search input)
 	hasScrollIndicator bool // true when not all tasks fit in the visible window
 	loading            bool           // true before the first successful task load
 	refreshing         bool           // true while a background refresh is in-flight
@@ -443,7 +444,11 @@ func (l *listView) View() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(l.renderHelp())
+	if l.helpOverride != "" {
+		b.WriteString(l.helpOverride)
+	} else {
+		b.WriteString(l.renderHelp())
+	}
 
 	return b.String()
 }
