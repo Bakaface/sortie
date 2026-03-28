@@ -1103,3 +1103,12 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d deleted", t.ID)})
 }
+
+func (s *Server) handleGetStepContexts(conn net.Conn, req GetStepContextsRequest) {
+	steps, err := s.database.GetAllTaskStepContexts(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get step contexts: %v", err))
+		return
+	}
+	s.sendMessage(conn, MsgGetStepContexts, GetStepContextsResponse{Steps: steps})
+}

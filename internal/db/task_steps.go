@@ -84,6 +84,29 @@ func (db *DB) GetTaskStepContexts(taskID int64, stepNames []string) (map[string]
 	return result, rows.Err()
 }
 
+// GetAllTaskStepContexts returns all completed step contexts for a task.
+func (db *DB) GetAllTaskStepContexts(taskID int64) (map[string]string, error) {
+	rows, err := db.Query(
+		`SELECT step_name, context FROM task_steps
+		 WHERE task_id = ? AND status = 'completed' AND context IS NOT NULL AND context != ''`,
+		taskID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]string)
+	for rows.Next() {
+		var name, ctx string
+		if err := rows.Scan(&name, &ctx); err != nil {
+			return nil, err
+		}
+		result[name] = ctx
+	}
+	return result, rows.Err()
+}
+
 // DeleteTaskSteps deletes all step records for a task (used on full retry/reset).
 func (db *DB) DeleteTaskSteps(taskID int64) error {
 	_, err := db.Exec(`DELETE FROM task_steps WHERE task_id = ?`, taskID)

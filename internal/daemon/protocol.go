@@ -41,6 +41,7 @@ const (
 	MsgUpdateDependency   MessageType = "update_dependency"
 	MsgDetachBranch       MessageType = "detach_branch"
 	MsgAttachBranch       MessageType = "attach_branch"
+	MsgGetStepContexts    MessageType = "get_step_contexts"
 )
 
 type Message struct {
@@ -167,6 +168,14 @@ type DetachBranchRequest struct {
 
 type AttachBranchRequest struct {
 	TaskID int64 `json:"task_id"`
+}
+
+type GetStepContextsRequest struct {
+	TaskID int64 `json:"task_id"`
+}
+
+type GetStepContextsResponse struct {
+	Steps map[string]string `json:"steps"` // step_name -> context
 }
 
 type CreateTaskResponse struct {

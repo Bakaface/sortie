@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -98,8 +99,8 @@ type Model struct {
 	artifactPendingG  bool
 	artifactNames     []string
 	artifactTaskID    int64
-	artifactWorktree  string
 	artifactAction    string // "view" or "edit"
+	stepContexts      map[string]string // loaded step contexts for current selection
 
 	// Artifact viewer state
 	artifactView artifactViewState
@@ -140,16 +141,11 @@ type errorMsg error
 type tickMsg time.Time
 type tmuxDetachedMsg struct{ taskID int64 }
 type tmuxSessionsMsg map[int64]bool
-type editorArtifactFinishedMsg struct{}
 type editorLogFinishedMsg struct{}
 type editorFieldFinishedMsg struct {
 	taskID int64
 	field  string
 	path   string
-}
-type artifactLoadedMsg struct {
-	name    string
-	content string
 }
 
 func NewModel(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool) Model {
@@ -246,9 +242,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.prompt.Focus()
 		return m, nil
 
-	case editorArtifactFinishedMsg:
-		return m, nil
-
 	case editorLogFinishedMsg:
 		return m, nil
 
@@ -265,9 +258,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.refreshing = true
 		return m, m.refreshTasks()
 
-	case artifactLoadedMsg:
-		m.artifactView.SetContent(msg.name, msg.content)
-		m.view = viewArtifact
+	case stepContextsLoadedMsg:
+		var names []string
+		for name := range msg.contexts {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+
+		if len(names) == 1 {
+			// Single step context — show it directly
+			name := names[0]
+			m.stepContexts = msg.contexts
+			m.artifactView.SetContent(name, msg.contexts[name])
+			m.view = viewArtifact
+			return m, nil
+		}
+
+		m.selectingArtifact = true
+		m.artifactCursor = 0
+		m.artifactNames = names
+		m.artifactTaskID = msg.taskID
+		m.artifactAction = msg.action
+		m.stepContexts = msg.contexts
 		return m, nil
 
 	case branchesLoadedMsg:
@@ -490,11 +502,7 @@ func (m Model) View() string {
 	// Show artifact selection as its own screen
 	if m.selectingArtifact {
 		var b strings.Builder
-		title := " Select Artifact "
-		if m.artifactAction == "edit" {
-			title = " Edit Artifact "
-		}
-		b.WriteString(titleStyle.Render(title) + "\n\n")
+		b.WriteString(titleStyle.Render(" Select Step Context ") + "\n\n")
 		for i, name := range m.artifactNames {
 			label := fmt.Sprintf("  %d. %s", i+1, name)
 			if i == m.artifactCursor {

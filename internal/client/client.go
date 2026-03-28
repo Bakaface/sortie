@@ -422,6 +422,19 @@ func (c *Client) StopTask(id int64) error {
 	return c.StopAgent(agentID)
 }
 
+// GetStepContexts fetches all completed step contexts for a task.
+func (c *Client) GetStepContexts(taskID int64) (map[string]string, error) {
+	msg, err := c.request(daemon.MsgGetStepContexts, daemon.GetStepContextsRequest{TaskID: taskID})
+	if err != nil {
+		return nil, err
+	}
+	var result daemon.GetStepContextsResponse
+	if err := msg.DecodePayload(&result); err != nil {
+		return nil, err
+	}
+	return result.Steps, nil
+}
+
 func ParseAgentUpdate(msg *daemon.Message) (*daemon.AgentInfo, error) {
 	if msg.Type != daemon.MsgAgentUpdate {
 		return nil, fmt.Errorf("not an agent update message")

@@ -72,7 +72,7 @@ func (v *artifactViewState) View() string {
 	b.WriteString("\n\n")
 
 	// Artifact name
-	artifactTitle := fmt.Sprintf("  Artifact: %s", v.name)
+	artifactTitle := fmt.Sprintf("  Step Context: %s", v.name)
 	b.WriteString(subHeaderStyle.Render(artifactTitle))
 	b.WriteString("\n")
 

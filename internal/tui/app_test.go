@@ -560,7 +560,7 @@ func TestTaskInfoView_ShowsMetadata(t *testing.T) {
 	v.SetWorkflow(&config.WorkflowConfig{
 		Name: "default",
 		Steps: []config.StepConfig{
-			{Name: "implement", Artifact: true},
+			{Name: "implement"},
 			{Name: "review", Human: true},
 			{Name: "test"},
 		},
@@ -601,9 +601,6 @@ func TestTaskInfoView_ShowsMetadata(t *testing.T) {
 	}
 	if !strings.Contains(output, "[human]") {
 		t.Error("expected output to contain '[human]' indicator")
-	}
-	if !strings.Contains(output, "[artifact]") {
-		t.Error("expected output to contain '[artifact]' indicator")
 	}
 }
 
@@ -2530,7 +2527,7 @@ func TestHandleListKey_OAOpensArtifactSelection(t *testing.T) {
 				{
 					Name: "default",
 					Steps: []config.StepConfig{
-						{Name: "implement", Artifact: true},
+						{Name: "implement"},
 						{Name: "review"},
 					},
 				},
@@ -2581,8 +2578,8 @@ func TestHandleListKey_OAMultipleArtifactsShowsSelection(t *testing.T) {
 				{
 					Name: "default",
 					Steps: []config.StepConfig{
-						{Name: "implement", Artifact: true},
-						{Name: "review", Artifact: true},
+						{Name: "implement"},
+						{Name: "review"},
 					},
 				},
 			},
@@ -2757,8 +2754,8 @@ func TestHandleListKey_EAOpensEditArtifact(t *testing.T) {
 				{
 					Name: "default",
 					Steps: []config.StepConfig{
-						{Name: "implement", Artifact: true},
-						{Name: "review", Artifact: true},
+						{Name: "implement"},
+						{Name: "review"},
 					},
 				},
 			},
@@ -2878,7 +2875,7 @@ func TestHandleListKey_OANoWorktreeShowsError(t *testing.T) {
 		view:     viewList,
 		cfg: &config.Config{
 			Workflows: []config.WorkflowConfig{
-				{Name: "default", Steps: []config.StepConfig{{Name: "implement", Artifact: true}}},
+				{Name: "default", Steps: []config.StepConfig{{Name: "implement"}}},
 			},
 		},
 	}
@@ -2916,7 +2913,7 @@ func TestHandleListKey_OANoArtifactsShowsError(t *testing.T) {
 		view:     viewList,
 		cfg: &config.Config{
 			Workflows: []config.WorkflowConfig{
-				{Name: "default", Steps: []config.StepConfig{{Name: "implement", Artifact: true}}},
+				{Name: "default", Steps: []config.StepConfig{{Name: "implement"}}},
 			},
 		},
 	}
@@ -3132,8 +3129,8 @@ func TestHandleTaskInfoKey_OAOpensArtifactSelection(t *testing.T) {
 				{
 					Name: "default",
 					Steps: []config.StepConfig{
-						{Name: "implement", Artifact: true},
-						{Name: "review", Artifact: true},
+						{Name: "implement"},
+						{Name: "review"},
 					},
 				},
 			},
@@ -3179,7 +3176,7 @@ func TestHandleTaskInfoKey_EAOpensEditArtifact(t *testing.T) {
 				{
 					Name: "default",
 					Steps: []config.StepConfig{
-						{Name: "implement", Artifact: true},
+						{Name: "implement"},
 					},
 				},
 			},
@@ -3348,8 +3345,8 @@ func TestHandleListKey_OAFiltersNonExistentArtifacts(t *testing.T) {
 				{
 					Name: "default",
 					Steps: []config.StepConfig{
-						{Name: "implement", Artifact: true},
-						{Name: "review", Artifact: true}, // artifact: true but no file on disk
+						{Name: "implement"},
+						{Name: "review"}, // artifact: true but no file on disk
 					},
 				},
 			},

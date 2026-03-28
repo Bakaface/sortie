@@ -428,6 +428,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleAttachBranch(conn, req)
 
+	case MsgGetStepContexts:
+		var req GetStepContextsRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleGetStepContexts(conn, req)
+
 	case MsgShutdown:
 		s.Shutdown()
 

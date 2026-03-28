@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestStepConfigArtifactParsing(t *testing.T) {
+func TestStepConfigParsing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sortie.yml")
 
@@ -15,12 +15,10 @@ workflow:
   steps:
     - name: implement
       prompt: "Implement the task"
-      artifact: true
     - name: review
       prompt: "Review the implementation"
     - name: test
       prompt: "Write tests"
-      artifact: false
 `
 	if err := os.WriteFile(configPath, []byte(yaml), 0644); err != nil {
 		t.Fatal(err)
@@ -34,23 +32,6 @@ workflow:
 	steps := cfg.Workflows[0].Steps
 	if len(steps) != 3 {
 		t.Fatalf("expected 3 steps, got %d", len(steps))
-	}
-
-	if !steps[0].Artifact {
-		t.Error("expected implement step to have artifact: true")
-	}
-	if steps[1].Artifact {
-		t.Error("expected review step to have artifact: false (default)")
-	}
-	if steps[2].Artifact {
-		t.Error("expected test step to have artifact: false (explicit)")
-	}
-}
-
-func TestDefaultWorkflowArtifactDefault(t *testing.T) {
-	wf := DefaultWorkflow()
-	if wf.Steps[0].Artifact {
-		t.Error("expected default workflow step to have artifact: false")
 	}
 }
 
@@ -97,9 +78,6 @@ tasks:
 	}
 	if len(cfg.OneOff[0].Steps) != 2 {
 		t.Fatalf("expected 2 steps in first workflow, got %d", len(cfg.OneOff[0].Steps))
-	}
-	if !cfg.OneOff[0].Steps[0].Artifact {
-		t.Error("expected audit step to have artifact: true")
 	}
 	if !cfg.OneOff[0].Steps[1].Human {
 		t.Error("expected refactor step to have human: true")
@@ -402,85 +380,6 @@ func TestYoloProjectOverridesGlobal(t *testing.T) {
 	}
 }
 
-func TestValidateArtifactDefaultFalse(t *testing.T) {
-	cfg := defaultConfig()
-	if cfg.ValidateArtifact {
-		t.Error("expected validate_artifact to default to false")
-	}
-}
-
-func TestValidateArtifactProjectConfig(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".sortie.yml")
-
-	yamlContent := `
-validate_artifact: true
-workflow:
-  steps:
-    - name: implement
-      prompt: "Implement the task"
-      artifact: true
-`
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := defaultConfig()
-	if err := loadProjectConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	if !cfg.ValidateArtifact {
-		t.Error("expected validate_artifact to be true from project config")
-	}
-}
-
-func TestValidateArtifactGlobalConfig(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, "config.yaml")
-
-	yamlContent := `
-validate_artifact: true
-`
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := defaultConfig()
-	if err := loadGlobalConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	if !cfg.ValidateArtifact {
-		t.Error("expected validate_artifact to be true from global config")
-	}
-}
-
-func TestValidateArtifactProjectOverridesGlobal(t *testing.T) {
-	// Global sets validate_artifact: true, project sets validate_artifact: false
-	globalDir := t.TempDir()
-	globalPath := filepath.Join(globalDir, "config.yaml")
-	os.WriteFile(globalPath, []byte("validate_artifact: true\n"), 0644)
-
-	projectDir := t.TempDir()
-	projectPath := filepath.Join(projectDir, ".sortie.yml")
-	os.WriteFile(projectPath, []byte("validate_artifact: false\n"), 0644)
-
-	cfg := defaultConfig()
-	if err := loadGlobalConfig(globalPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.ValidateArtifact {
-		t.Error("expected validate_artifact to be true after loading global config")
-	}
-
-	if err := loadProjectConfig(projectPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.ValidateArtifact {
-		t.Error("expected validate_artifact to be false after project config overrides global")
-	}
-}
 
 func TestLoopConfigParsing(t *testing.T) {
 	dir := t.TempDir()
@@ -491,7 +390,6 @@ workflow:
   steps:
     - name: plan
       prompt: "Plan"
-      artifact: true
     - name: implement
       prompt: "Implement"
     - name: verify
@@ -500,7 +398,7 @@ workflow:
         goto: plan
         max_iterations: 5
         exit_condition:
-          artifact_empty: plan
+          step_context_empty: plan
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -541,8 +439,8 @@ workflow:
 	if loop.ExitCondition == nil {
 		t.Fatal("expected exit_condition to be set")
 	}
-	if loop.ExitCondition.ArtifactEmpty != "plan" {
-		t.Errorf("expected artifact_empty 'plan', got %q", loop.ExitCondition.ArtifactEmpty)
+	if loop.ExitCondition.StepContextEmpty != "plan" {
+		t.Errorf("expected step_context_empty 'plan', got %q", loop.ExitCondition.StepContextEmpty)
 	}
 }
 
@@ -550,7 +448,7 @@ func TestValidateLoopsValidConfig(t *testing.T) {
 	wf := &WorkflowConfig{
 		Name: "test",
 		Steps: []StepConfig{
-			{Name: "plan", Prompt: "Plan", Artifact: true},
+			{Name: "plan", Prompt: "Plan"},
 			{Name: "implement", Prompt: "Implement"},
 			{
 				Name:   "verify",
@@ -559,7 +457,7 @@ func TestValidateLoopsValidConfig(t *testing.T) {
 					Goto:          "plan",
 					MaxIterations: 3,
 					ExitCondition: &LoopExitCondition{
-						ArtifactEmpty: "plan",
+						StepContextEmpty: "plan",
 					},
 				},
 			},
@@ -708,7 +606,7 @@ func TestValidateLoopsInvalidExitCondition(t *testing.T) {
 					Goto:          "plan",
 					MaxIterations: 3,
 					ExitCondition: &LoopExitCondition{
-						ArtifactEmpty: "nonexistent",
+						StepContextEmpty: "nonexistent",
 					},
 				},
 			},
@@ -1093,14 +991,12 @@ func TestVerificationConfigParsing(t *testing.T) {
 
 	yamlContent := `
 verification:
-  artifact_retry: true
   max_retries: 3
   verify_summarizer: true
 workflow:
   steps:
     - name: implement
       prompt: "Implement"
-      artifact: true
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -1111,9 +1007,6 @@ workflow:
 		t.Fatal(err)
 	}
 
-	if !cfg.Verification.ArtifactRetry {
-		t.Error("expected artifact_retry to be true")
-	}
 	if cfg.Verification.MaxRetries != 3 {
 		t.Errorf("expected max_retries 3, got %d", cfg.Verification.MaxRetries)
 	}
@@ -1122,38 +1015,11 @@ workflow:
 	}
 }
 
-func TestVerificationConfigDefaultMaxRetries(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".sortie.yml")
-
-	// artifact_retry: true but no max_retries specified → should default to 1
-	yamlContent := `
-verification:
-  artifact_retry: true
-`
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := defaultConfig()
-	if err := loadProjectConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	if !cfg.Verification.ArtifactRetry {
-		t.Error("expected artifact_retry to be true")
-	}
-	if cfg.Verification.MaxRetries != 1 {
-		t.Errorf("expected max_retries to default to 1 when artifact_retry is true, got %d", cfg.Verification.MaxRetries)
-	}
-}
-
 func TestVerificationConfigProjectOverridesGlobal(t *testing.T) {
 	globalDir := t.TempDir()
 	globalPath := filepath.Join(globalDir, "config.yaml")
 	os.WriteFile(globalPath, []byte(`
 verification:
-  artifact_retry: true
   max_retries: 2
   verify_summarizer: true
 `), 0644)
@@ -1162,15 +1028,12 @@ verification:
 	projectPath := filepath.Join(projectDir, ".sortie.yml")
 	os.WriteFile(projectPath, []byte(`
 verification:
-  artifact_retry: false
+  max_retries: 5
 `), 0644)
 
 	cfg := defaultConfig()
 	if err := loadGlobalConfig(globalPath, cfg); err != nil {
 		t.Fatal(err)
-	}
-	if !cfg.Verification.ArtifactRetry {
-		t.Error("expected artifact_retry true from global config")
 	}
 	if cfg.Verification.MaxRetries != 2 {
 		t.Errorf("expected max_retries 2 from global config, got %d", cfg.Verification.MaxRetries)
@@ -1179,16 +1042,13 @@ verification:
 	if err := loadProjectConfig(projectPath, cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Verification.ArtifactRetry {
-		t.Error("expected artifact_retry to be false after project override")
+	if cfg.Verification.MaxRetries != 5 {
+		t.Errorf("expected max_retries 5 after project override, got %d", cfg.Verification.MaxRetries)
 	}
 }
 
 func TestVerificationConfigDefaultFalse(t *testing.T) {
 	cfg := defaultConfig()
-	if cfg.Verification.ArtifactRetry {
-		t.Error("expected artifact_retry to default to false")
-	}
 	if cfg.Verification.MaxRetries != 0 {
 		t.Errorf("expected max_retries to default to 0, got %d", cfg.Verification.MaxRetries)
 	}

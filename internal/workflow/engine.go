@@ -184,12 +184,21 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			log.Printf("Warning: failed to update task step: %v", err)
 		}
 
-		// Collect artifacts from prior steps
+		// Record step start in task_steps table
+		if err := e.database.CreateTaskStep(t.ID, step.Name); err != nil {
+			log.Printf("Warning: failed to create task step record: %v", err)
+		}
+
+		// Collect step contexts from prior completed steps
 		var priorStepNames []string
 		for j := 0; j < i; j++ {
 			priorStepNames = append(priorStepNames, steps[j].Name)
 		}
-		artifacts := CollectArtifacts(t.WorktreePath, priorStepNames)
+		stepContexts, err := e.database.GetTaskStepContexts(t.ID, priorStepNames)
+		if err != nil {
+			log.Printf("Warning: failed to get step contexts: %v", err)
+			stepContexts = make(map[string]string)
+		}
 
 		// Build template context and resolve prompt
 		loopVars := LoopVars{}
@@ -219,7 +228,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 				Branch:      t.Branch,
 				Images:      imageRelPaths,
 			},
-			Artifacts: artifacts,
+			Steps: stepContexts,
 			Git: GitVars{
 				BaseBranch:   e.cfg.Git.BaseBranch,
 				TargetBranch: e.effectiveBaseBranch(t),
@@ -230,26 +239,24 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 
 		resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
 
-		artifactsDir := ArtifactsDir(t.WorktreePath)
 		sysPrompt := BuildSystemPrompt(resolvedPrompt, e.cfg.SystemPrompt, imageRelPaths)
 
 		// Set environment variables
 		env := map[string]string{
-			"SORTIE_TASK_ID":       fmt.Sprintf("%d", t.ID),
-			"SORTIE_STEP":          step.Name,
-			"SORTIE_WORKTREE":      t.WorktreePath,
-			"SORTIE_ARTIFACTS_DIR": artifactsDir,
+			"SORTIE_TASK_ID":  fmt.Sprintf("%d", t.ID),
+			"SORTIE_STEP":     step.Name,
+			"SORTIE_WORKTREE": t.WorktreePath,
 		}
 
 		// Spawn Claude process (tmux or direct)
 		useTmux := step.UseTmux(wf.Tmux)
 		var exitCode int
+		var resultText string
 		var outputTail string
-		var err error
 		if useTmux {
 			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
 		} else {
-			exitCode, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
+			exitCode, resultText, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
 		}
 		if err != nil {
 			e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
@@ -279,6 +286,14 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 		}
 
+		// Record step completion with result text
+		var ctxPtr *string
+		if resultText != "" {
+			ctxPtr = &resultText
+		}
+		if err := e.database.CompleteTaskStep(t.ID, step.Name, ctxPtr, exitCode); err != nil {
+			log.Printf("Warning: failed to complete task step record: %v", err)
+		}
 
 		// Evaluate loop condition
 		if step.Loop != nil {
@@ -292,7 +307,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			// Check exit condition
 			if shouldLoop && step.Loop.ExitCondition != nil {
 				if step.Loop.ExitCondition.StepContextEmpty != "" {
-					content, _ := ReadArtifact(t.WorktreePath, step.Loop.ExitCondition.StepContextEmpty)
+					content, _ := e.database.GetTaskStepContext(t.ID, step.Loop.ExitCondition.StepContextEmpty)
 					if strings.TrimSpace(content) == "" {
 						shouldLoop = false
 						log.Printf("Loop exit: step context %q is empty for task #%d", step.Loop.ExitCondition.StepContextEmpty, t.ID)
@@ -672,7 +687,7 @@ func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFil
 		"SORTIE_WORKTREE": t.WorktreePath,
 	}
 
-	exitCode, outputTail, err := e.runClaudeStep(ctx, t, step, prompt, env, outputFn, conflictSysPrompt)
+	exitCode, _, outputTail, err := e.runClaudeStep(ctx, t, step, prompt, env, outputFn, conflictSysPrompt)
 	if err != nil {
 		return fmt.Errorf("conflict resolution claude process failed: %w", err)
 	}
@@ -702,7 +717,7 @@ func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn
 	return e.RunTask(ctx, t, outputFn)
 }
 
-func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, error) {
+func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, string, error) {
 	proc := claude.NewProcess(fmt.Sprintf("%d", t.ID), t.WorktreePath, &e.cfg.Claude)
 
 	// Apply step timeout
@@ -713,11 +728,11 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	// Open per-step log file in project data dir
 	logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
 	if err := os.MkdirAll(ProjectLogsDir(e.dataDir, t.ID), 0755); err != nil {
-		return 1, "", fmt.Errorf("failed to create log dir: %w", err)
+		return 1, "", "", fmt.Errorf("failed to create log dir: %w", err)
 	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return 1, "", fmt.Errorf("failed to open step log: %w", err)
+		return 1, "", "", fmt.Errorf("failed to open step log: %w", err)
 	}
 	defer logFile.Close()
 
@@ -762,7 +777,7 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	proc.SetEnv(envVars)
 
 	if err := proc.StartWithPrompt(prompt, systemPrompt...); err != nil {
-		return 1, "", fmt.Errorf("failed to start claude: %w", err)
+		return 1, "", "", fmt.Errorf("failed to start claude: %w", err)
 	}
 
 	// Wait for process to exit
@@ -773,10 +788,11 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 		select {
 		case <-ctx.Done():
 			proc.Stop()
-			return 1, "", ctx.Err()
+			return 1, "", "", ctx.Err()
 		case <-ticker.C:
 			if proc.HasExited() {
 				exitCode := proc.ExitCode()
+				resultText := proc.ResultText()
 
 				// Write step footer
 				footer := fmt.Sprintf("[%s] === Step %s finished (exit=%d) ===",
@@ -795,7 +811,7 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 						outputTail = strings.Join(lines, "\n")
 					}
 				}
-				return exitCode, outputTail, nil
+				return exitCode, resultText, outputTail, nil
 			}
 		}
 	}
@@ -993,27 +1009,33 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 			logFn(format, args...)
 		}
 	}
-	// Collect all step artifacts
+	// Collect step names
 	var stepNames []string
 	for _, s := range wf.Steps {
 		stepNames = append(stepNames, s.Name)
 	}
-	artifacts := CollectArtifacts(t.WorktreePath, stepNames)
 
-	// Get git diff stat as fallback context when no artifacts are available
+	// Collect step contexts from DB
+	stepContexts, err := e.database.GetTaskStepContexts(t.ID, stepNames)
+	if err != nil {
+		logMsg("Warning: failed to get step contexts for task #%d: %v", t.ID, err)
+		stepContexts = make(map[string]string)
+	}
+
+	// Get git diff stat as fallback context when no step contexts are available
 	var diffStat string
-	if len(artifacts) == 0 {
+	if len(stepContexts) == 0 {
 		baseBranch := e.cfg.Git.BaseBranch
 		if baseBranch == "" {
 			baseBranch = "main"
 		}
-		var err error
-		diffStat, err = gitpkg.DiffStat(t.WorktreePath, baseBranch)
-		if err != nil {
-			logMsg("Warning: failed to get diff stat for task #%d: %v", t.ID, err)
+		var diffErr error
+		diffStat, diffErr = gitpkg.DiffStat(t.WorktreePath, baseBranch)
+		if diffErr != nil {
+			logMsg("Warning: failed to get diff stat for task #%d: %v", t.ID, diffErr)
 		}
 		if diffStat == "" {
-			logMsg("No artifacts or changes found for task #%d, skipping summarizer", t.ID)
+			logMsg("No step contexts or changes found for task #%d, skipping summarizer", t.ID)
 			return nil
 		}
 	}
@@ -1030,7 +1052,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 				Slug:        t.Slug,
 				Branch:      t.Branch,
 			},
-			Artifacts: artifacts,
+			Steps: stepContexts,
 			Git: GitVars{
 				BaseBranch: e.cfg.Git.BaseBranch,
 				RepoRoot:   e.repoRoot,
@@ -1038,27 +1060,27 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 		}
 		prompt = ResolveTemplate(wf.SummarizerPrompt, tmplCtx)
 		var names []string
-		for name := range artifacts {
+		for name := range stepContexts {
 			names = append(names, name)
 		}
 		logMsg("%s", summarizationDescription(t.ID, true, names, false))
-	} else if len(artifacts) > 0 {
-		// Build default prompt with all artifacts
+	} else if len(stepContexts) > 0 {
+		// Build default prompt with all step contexts
 		var sb strings.Builder
 		sb.WriteString(fmt.Sprintf("Summarize the progress made on task #%d: %s\n\n", t.ID, t.Title))
-		sb.WriteString("Use the context from the following task artifacts:\n\n")
-		var artifactNames []string
+		sb.WriteString("Use the context from the following task step contexts:\n\n")
+		var contextNames []string
 		for _, name := range stepNames {
-			if content, ok := artifacts[name]; ok {
+			if content, ok := stepContexts[name]; ok {
 				sb.WriteString(fmt.Sprintf("### %s\n\n%s\n\n", name, content))
-				artifactNames = append(artifactNames, name)
+				contextNames = append(contextNames, name)
 			}
 		}
 		sb.WriteString("Provide a concise but comprehensive summary of what was accomplished, ")
 		sb.WriteString("any decisions made, and the current state of the implementation. ")
 		sb.WriteString("This summary will be used as context for future work on this task.")
 		prompt = sb.String()
-		logMsg("%s", summarizationDescription(t.ID, false, artifactNames, false))
+		logMsg("%s", summarizationDescription(t.ID, false, contextNames, false))
 	} else {
 		// No artifacts — use git diff stat and instruct Claude to read the actual changes
 		var sb strings.Builder

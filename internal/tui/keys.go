@@ -103,11 +103,11 @@ func newKeyMap() keyMap {
 		),
 		OpenArtifact: key.NewBinding(
 			key.WithKeys("o"),
-			key.WithHelp("oa", "open artifact"),
+			key.WithHelp("oa", "open step context"),
 		),
 		EditArtifact: key.NewBinding(
 			key.WithKeys("e"),
-			key.WithHelp("ea", "edit artifact"),
+			key.WithHelp("ea", "edit step ctx"),
 		),
 		EditDesc: key.NewBinding(
 			key.WithKeys("e"),
@@ -372,11 +372,11 @@ func newTaskInfoKeyMap() taskInfoKeyMap {
 		),
 		OpenArtifact: key.NewBinding(
 			key.WithKeys("o"),
-			key.WithHelp("oa", "open artifact"),
+			key.WithHelp("oa", "open step context"),
 		),
 		EditArtifact: key.NewBinding(
 			key.WithKeys("e"),
-			key.WithHelp("ea", "edit artifact"),
+			key.WithHelp("ea", "edit step ctx"),
 		),
 		EditDesc: key.NewBinding(
 			key.WithKeys("e"),

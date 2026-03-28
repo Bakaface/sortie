@@ -27,10 +27,10 @@ type LoopVars struct {
 }
 
 type TemplateContext struct {
-	Task      TaskVars
-	Artifacts map[string]string
-	Git       GitVars
-	Loop      LoopVars
+	Task  TaskVars
+	Steps map[string]string // step name -> result text from DB
+	Git   GitVars
+	Loop  LoopVars
 }
 
 var templatePattern = regexp.MustCompile(`\{\{([a-zA-Z0-9_.]+)\}\}`)
@@ -63,9 +63,18 @@ func ResolveTemplate(tmpl string, ctx *TemplateContext) string {
 			return fmt.Sprintf("%d", ctx.Loop.Iteration)
 		case key == "loop.max_iterations":
 			return fmt.Sprintf("%d", ctx.Loop.MaxIterations)
+		case strings.HasPrefix(key, "steps."):
+			// Format: steps.<name>.context
+			rest := key[len("steps."):]
+			stepName := strings.TrimSuffix(rest, ".context")
+			if val, ok := ctx.Steps[stepName]; ok {
+				return val
+			}
+			return ""
 		case strings.HasPrefix(key, "artifacts."):
+			// Backward compatibility: artifacts.<name> still works
 			artifactName := key[len("artifacts."):]
-			if val, ok := ctx.Artifacts[artifactName]; ok {
+			if val, ok := ctx.Steps[artifactName]; ok {
 				return val
 			}
 			return ""

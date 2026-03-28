@@ -344,7 +344,10 @@ func (db *DB) ResetTaskForRetry(id int64) error {
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
 		task.StatusPending, time.Now(), id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return db.DeleteTaskSteps(id)
 }
 
 func (db *DB) ResetTaskForRetryFromStep(id int64) error {
@@ -354,7 +357,11 @@ func (db *DB) ResetTaskForRetryFromStep(id int64) error {
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
 		task.StatusPending, time.Now(), id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	// Delete all step records since re-running from a step may re-execute prior steps in loops.
+	return db.DeleteTaskSteps(id)
 }
 
 func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
@@ -365,7 +372,10 @@ func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
 			 completed_at = NULL, updated_at = ? WHERE id = ?`,
 			task.StatusPending, workflow, prompt, time.Now(), id,
 		)
-		return err
+		if err != nil {
+			return err
+		}
+		return db.DeleteTaskSteps(id)
 	}
 	_, err := db.Exec(
 		`UPDATE tasks SET status = ?, workflow = ?, step_index = 0, current_step = NULL, loop_iteration = 0,
@@ -373,7 +383,10 @@ func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
 		task.StatusPending, workflow, time.Now(), id,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return db.DeleteTaskSteps(id)
 }
 
 func (db *DB) AppendTaskCommit(id int64, commitHash string) error {

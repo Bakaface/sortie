@@ -13,7 +13,7 @@ import (
 	"github.com/aface/sortie/internal/task"
 )
 
-func TestCollectArtifactsOnlyFromArtifactSteps(t *testing.T) {
+func TestCollectArtifactsFromAllSteps(t *testing.T) {
 	dir := t.TempDir()
 	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
 	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
@@ -25,16 +25,14 @@ func TestCollectArtifactsOnlyFromArtifactSteps(t *testing.T) {
 	os.WriteFile(filepath.Join(artifactsDir, "review.md"), []byte("review notes"), 0644)
 
 	steps := []config.StepConfig{
-		{Name: "implement", Artifact: true},
-		{Name: "review", Artifact: false},
+		{Name: "implement"},
+		{Name: "review"},
 	}
 
-	// Filter step names like the engine does (only artifact: true)
+	// Collect all step names like the engine does
 	var priorStepNames []string
 	for _, s := range steps {
-		if s.Artifact {
-			priorStepNames = append(priorStepNames, s.Name)
-		}
+		priorStepNames = append(priorStepNames, s.Name)
 	}
 
 	artifacts := CollectArtifacts(dir, priorStepNames)
@@ -42,86 +40,77 @@ func TestCollectArtifactsOnlyFromArtifactSteps(t *testing.T) {
 	if _, ok := artifacts["implement"]; !ok {
 		t.Error("expected implement artifact to be collected")
 	}
-	if _, ok := artifacts["review"]; ok {
-		t.Error("expected review artifact to NOT be collected (artifact: false)")
+	if _, ok := artifacts["review"]; !ok {
+		t.Error("expected review artifact to be collected")
 	}
 }
 
-func TestCollectArtifactsEmptyWhenNoArtifactSteps(t *testing.T) {
+func TestCollectArtifactsEmptyWhenNoFiles(t *testing.T) {
 	dir := t.TempDir()
 	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
 	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Even with files on disk, if no steps have artifact: true, nothing is collected
-	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("notes"), 0644)
-
 	steps := []config.StepConfig{
-		{Name: "implement", Artifact: false},
+		{Name: "implement"},
 	}
 
 	var priorStepNames []string
 	for _, s := range steps {
-		if s.Artifact {
-			priorStepNames = append(priorStepNames, s.Name)
-		}
+		priorStepNames = append(priorStepNames, s.Name)
 	}
 
 	artifacts := CollectArtifacts(dir, priorStepNames)
 
 	if len(artifacts) != 0 {
-		t.Errorf("expected 0 artifacts, got %d", len(artifacts))
+		t.Errorf("expected 0 artifacts when no files exist, got %d", len(artifacts))
 	}
 }
 
-func TestSummarizerStepNameFiltering(t *testing.T) {
-	// Simulate the summarizer's step name filtering logic
+func TestSummarizerStepNameCollection(t *testing.T) {
+	// Simulate the summarizer's step name collection logic
 	steps := []config.StepConfig{
-		{Name: "implement", Artifact: true},
-		{Name: "review", Artifact: false},
-		{Name: "test", Artifact: true},
+		{Name: "implement"},
+		{Name: "review"},
+		{Name: "test"},
 	}
 
 	var stepNames []string
 	for _, s := range steps {
-		if s.Artifact {
-			stepNames = append(stepNames, s.Name)
-		}
+		stepNames = append(stepNames, s.Name)
 	}
 
-	if len(stepNames) != 2 {
-		t.Fatalf("expected 2 artifact step names, got %d", len(stepNames))
+	if len(stepNames) != 3 {
+		t.Fatalf("expected 3 step names, got %d", len(stepNames))
 	}
-	if stepNames[0] != "implement" || stepNames[1] != "test" {
-		t.Errorf("expected [implement, test], got %v", stepNames)
+	if stepNames[0] != "implement" || stepNames[1] != "review" || stepNames[2] != "test" {
+		t.Errorf("expected [implement, review, test], got %v", stepNames)
 	}
 }
 
-func TestSummarizerCollectsNoArtifactsWhenNoArtifactSteps(t *testing.T) {
-	// When all steps have artifact: false, stepNames is empty,
-	// CollectArtifacts returns empty map. The summarizer should then
-	// fall through to the git diff stat path instead of skipping entirely.
+func TestSummarizerCollectsArtifactsWhenFilesExist(t *testing.T) {
+	// Artifacts are collected from all steps that have files on disk.
 	steps := []config.StepConfig{
-		{Name: "implement", Artifact: false},
-		{Name: "review", Artifact: false},
+		{Name: "implement"},
+		{Name: "review"},
 	}
 
 	var stepNames []string
 	for _, s := range steps {
-		if s.Artifact {
-			stepNames = append(stepNames, s.Name)
-		}
+		stepNames = append(stepNames, s.Name)
 	}
 
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, ".sortie", "artifacts"), 0755); err != nil {
+	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
+	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
 		t.Fatal(err)
 	}
+	os.WriteFile(filepath.Join(artifactsDir, "implement.md"), []byte("notes"), 0644)
 
 	artifacts := CollectArtifacts(dir, stepNames)
-	if len(artifacts) != 0 {
-		t.Errorf("expected 0 artifacts when no steps have artifact: true, got %d", len(artifacts))
+	if len(artifacts) != 1 {
+		t.Errorf("expected 1 artifact when implement.md exists, got %d", len(artifacts))
 	}
 }
 
@@ -146,22 +135,15 @@ func TestSummarizerPromptBuildWithArtifacts(t *testing.T) {
 }
 
 func TestSummarizerPromptBuildWithoutArtifacts(t *testing.T) {
-	// Verify that when no artifacts exist and no steps have artifact: true,
-	// the summarizer should use the diff stat fallback path.
-	// This tests the condition that previously caused empty tasks.context.
+	// Verify that when no artifact files exist on disk,
+	// the summarizer falls through to the git diff stat path.
 	steps := []config.StepConfig{
-		{Name: "implementing", Artifact: false},
+		{Name: "implementing"},
 	}
 
 	var stepNames []string
 	for _, s := range steps {
-		if s.Artifact {
-			stepNames = append(stepNames, s.Name)
-		}
-	}
-
-	if len(stepNames) != 0 {
-		t.Errorf("expected 0 artifact step names for workflow without artifacts, got %d", len(stepNames))
+		stepNames = append(stepNames, s.Name)
 	}
 
 	dir := t.TempDir()
@@ -169,14 +151,13 @@ func TestSummarizerPromptBuildWithoutArtifacts(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// No artifact files on disk → CollectArtifacts returns empty map
 	artifacts := CollectArtifacts(dir, stepNames)
 	if len(artifacts) != 0 {
-		t.Fatalf("expected 0 artifacts, got %d", len(artifacts))
+		t.Fatalf("expected 0 artifacts when no files exist, got %d", len(artifacts))
 	}
 
-	// With the fix, the summarizer should not bail out here — it should
-	// proceed to check git diff stat. The empty artifacts map triggers
-	// the fallback path.
+	// The empty artifacts map triggers the fallback path in the summarizer.
 }
 
 func TestCopyImagesToWorktree(t *testing.T) {
@@ -413,79 +394,6 @@ func TestRunClaudeSyncEmptyWorkDir(t *testing.T) {
 	}
 }
 
-func TestArtifactValidationDetectsMissingArtifact(t *testing.T) {
-	// Simulate the artifact validation check from RunTask:
-	// if step.Artifact && cfg.ValidateArtifact, check if artifact file exists
-	dir := t.TempDir()
-	artifactsDir := filepath.Join(dir, ".sortie", "artifacts")
-	if err := os.MkdirAll(artifactsDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-
-	stepName := "implement"
-	artifactPath := filepath.Join(artifactsDir, stepName+".md")
-
-	// Artifact file does NOT exist — should be detected as missing
-	if _, err := os.Stat(artifactPath); !os.IsNotExist(err) {
-		t.Error("expected artifact file to not exist")
-	}
-
-	// Now write the artifact file — should pass validation
-	os.WriteFile(artifactPath, []byte("implementation notes"), 0644)
-	if _, err := os.Stat(artifactPath); os.IsNotExist(err) {
-		t.Error("expected artifact file to exist after writing")
-	}
-}
-
-func TestArtifactValidationSkippedWhenDisabled(t *testing.T) {
-	// When validate_artifact is false (default), artifact validation should not trigger
-	cfg := &config.Config{
-		ValidateArtifact: false,
-	}
-
-	step := config.StepConfig{
-		Name:     "implement",
-		Artifact: true,
-	}
-
-	// Even though the step has artifact: true, validation is skipped when disabled
-	shouldValidate := step.Artifact && cfg.ValidateArtifact
-	if shouldValidate {
-		t.Error("expected artifact validation to be skipped when validate_artifact is false")
-	}
-}
-
-func TestArtifactValidationTriggeredWhenEnabled(t *testing.T) {
-	cfg := &config.Config{
-		ValidateArtifact: true,
-	}
-
-	step := config.StepConfig{
-		Name:     "implement",
-		Artifact: true,
-	}
-
-	shouldValidate := step.Artifact && cfg.ValidateArtifact
-	if !shouldValidate {
-		t.Error("expected artifact validation to trigger when validate_artifact is true and step has artifact: true")
-	}
-}
-
-func TestArtifactValidationSkippedForNonArtifactStep(t *testing.T) {
-	cfg := &config.Config{
-		ValidateArtifact: true,
-	}
-
-	step := config.StepConfig{
-		Name:     "review",
-		Artifact: false,
-	}
-
-	shouldValidate := step.Artifact && cfg.ValidateArtifact
-	if shouldValidate {
-		t.Error("expected artifact validation to be skipped for step without artifact: true")
-	}
-}
 
 func TestSummarizerDiffStatPromptIncludesReadInstruction(t *testing.T) {
 	// Verify that the no-artifacts summarizer prompt instructs Claude to read files
@@ -633,7 +541,7 @@ func TestSummarizerLogFnCalledWithArtifacts(t *testing.T) {
 
 	wf := &config.WorkflowConfig{
 		Steps: []config.StepConfig{
-			{Name: "implement", Artifact: true},
+			{Name: "implement"},
 		},
 	}
 
@@ -696,7 +604,7 @@ func TestSummarizerLogFnCalledWithNilLogFn(t *testing.T) {
 
 	wf := &config.WorkflowConfig{
 		Steps: []config.StepConfig{
-			{Name: "implement", Artifact: true},
+			{Name: "implement"},
 		},
 	}
 

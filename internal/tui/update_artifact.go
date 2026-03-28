@@ -2,54 +2,38 @@ package tui
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 
 	"github.com/aface/sortie/internal/daemon"
-	"github.com/aface/sortie/internal/workflow"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+type stepContextsLoadedMsg struct {
+	taskID   int64
+	contexts map[string]string
+	action   string
+}
+
 func (m Model) openArtifactSelection(task *daemon.TaskInfo, action string) (tea.Model, tea.Cmd) {
-	if task.WorktreePath == "" {
-		m.err = fmt.Errorf("no worktree available for task #%d", task.ID)
+	if m.client == nil {
+		m.err = fmt.Errorf("not connected to daemon")
 		return m, nil
 	}
 
-	wf := m.cfg.GetWorkflow(task.Workflow)
-	if wf == nil {
-		m.err = fmt.Errorf("no workflow found for task #%d", task.ID)
-		return m, nil
-	}
-
-	// Find steps that have actual artifact files on disk
-	artifactsDir := workflow.ArtifactsDir(task.WorktreePath)
-	var names []string
-	for _, step := range wf.Steps {
-		path := filepath.Join(artifactsDir, step.Name+".md")
-		if _, err := os.Stat(path); err == nil {
-			names = append(names, step.Name)
+	taskID := task.ID
+	return m, func() tea.Msg {
+		contexts, err := m.client.GetStepContexts(taskID)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to get step contexts: %w", err))
+		}
+		if len(contexts) == 0 {
+			return errorMsg(fmt.Errorf("no step contexts available for task #%d", taskID))
+		}
+		return stepContextsLoadedMsg{
+			taskID:   taskID,
+			contexts: contexts,
+			action:   action,
 		}
 	}
-
-	if len(names) == 0 {
-		m.err = fmt.Errorf("no artifacts available for task #%d", task.ID)
-		return m, nil
-	}
-
-	// If only one artifact, skip selection
-	if len(names) == 1 {
-		return m.performArtifactAction(task.WorktreePath, names[0], action)
-	}
-
-	m.selectingArtifact = true
-	m.artifactCursor = 0
-	m.artifactNames = names
-	m.artifactTaskID = task.ID
-	m.artifactWorktree = task.WorktreePath
-	m.artifactAction = action
-	return m, nil
 }
 
 func (m Model) handleArtifactSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -92,7 +76,7 @@ func (m Model) handleArtifactSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		name := m.artifactNames[m.artifactCursor]
 		m.selectingArtifact = false
-		return m.performArtifactAction(m.artifactWorktree, name, m.artifactAction)
+		return m.performArtifactAction(name, m.artifactAction)
 	case "esc", "q":
 		m.selectingArtifact = false
 		return m, nil
@@ -104,41 +88,29 @@ func (m Model) handleArtifactSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if idx < len(m.artifactNames) {
 			name := m.artifactNames[idx]
 			m.selectingArtifact = false
-			return m.performArtifactAction(m.artifactWorktree, name, m.artifactAction)
+			return m.performArtifactAction(name, m.artifactAction)
 		}
 	}
 
 	return m, nil
 }
 
-func (m Model) performArtifactAction(worktreePath, stepName, action string) (tea.Model, tea.Cmd) {
-	artifactPath := filepath.Join(workflow.ArtifactsDir(worktreePath), stepName+".md")
-
+func (m Model) performArtifactAction(stepName, action string) (tea.Model, tea.Cmd) {
 	if action == "edit" {
-		editor := os.Getenv("EDITOR")
-		if editor == "" {
-			editor = "vi"
-		}
-		c := exec.Command(editor, artifactPath)
-		return m, tea.ExecProcess(c, func(err error) tea.Msg {
-			if err != nil {
-				return errorMsg(fmt.Errorf("editor exited with error: %w", err))
-			}
-			return editorArtifactFinishedMsg{}
-		})
+		// Editing step contexts directly is not supported (they come from Claude's output)
+		m.err = fmt.Errorf("step contexts are read-only (captured from Claude output)")
+		return m, nil
 	}
 
-	// View action: read content and display
-	return m, func() tea.Msg {
-		content, err := workflow.ReadArtifact(worktreePath, stepName)
-		if err != nil {
-			return errorMsg(fmt.Errorf("failed to read artifact: %w", err))
-		}
-		if content == "" {
-			return errorMsg(fmt.Errorf("artifact %q is empty", stepName))
-		}
-		return artifactLoadedMsg{name: stepName, content: content}
+	// View action: use pre-loaded context
+	content, ok := m.stepContexts[stepName]
+	if !ok || content == "" {
+		m.err = fmt.Errorf("step context %q is empty", stepName)
+		return m, nil
 	}
+	m.artifactView.SetContent(stepName, content)
+	m.view = viewArtifact
+	return m, nil
 }
 
 func (m Model) handleArtifactViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

@@ -54,7 +54,6 @@ var (
 		"completed":         lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
 		"failed":            lipgloss.NewStyle().Foreground(lipgloss.Color("#D94F4F")),
 		"stopped":           lipgloss.NewStyle().Foreground(lipgloss.Color("#7A7A7A")),
-		"artifact-missing":  lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
 	}
 
 	priorityStyles = map[string]lipgloss.Style{

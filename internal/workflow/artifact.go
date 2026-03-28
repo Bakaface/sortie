@@ -6,11 +6,6 @@ import (
 	"path/filepath"
 )
 
-// ArtifactsDir returns the path to the artifacts directory in a worktree.
-func ArtifactsDir(worktreePath string) string {
-	return filepath.Join(worktreePath, ".sortie", "artifacts")
-}
-
 // LogsDir returns the path to the logs directory in a worktree.
 func LogsDir(worktreePath string) string {
 	return filepath.Join(worktreePath, ".sortie", "logs")
@@ -21,11 +16,8 @@ func LogPath(worktreePath, stepName string) string {
 	return filepath.Join(LogsDir(worktreePath), stepName+".log")
 }
 
-// EnsureWorkDirs creates the .sortie/artifacts and .sortie/logs directories in a worktree.
+// EnsureWorkDirs creates the .sortie/logs directory in a worktree.
 func EnsureWorkDirs(worktreePath string) error {
-	if err := os.MkdirAll(ArtifactsDir(worktreePath), 0755); err != nil {
-		return err
-	}
 	return os.MkdirAll(LogsDir(worktreePath), 0755)
 }
 
@@ -37,37 +29,6 @@ func ProjectLogsDir(dataDir string, taskID int64) string {
 // ProjectLogPath returns the log file path for a specific step in the project data dir.
 func ProjectLogPath(dataDir string, taskID int64, stepName string) string {
 	return filepath.Join(ProjectLogsDir(dataDir, taskID), stepName+".log")
-}
-
-// ReadArtifact reads the artifact file for a given step. Returns empty string if not found.
-func ReadArtifact(worktreePath, stepName string) (string, error) {
-	path := filepath.Join(ArtifactsDir(worktreePath), stepName+".md")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return "", nil
-		}
-		return "", err
-	}
-	return string(data), nil
-}
-
-// fileExistsAndNonEmpty checks if a file exists and has non-zero size.
-func fileExistsAndNonEmpty(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Size() > 0
-}
-
-// CollectArtifacts reads artifacts from all prior steps.
-func CollectArtifacts(worktreePath string, priorStepNames []string) map[string]string {
-	artifacts := make(map[string]string)
-	for _, name := range priorStepNames {
-		content, err := ReadArtifact(worktreePath, name)
-		if err == nil && content != "" {
-			artifacts[name] = content
-		}
-	}
-	return artifacts
 }
 
 // ImagesDir returns the path to the images directory in a worktree.
