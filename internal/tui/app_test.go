@@ -4538,6 +4538,50 @@ func TestCommandSearchMode_NoExtraLines(t *testing.T) {
 	}
 }
 
+func TestSearchInputPaddingMatchesCommandInput(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false, ""),
+		view: viewList,
+	}
+	tasks := make([]daemon.TaskInfo, 5)
+	for i := range tasks {
+		tasks[i] = daemon.TaskInfo{ID: int64(i + 1), Title: fmt.Sprintf("Task %d", i+1), Status: "pending"}
+	}
+	m.list.SetTasks(tasks)
+	m.list.SetSize(100, 15)
+
+	// Get command mode help override
+	m.commandMode = true
+	m.commandInput = "x"
+	_ = m.View()
+	cmdOverride := m.list.helpOverride
+
+	// Get search mode help override
+	m.commandMode = false
+	m.searchMode = true
+	m.searchQuery = "x"
+	m.searchDirection = 1
+	_ = m.View()
+	searchOverride := m.list.helpOverride
+
+	// Both should have the same leading padding (2 spaces)
+	cmdPrefix := cmdOverride[:len(cmdOverride)-len(strings.TrimLeft(cmdOverride, " "))]
+	searchPrefix := searchOverride[:len(searchOverride)-len(strings.TrimLeft(searchOverride, " "))]
+	if cmdPrefix != searchPrefix {
+		t.Errorf("search input padding %q does not match command input padding %q", searchPrefix, cmdPrefix)
+	}
+
+	// Backward search should also have matching padding
+	m.searchDirection = -1
+	_ = m.View()
+	backwardOverride := m.list.helpOverride
+	backwardPrefix := backwardOverride[:len(backwardOverride)-len(strings.TrimLeft(backwardOverride, " "))]
+	if backwardPrefix != cmdPrefix {
+		t.Errorf("backward search input padding %q does not match command input padding %q", backwardPrefix, cmdPrefix)
+	}
+}
+
 // --- Selection menu vim navigation tests ---
 
 func newTestModelWithWorkflows(n int) Model {

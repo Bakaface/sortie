@@ -568,7 +568,7 @@ func (m Model) View() string {
 		if len(m.list.matchedIndices) > 0 {
 			matchInfo = fmt.Sprintf(" [%d/%d]", m.list.currentMatchIdx+1, len(m.list.matchedIndices))
 		}
-		m.list.helpOverride = fmt.Sprintf("%s%s█%s", searchChar, m.searchQuery, matchInfo)
+		m.list.helpOverride = fmt.Sprintf("  %s%s█%s", searchChar, m.searchQuery, matchInfo)
 	}
 	if m.statusMessage != "" {
 		bottomLines = append(bottomLines, fmt.Sprintf("  %s", m.statusMessage))
