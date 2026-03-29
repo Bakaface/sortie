@@ -3473,9 +3473,9 @@ func TestMatchSetNumber(t *testing.T) {
 		{"set number ", true},
 	}
 	for _, tt := range tests {
-		_, ok := matchSetNumber(tt.input)
+		_, ok := matchSetOption(tt.input)
 		if ok != tt.want {
-			t.Errorf("matchSetNumber(%q) = %v, want %v", tt.input, ok, tt.want)
+			t.Errorf("matchSetOption(%q) = %v, want %v", tt.input, ok, tt.want)
 		}
 	}
 }
@@ -3621,9 +3621,9 @@ func TestMatchSetFinished(t *testing.T) {
 		{"set finished ", true},
 	}
 	for _, tt := range tests {
-		_, ok := matchSetFinished(tt.input)
+		_, ok := matchSetOption(tt.input)
 		if ok != tt.want {
-			t.Errorf("matchSetFinished(%q) = %v, want %v", tt.input, ok, tt.want)
+			t.Errorf("matchSetOption(%q) = %v, want %v", tt.input, ok, tt.want)
 		}
 	}
 }

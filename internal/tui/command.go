@@ -19,6 +19,197 @@ type command struct {
 	help string
 }
 
+// --- Declarative option registry ---
+// Adding a new `:set` option requires only a new entry here.
+
+// boolOption defines a boolean option togglable via :set name / :set noname / :set name!
+type boolOption struct {
+	name    string
+	get     func(m *Model) bool
+	set     func(m *Model, v bool)
+	afterSet func(m *Model) // optional hook called after set (e.g. refilter)
+}
+
+// intOption defines a value option settable via :set name=N
+type intOption struct {
+	name string
+	set  func(m *Model, v int)
+}
+
+// ensureAnimationConfig ensures the config animation pointer chain exists.
+func ensureAnimationConfig(m *Model) {
+	if m.cfg == nil {
+		return
+	}
+	if m.cfg.Options.Animation == nil {
+		m.cfg.Options.Animation = &config.AnimationConfig{}
+	}
+}
+
+var boolOptions = []boolOption{
+	{
+		name: "number",
+		get:  func(m *Model) bool { return m.list.showLineNumbers },
+		set:  func(m *Model, v bool) { m.list.showLineNumbers = v },
+	},
+	{
+		name: "finished",
+		get:  func(m *Model) bool { return m.list.showFinished },
+		set:  func(m *Model, v bool) { m.list.showFinished = v },
+		afterSet: func(m *Model) { m.list.applyFilter() },
+	},
+	{
+		name: "branch",
+		get:  func(m *Model) bool { return m.list.showBranch },
+		set:  func(m *Model, v bool) { m.list.showBranch = v },
+	},
+	{
+		name: "target",
+		get:  func(m *Model) bool { return m.list.showTarget },
+		set:  func(m *Model, v bool) { m.list.showTarget = v },
+	},
+	{
+		name: "animation",
+		get:  func(m *Model) bool { return m.animationEnabled() },
+		set: func(m *Model, v bool) {
+			ensureAnimationConfig(m)
+			if m.cfg != nil {
+				m.cfg.Options.Animation.Enabled = &v
+			}
+		},
+	},
+}
+
+var intOptions = []intOption{
+	{
+		name: "animation-duration",
+		set: func(m *Model, v int) {
+			ensureAnimationConfig(m)
+			if m.cfg != nil {
+				m.cfg.Options.Animation.Duration = &v
+			}
+		},
+	},
+}
+
+// boolOptionMap and intOptionMap are built at init for O(1) lookup.
+var boolOptionMap map[string]*boolOption
+var intOptionMap map[string]*intOption
+
+func init() {
+	boolOptionMap = make(map[string]*boolOption, len(boolOptions))
+	for i := range boolOptions {
+		boolOptionMap[boolOptions[i].name] = &boolOptions[i]
+	}
+	intOptionMap = make(map[string]*intOption, len(intOptions))
+	for i := range intOptions {
+		intOptionMap[intOptions[i].name] = &intOptions[i]
+	}
+}
+
+// matchSetOption is the unified matcher for all :set commands.
+// It handles: "set X", "set noX", "set X!", "set X=N"
+func matchSetOption(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	if !strings.HasPrefix(input, "set ") {
+		return "", false
+	}
+	arg := strings.TrimSpace(input[4:])
+	if arg == "" {
+		return "", false
+	}
+
+	// "set X=N" — int option
+	if eqIdx := strings.Index(arg, "="); eqIdx > 0 {
+		name := arg[:eqIdx]
+		val := arg[eqIdx+1:]
+		if _, ok := intOptionMap[name]; ok {
+			if _, err := strconv.Atoi(val); err == nil {
+				return input, true
+			}
+		}
+		return "", false
+	}
+
+	// "set noX" — bool disable
+	if strings.HasPrefix(arg, "no") {
+		name := arg[2:]
+		if _, ok := boolOptionMap[name]; ok {
+			return input, true
+		}
+		return "", false
+	}
+
+	// "set X!" — bool toggle
+	if strings.HasSuffix(arg, "!") {
+		name := arg[:len(arg)-1]
+		if _, ok := boolOptionMap[name]; ok {
+			return input, true
+		}
+		return "", false
+	}
+
+	// "set X" — bool enable
+	if _, ok := boolOptionMap[arg]; ok {
+		return input, true
+	}
+
+	return "", false
+}
+
+// execSetOption is the unified executor for all :set commands.
+func execSetOption(m Model, args string) (tea.Model, tea.Cmd) {
+	arg := strings.TrimSpace(args[4:]) // strip "set "
+
+	// "set X=N"
+	if eqIdx := strings.Index(arg, "="); eqIdx > 0 {
+		name := arg[:eqIdx]
+		val := arg[eqIdx+1:]
+		if opt, ok := intOptionMap[name]; ok {
+			n, _ := strconv.Atoi(val)
+			if n > 0 {
+				opt.set(&m, n)
+			}
+		}
+		return m, nil
+	}
+
+	// "set noX"
+	if strings.HasPrefix(arg, "no") {
+		name := arg[2:]
+		if opt, ok := boolOptionMap[name]; ok {
+			opt.set(&m, false)
+			if opt.afterSet != nil {
+				opt.afterSet(&m)
+			}
+		}
+		return m, nil
+	}
+
+	// "set X!"
+	if strings.HasSuffix(arg, "!") {
+		name := arg[:len(arg)-1]
+		if opt, ok := boolOptionMap[name]; ok {
+			opt.set(&m, !opt.get(&m))
+			if opt.afterSet != nil {
+				opt.afterSet(&m)
+			}
+		}
+		return m, nil
+	}
+
+	// "set X"
+	if opt, ok := boolOptionMap[arg]; ok {
+		opt.set(&m, true)
+		if opt.afterSet != nil {
+			opt.afterSet(&m)
+		}
+	}
+	return m, nil
+}
+
+// --- Non-set commands ---
+
 // commands is the registry of all available commands.
 var commands = []command{
 	{
@@ -37,34 +228,9 @@ var commands = []command{
 		help:  "run a predefined task",
 	},
 	{
-		match: matchSetNumber,
-		exec:  execSetNumber,
-		help:  "toggle line numbers",
-	},
-	{
-		match: matchSetFinished,
-		exec:  execSetFinished,
-		help:  "toggle finished tasks",
-	},
-	{
-		match: matchSetBranch,
-		exec:  execSetBranch,
-		help:  "toggle branch display",
-	},
-	{
-		match: matchSetTarget,
-		exec:  execSetTarget,
-		help:  "toggle target branch display",
-	},
-	{
-		match: matchSetAnimation,
-		exec:  execSetAnimation,
-		help:  "toggle sortie animation",
-	},
-	{
-		match: matchSetAnimationDuration,
-		exec:  execSetAnimationDuration,
-		help:  "set animation duration (ms)",
+		match: matchSetOption,
+		exec:  execSetOption,
+		help:  "set option (boolean or value)",
 	},
 	{
 		match: matchNoh,
@@ -120,165 +286,6 @@ func execGotoLine(m Model, args string) (tea.Model, tea.Cmd) {
 	n, _ := strconv.Atoi(args)
 	// Convert from 1-based (displayed) to 0-based (internal)
 	m.list.GotoIndex(n - 1)
-	return m, nil
-}
-
-// matchSetNumber matches "set number", "set nonumber", and "set number!" commands.
-func matchSetNumber(input string) (string, bool) {
-	input = strings.TrimSpace(input)
-	switch input {
-	case "set number", "set nonumber", "set number!":
-		return input, true
-	}
-	return "", false
-}
-
-// execSetNumber enables, disables, or toggles line numbers in the list view.
-func execSetNumber(m Model, args string) (tea.Model, tea.Cmd) {
-	switch args {
-	case "set number":
-		m.list.showLineNumbers = true
-	case "set nonumber":
-		m.list.showLineNumbers = false
-	case "set number!":
-		m.list.showLineNumbers = !m.list.showLineNumbers
-	}
-	return m, nil
-}
-
-// matchSetFinished matches "set finished", "set nofinished", and "set finished!" commands.
-func matchSetFinished(input string) (string, bool) {
-	input = strings.TrimSpace(input)
-	switch input {
-	case "set finished", "set nofinished", "set finished!":
-		return input, true
-	}
-	return "", false
-}
-
-// execSetFinished enables, disables, or toggles display of finished tasks in the list view.
-func execSetFinished(m Model, args string) (tea.Model, tea.Cmd) {
-	switch args {
-	case "set finished":
-		m.list.showFinished = true
-	case "set nofinished":
-		m.list.showFinished = false
-	case "set finished!":
-		m.list.showFinished = !m.list.showFinished
-	}
-	m.list.applyFilter()
-	return m, nil
-}
-
-// matchSetBranch matches "set branch", "set nobranch", and "set branch!" commands.
-func matchSetBranch(input string) (string, bool) {
-	input = strings.TrimSpace(input)
-	switch input {
-	case "set branch", "set nobranch", "set branch!":
-		return input, true
-	}
-	return "", false
-}
-
-// execSetBranch enables, disables, or toggles branch display in the list view.
-func execSetBranch(m Model, args string) (tea.Model, tea.Cmd) {
-	switch args {
-	case "set branch":
-		m.list.showBranch = true
-	case "set nobranch":
-		m.list.showBranch = false
-	case "set branch!":
-		m.list.showBranch = !m.list.showBranch
-	}
-	return m, nil
-}
-
-// matchSetTarget matches "set target", "set notarget", and "set target!" commands.
-func matchSetTarget(input string) (string, bool) {
-	input = strings.TrimSpace(input)
-	switch input {
-	case "set target", "set notarget", "set target!":
-		return input, true
-	}
-	return "", false
-}
-
-// execSetTarget enables, disables, or toggles target branch display in the list view.
-func execSetTarget(m Model, args string) (tea.Model, tea.Cmd) {
-	switch args {
-	case "set target":
-		m.list.showTarget = true
-	case "set notarget":
-		m.list.showTarget = false
-	case "set target!":
-		m.list.showTarget = !m.list.showTarget
-	}
-	return m, nil
-}
-
-// matchSetAnimation matches "set animation", "set noanimation", and "set animation!" commands.
-func matchSetAnimation(input string) (string, bool) {
-	input = strings.TrimSpace(input)
-	switch input {
-	case "set animation", "set noanimation", "set animation!":
-		return input, true
-	}
-	return "", false
-}
-
-// ensureAnimationConfig ensures the config animation pointer chain exists.
-func ensureAnimationConfig(m *Model) {
-	if m.cfg == nil {
-		return
-	}
-	if m.cfg.Options.Animation == nil {
-		m.cfg.Options.Animation = &config.AnimationConfig{}
-	}
-}
-
-// execSetAnimation enables, disables, or toggles the sortie animation.
-func execSetAnimation(m Model, args string) (tea.Model, tea.Cmd) {
-	ensureAnimationConfig(&m)
-	if m.cfg == nil {
-		return m, nil
-	}
-	switch args {
-	case "set animation":
-		v := true
-		m.cfg.Options.Animation.Enabled = &v
-	case "set noanimation":
-		v := false
-		m.cfg.Options.Animation.Enabled = &v
-	case "set animation!":
-		v := !m.animationEnabled()
-		m.cfg.Options.Animation.Enabled = &v
-	}
-	return m, nil
-}
-
-// matchSetAnimationDuration matches "set animation-duration=<N>" commands.
-func matchSetAnimationDuration(input string) (string, bool) {
-	input = strings.TrimSpace(input)
-	if strings.HasPrefix(input, "set animation-duration=") {
-		val := input[len("set animation-duration="):]
-		if _, err := strconv.Atoi(val); err == nil {
-			return input, true
-		}
-	}
-	return "", false
-}
-
-// execSetAnimationDuration sets the animation duration in milliseconds.
-func execSetAnimationDuration(m Model, args string) (tea.Model, tea.Cmd) {
-	ensureAnimationConfig(&m)
-	if m.cfg == nil {
-		return m, nil
-	}
-	val := args[len("set animation-duration="):]
-	n, _ := strconv.Atoi(val)
-	if n > 0 {
-		m.cfg.Options.Animation.Duration = &n
-	}
 	return m, nil
 }
 
