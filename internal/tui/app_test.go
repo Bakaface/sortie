@@ -925,7 +925,7 @@ func TestHandleListKey_GGGoesToTop(t *testing.T) {
 	if m.list.table.Cursor() != 15 {
 		t.Errorf("expected cursor to stay at 15 after first 'g', got %d", m.list.table.Cursor())
 	}
-	if !m.list.IsPendingG() {
+	if m.pendingChord != "g" {
 		t.Error("expected pendingG to be true after first 'g'")
 	}
 
@@ -936,7 +936,7 @@ func TestHandleListKey_GGGoesToTop(t *testing.T) {
 	if m.list.table.Cursor() != 0 {
 		t.Errorf("expected cursor at 0 after 'gg', got %d", m.list.table.Cursor())
 	}
-	if m.list.IsPendingG() {
+	if m.pendingChord != "" {
 		t.Error("expected pendingG to be false after 'gg'")
 	}
 }
@@ -945,7 +945,7 @@ func TestHandleListKey_GGResetByOtherKey(t *testing.T) {
 	m := newTestModelWithTasks(20)
 	m.list.table.SetCursor(10)
 
-	// Press "g" then "j" — should NOT go to top, should move down
+	// Press "g" then "j" — should NOT go to top, second key consumed silently
 	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
 	result, _ := m.handleListKey(gMsg)
 	m = result.(Model)
@@ -954,10 +954,10 @@ func TestHandleListKey_GGResetByOtherKey(t *testing.T) {
 	result, _ = m.handleListKey(jMsg)
 	m = result.(Model)
 
-	if m.list.table.Cursor() != 11 {
-		t.Errorf("expected cursor at 11 after g+j, got %d", m.list.table.Cursor())
+	if m.list.table.Cursor() != 10 {
+		t.Errorf("expected cursor at 10 after g+j (j consumed silently), got %d", m.list.table.Cursor())
 	}
-	if m.list.IsPendingG() {
+	if m.pendingChord != "" {
 		t.Error("expected pendingG to be false after non-g key")
 	}
 }
@@ -2552,7 +2552,7 @@ func TestHandleListKey_OAOpensArtifactSelection(t *testing.T) {
 	oMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}}
 	result, _ := m.handleListKey(oMsg)
 	updated := result.(Model)
-	if !updated.pendingO {
+	if updated.pendingChord != "o" {
 		t.Error("expected pendingO to be true after 'o'")
 	}
 
@@ -2561,7 +2561,7 @@ func TestHandleListKey_OAOpensArtifactSelection(t *testing.T) {
 	result, cmd := updated.handleListKey(aMsg)
 	updated = result.(Model)
 
-	if updated.pendingO {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingO to be false after 'oa'")
 	}
 	// Should return a cmd to fetch step contexts from daemon
@@ -2631,7 +2631,7 @@ func TestHandleListKey_ETOpensEditTitle(t *testing.T) {
 	eMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
 	result, _ := m.handleListKey(eMsg)
 	updated := result.(Model)
-	if !updated.pendingE {
+	if updated.pendingChord != "e" {
 		t.Error("expected pendingE to be true after 'e'")
 	}
 
@@ -2640,7 +2640,7 @@ func TestHandleListKey_ETOpensEditTitle(t *testing.T) {
 	result, cmd := updated.handleListKey(tMsg)
 	updated = result.(Model)
 
-	if updated.pendingE {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingE to be false after 'et' sequence")
 	}
 	// The command should be non-nil (opens editor)
@@ -2665,7 +2665,7 @@ func TestHandleTaskInfoKey_ETOpensEditTitle(t *testing.T) {
 	eMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
 	result, _ := m.handleTaskInfoKey(eMsg)
 	updated := result.(Model)
-	if !updated.pendingE {
+	if updated.pendingChord != "e" {
 		t.Error("expected pendingE to be true after 'e'")
 	}
 
@@ -2674,7 +2674,7 @@ func TestHandleTaskInfoKey_ETOpensEditTitle(t *testing.T) {
 	result, cmd := updated.handleTaskInfoKey(tMsg)
 	updated = result.(Model)
 
-	if updated.pendingE {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingE to be false after 'et' sequence")
 	}
 	if cmd == nil {
@@ -2702,7 +2702,7 @@ func TestHandleListKey_ETNoTaskSelected(t *testing.T) {
 	result, cmd := updated.handleListKey(tMsg)
 	updated = result.(Model)
 
-	if updated.pendingE {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingE to be false")
 	}
 	if cmd != nil {
@@ -2760,7 +2760,7 @@ func TestHandleListKey_EAReturnsCommand(t *testing.T) {
 	eMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}}
 	result, _ := m.handleListKey(eMsg)
 	updated := result.(Model)
-	if !updated.pendingE {
+	if updated.pendingChord != "e" {
 		t.Error("expected pendingE to be true after 'e'")
 	}
 
@@ -2789,7 +2789,7 @@ func TestHandleTaskInfoKey_YSetsPendingY(t *testing.T) {
 	result, cmd := m.handleTaskInfoKey(msg)
 	updated := result.(Model)
 
-	if !updated.pendingY {
+	if updated.pendingChord != "y" {
 		t.Error("expected pendingY to be true after 'y'")
 	}
 	if cmd != nil {
@@ -2804,7 +2804,7 @@ func TestHandleTaskInfoKey_YDCopiesDescription(t *testing.T) {
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
-		pendingY: true,
+		pendingChord: "y",
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "task description text", Context: "ctx"}
 	m.taskInfo.SetTask(&task)
@@ -2813,7 +2813,7 @@ func TestHandleTaskInfoKey_YDCopiesDescription(t *testing.T) {
 	result, cmd := m.handleTaskInfoKey(msg)
 	updated := result.(Model)
 
-	if updated.pendingY {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingY to be false after 'yd'")
 	}
 	if cmd != nil {
@@ -2833,7 +2833,7 @@ func TestHandleTaskInfoKey_YCCopiesContext(t *testing.T) {
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
-		pendingY: true,
+		pendingChord: "y",
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc", Context: "task context text"}
 	m.taskInfo.SetTask(&task)
@@ -2842,7 +2842,7 @@ func TestHandleTaskInfoKey_YCCopiesContext(t *testing.T) {
 	result, cmd := m.handleTaskInfoKey(msg)
 	updated := result.(Model)
 
-	if updated.pendingY {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingY to be false after 'yc'")
 	}
 	if cmd != nil {
@@ -2905,7 +2905,7 @@ func TestHandleTaskInfoKey_YResetByOtherKey(t *testing.T) {
 	result, _ := m.handleTaskInfoKey(yMsg)
 	m = result.(Model)
 
-	if !m.pendingY {
+	if m.pendingChord != "y" {
 		t.Error("expected pendingY to be true after 'y'")
 	}
 
@@ -2913,7 +2913,7 @@ func TestHandleTaskInfoKey_YResetByOtherKey(t *testing.T) {
 	result, _ = m.handleTaskInfoKey(jMsg)
 	m = result.(Model)
 
-	if m.pendingY {
+	if m.pendingChord != "" {
 		t.Error("expected pendingY to be false after non-yank key")
 	}
 }
@@ -2930,14 +2930,14 @@ func TestHandleListKey_ONonAResetsPending(t *testing.T) {
 	oMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}}
 	result, _ := m.handleListKey(oMsg)
 	updated := result.(Model)
-	if !updated.pendingO {
+	if updated.pendingChord != "o" {
 		t.Error("expected pendingO to be true after 'o'")
 	}
 
 	xMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
 	result, _ = updated.handleListKey(xMsg)
 	updated = result.(Model)
-	if updated.pendingO {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingO to be false after non-'a' key")
 	}
 }
@@ -3054,7 +3054,7 @@ func TestHandleTaskInfoKey_YDNoTaskNoError(t *testing.T) {
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
-		pendingY: true,
+		pendingChord: "y",
 	}
 	// No task set on taskInfo
 
@@ -3062,7 +3062,7 @@ func TestHandleTaskInfoKey_YDNoTaskNoError(t *testing.T) {
 	result, cmd := m.handleTaskInfoKey(msg)
 	updated := result.(Model)
 
-	if updated.pendingY {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingY to be false")
 	}
 	if cmd != nil {
@@ -3091,7 +3091,7 @@ func TestHandleTaskInfoKey_OAReturnsCommand(t *testing.T) {
 	oMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'o'}}
 	result, _ := m.handleTaskInfoKey(oMsg)
 	updated := result.(Model)
-	if !updated.pendingO {
+	if updated.pendingChord != "o" {
 		t.Error("expected pendingO to be true after 'o'")
 	}
 
@@ -3144,7 +3144,7 @@ func TestHandleTaskInfoKey_YDEmptyDescriptionNoOp(t *testing.T) {
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
-		pendingY: true,
+		pendingChord: "y",
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "", Context: "ctx"}
 	m.taskInfo.SetTask(&task)
@@ -3153,7 +3153,7 @@ func TestHandleTaskInfoKey_YDEmptyDescriptionNoOp(t *testing.T) {
 	result, cmd := m.handleTaskInfoKey(msg)
 	updated := result.(Model)
 
-	if updated.pendingY {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingY to be false")
 	}
 	if cmd != nil {
@@ -3168,7 +3168,7 @@ func TestHandleTaskInfoKey_YCEmptyContextNoOp(t *testing.T) {
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
-		pendingY: true,
+		pendingChord: "y",
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc", Context: ""}
 	m.taskInfo.SetTask(&task)
@@ -3177,7 +3177,7 @@ func TestHandleTaskInfoKey_YCEmptyContextNoOp(t *testing.T) {
 	result, cmd := m.handleTaskInfoKey(msg)
 	updated := result.(Model)
 
-	if updated.pendingY {
+	if updated.pendingChord != "" {
 		t.Error("expected pendingY to be false")
 	}
 	if cmd != nil {
@@ -4088,7 +4088,7 @@ func TestYDEmptyDescription_NoStatusMessage(t *testing.T) {
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
-		pendingY: true,
+		pendingChord: "y",
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "", Context: "ctx"}
 	m.taskInfo.SetTask(&task)
@@ -4109,7 +4109,7 @@ func TestYCEmptyContext_NoStatusMessage(t *testing.T) {
 		detail:   newDetailView(),
 		taskInfo: newTaskInfoView(),
 		view:     viewTaskInfo,
-		pendingY: true,
+		pendingChord: "y",
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc", Context: ""}
 	m.taskInfo.SetTask(&task)

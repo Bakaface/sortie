@@ -17,7 +17,6 @@ type taskInfoView struct {
 	width    int
 	height   int
 	ready    bool
-	pendingG bool
 }
 
 func newTaskInfoView() taskInfoView {

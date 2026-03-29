@@ -51,7 +51,10 @@ type Model struct {
 	// Confirmation state
 	confirmAction string // "continue", "finalize", "delete", "revert", or "stop"; empty if no confirmation pending
 	confirmTaskID int64
-	pendingDelete bool // tracks first "d" press for dd sequence
+
+	// Chord sequence state — first key of a pending two-key chord (e.g. "d" for dd, "o" for oa).
+	// Replaces the old pendingDelete/pendingO/pendingE/pendingY booleans.
+	pendingChord string
 
 	// Workflow selection state (kept after selector closes)
 	selectedWorkflow string
@@ -71,9 +74,6 @@ type Model struct {
 	branchFilter    string   // fuzzy search input
 	branchFiltered  []string // branches matching the filter
 
-	// Artifact pending key state
-	pendingO bool // tracks first "o" press for oa sequence
-	pendingE bool // tracks first "e" press for ea sequence
 
 	// Step context state (kept after selector closes)
 	stepContexts map[string]string // loaded step contexts for current selection
@@ -85,8 +85,6 @@ type Model struct {
 	sortie    sortieAnimation
 	sortieCmd tea.Cmd // deferred command to run when animation completes
 
-	// Yank sequence state (task info view)
-	pendingY bool
 
 	// Status message (flash message, auto-clears after a few ticks)
 	statusMessage    string

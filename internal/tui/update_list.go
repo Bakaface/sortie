@@ -61,97 +61,10 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle "d" key for dd delete sequence
-	if keyStr == "d" {
-		if m.pendingDelete {
-			// Second "d" — trigger delete confirmation
-			m.pendingDelete = false
-			if task := m.list.Selected(); task != nil && m.client != nil {
-				m.confirmAction = "delete"
-				m.confirmTaskID = task.ID
-				return m, nil
-			}
-			return m, nil
-		}
-		// First "d" — enter pending state
-		m.pendingDelete = true
-		return m, nil
+	// Handle chord sequences (dd, gg, oa, ea, ed, et, ec)
+	if ret, cmd, handled := m.tryChord(keyStr); handled {
+		return ret, cmd
 	}
-
-	// Handle "gg" sequence for go-to-top
-	if keyStr == "g" {
-		if m.list.IsPendingG() {
-			m.list.SetPendingG(false)
-			m.pendingDelete = false
-			m.list.GotoTop()
-			return m, nil
-		}
-		m.list.SetPendingG(true)
-		return m, nil
-	}
-
-	// Handle second key after "o" prefix
-	if m.pendingO {
-		m.pendingO = false
-		m.pendingDelete = false
-		m.list.SetPendingG(false)
-		if keyStr == "a" {
-			if task := m.list.Selected(); task != nil {
-				return m.openArtifactSelection(task, "view")
-			}
-		}
-		return m, nil
-	}
-
-	// Handle second key after "e" prefix
-	if m.pendingE {
-		m.pendingE = false
-		m.pendingDelete = false
-		m.list.SetPendingG(false)
-		switch keyStr {
-		case "a":
-			if task := m.list.Selected(); task != nil {
-				return m.openArtifactSelection(task, "edit")
-			}
-		case "d":
-			if task := m.list.Selected(); task != nil {
-				return m, m.openEditorForField(task.ID, "description", task.Description)
-			}
-		case "t":
-			if task := m.list.Selected(); task != nil {
-				return m, m.openEditorForField(task.ID, "title", task.Title)
-			}
-		case "c":
-			if task := m.list.Selected(); task != nil {
-				return m, m.openEditorForField(task.ID, "context", task.Context)
-			}
-		}
-		return m, nil
-	}
-
-	// Handle "o" key — start "oa" sequence
-	if keyStr == "o" {
-		m.pendingO = true
-		m.pendingDelete = false
-		m.list.SetPendingG(false)
-		m.pendingE = false
-		return m, nil
-	}
-
-	// Handle "e" key — start "ea" sequence
-	if keyStr == "e" {
-		m.pendingE = true
-		m.pendingDelete = false
-		m.list.SetPendingG(false)
-		m.pendingO = false
-		return m, nil
-	}
-
-	// Any other key resets pending states
-	m.pendingDelete = false
-	m.list.SetPendingG(false)
-	m.pendingO = false
-	m.pendingE = false
 
 	switch keyStr {
 	case "q", "ctrl+c":

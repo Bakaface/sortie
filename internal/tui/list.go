@@ -27,7 +27,6 @@ type listView struct {
 	globalMode      bool
 	projectName     string
 	tmuxSessions    map[int64]bool
-	pendingG        bool
 	matchedIndices  []int // indices of tasks matching current search
 	currentMatchIdx int   // index within matchedIndices
 	scrollOffset       int  // index of first visible task row
@@ -345,14 +344,6 @@ func (l *listView) PageUp() {
 	}
 	l.table.SetCursor(target)
 	l.ensureVisible()
-}
-
-func (l *listView) IsPendingG() bool {
-	return l.pendingG
-}
-
-func (l *listView) SetPendingG(v bool) {
-	l.pendingG = v
 }
 
 func (l *listView) SetSize(width, height int) {
