@@ -91,13 +91,15 @@ type Model struct {
 	statusMessageTTL int // ticks remaining before auto-clear
 
 	// Command mode state (vim-style : commands)
-	commandMode  bool
-	commandInput string
+	commandMode    bool
+	commandInput   string
+	commandHistory inputHistory
 
 	// Search mode state (vim-style / and ? search)
 	searchMode      bool
 	searchQuery     string
 	searchDirection int // 1 for forward (/), -1 for backward (?)
+	searchHistory   inputHistory
 }
 
 type clientConnectedMsg struct {
@@ -155,6 +157,8 @@ func NewModel(cfg *config.Config, projectID int64, projectPath, projectName stri
 		projectName:     projectName,
 		globalMode:      globalMode,
 		defaultWorktree: defaultWorktree,
+		commandHistory:  newInputHistory(50),
+		searchHistory:   newInputHistory(50),
 	}
 }
 

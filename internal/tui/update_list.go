@@ -364,17 +364,31 @@ func (m Model) handleCommandKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.commandMode = false
 		m.commandInput = ""
+		m.commandHistory.Reset()
 		return m, nil
 
 	case "enter":
 		input := m.commandInput
 		m.commandMode = false
 		m.commandInput = ""
+		m.commandHistory.Push(input)
 		return executeCommand(m, input)
 
 	case "tab":
 		if completed, ok := completeRunTask(m, m.commandInput); ok {
 			m.commandInput = completed
+		}
+		return m, nil
+
+	case "up", "ctrl+p":
+		if entry, ok := m.commandHistory.Up(m.commandInput); ok {
+			m.commandInput = entry
+		}
+		return m, nil
+
+	case "down", "ctrl+n":
+		if entry, ok := m.commandHistory.Down(m.commandInput); ok {
+			m.commandInput = entry
 		}
 		return m, nil
 
@@ -410,14 +424,28 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.searchMode = false
 		m.searchQuery = ""
+		m.searchHistory.Reset()
 		return m, nil
 
 	case "enter":
 		query := m.searchQuery
 		direction := m.searchDirection
 		m.searchMode = false
+		m.searchHistory.Push(query)
 		if query != "" {
 			m.list.performSearchAndJump(query, m.list.table.Cursor(), direction)
+		}
+		return m, nil
+
+	case "up", "ctrl+p":
+		if entry, ok := m.searchHistory.Up(m.searchQuery); ok {
+			m.searchQuery = entry
+		}
+		return m, nil
+
+	case "down", "ctrl+n":
+		if entry, ok := m.searchHistory.Down(m.searchQuery); ok {
+			m.searchQuery = entry
 		}
 		return m, nil
 
