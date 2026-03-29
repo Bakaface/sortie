@@ -498,34 +498,37 @@ func TestPromptView_ResetPreservesWorktreeOn(t *testing.T) {
 	}
 }
 
-func TestPromptView_WorkflowNameDisplayed(t *testing.T) {
+func TestPromptView_WorkflowPaneShownForMultiple(t *testing.T) {
 	p := newPromptView(true, "")
 	p.SetSize(80, 24)
 	p.workflowName = "deploy"
+	p.workflows = []string{"deploy", "review", "test"}
+	p.workflowCursor = 0
 
 	view := p.View()
 
-	if !strings.Contains(view, "[deploy]") {
-		t.Errorf("expected workflow name [deploy] in view, got:\n%s", view)
+	if !strings.Contains(view, "Workflow") {
+		t.Errorf("expected Workflow pane in view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "1. deploy") {
+		t.Errorf("expected numbered workflow list, got:\n%s", view)
 	}
 }
 
-func TestPromptView_WorkflowNameNotDisplayedWhenEmpty(t *testing.T) {
+func TestPromptView_WorkflowPaneHiddenForSingle(t *testing.T) {
 	p := newPromptView(true, "")
 	p.SetSize(80, 24)
-	p.workflowName = ""
+	p.workflowName = "default"
+	p.workflows = []string{"default"}
 
 	view := p.View()
 
-	// Should not contain any bracket indicators
-	lines := strings.Split(view, "\n")
-	titleLine := lines[0]
-	if strings.Contains(titleLine, "[") {
-		t.Errorf("expected no bracket indicator in title when workflow is empty, got:\n%s", titleLine)
+	if strings.Contains(view, "Workflow") {
+		t.Errorf("expected no Workflow pane for single workflow, got:\n%s", view)
 	}
 }
 
-func TestPromptView_WorkflowNameRightAligned(t *testing.T) {
+func TestPromptView_NoWorkflowIndicatorInTitleBar(t *testing.T) {
 	p := newPromptView(true, "")
 	p.SetSize(80, 24)
 	p.workflowName = "review"
@@ -534,18 +537,8 @@ func TestPromptView_WorkflowNameRightAligned(t *testing.T) {
 	lines := strings.Split(view, "\n")
 	titleLine := lines[0]
 
-	// The workflow indicator should appear after the title
-	titleIdx := strings.Index(titleLine, "New Task")
-	workflowIdx := strings.Index(titleLine, "[review]")
-
-	if titleIdx == -1 {
-		t.Fatal("expected 'New Task' in title line")
-	}
-	if workflowIdx == -1 {
-		t.Fatal("expected '[review]' in title line")
-	}
-	if workflowIdx <= titleIdx {
-		t.Errorf("expected workflow indicator to appear after title, title at %d, workflow at %d", titleIdx, workflowIdx)
+	if strings.Contains(titleLine, "[review]") {
+		t.Errorf("expected no workflow indicator in title bar, got:\n%s", titleLine)
 	}
 }
 

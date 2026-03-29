@@ -186,6 +186,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.prompt.workflowName = m.continueSelectedWorkflow
 				m.prompt.workflows = workflows
 				m.prompt.workflowCursor = 0
+				m.prompt.SetSize(m.width, m.height)
 				m.prompt.Focus()
 				return m, nil
 			}
@@ -255,6 +256,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.workflowName = m.selectedWorkflow
 		m.prompt.workflows = workflows
 		m.prompt.workflowCursor = 0
+		m.prompt.SetSize(m.width, m.height) // recalc widths for split layout
 		m.prompt.Focus()
 		return m, nil
 
@@ -285,6 +287,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.workflowCursor = 0
 		m.prompt.blockingTaskID = m.blockingTaskID
 		m.prompt.blockingTaskTitle = m.blockingTaskTitleFromList(m.blockingTaskID)
+		m.prompt.SetSize(m.width, m.height)
 		m.prompt.Focus()
 		return m, nil
 

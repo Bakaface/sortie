@@ -119,16 +119,19 @@ func (p *promptView) SetSize(width, height int) {
 	p.textarea.SetWidth(width - 4)
 	// Account for "▸ " / "  " prefix (2 chars) before the label
 	prefix := 2
-	p.titleInput.Width = width - 4 - prefix - lipgloss.Width("Title: ")
-	// Git inputs are inside a frame (│ + space on left, │ on right = 3 chars overhead)
-	gitFrameWidth := width - 4
+	p.titleInput.Width = width - 4 - prefix - lipgloss.Width("Title: ") - lipgloss.Width(p.titleInput.Prompt) - 1
+	// Git inputs are inside a frame: border(2) + paddingLeft(1) = 3 chars overhead.
+	// textinput.View() renders at Width + promptWidth + 1 (cursor), so subtract that too.
+	frameOuterWidth := width - 1 // matches innerWidth in View()
+	gitFrameWidth := frameOuterWidth
 	if len(p.workflows) > 1 && width >= 60 {
-		gitFrameWidth = (width - 4) * 2 / 3
+		gitFrameWidth = frameOuterWidth * 2 / 3
 	}
-	gitInner := gitFrameWidth - 3
-	p.branchInput.Width = gitInner - prefix - lipgloss.Width("Branch: ")
-	p.checkoutInput.Width = gitInner - prefix - lipgloss.Width("Checkout: ")
-	p.targetBranchInput.Width = gitInner - prefix - lipgloss.Width("Target: ")
+	gitContentWidth := gitFrameWidth - 3 // frame overhead
+	tiOverhead := lipgloss.Width(p.branchInput.Prompt) + 1 // textinput prompt + cursor
+	p.branchInput.Width = gitContentWidth - prefix - lipgloss.Width("Branch: ") - tiOverhead
+	p.checkoutInput.Width = gitContentWidth - prefix - lipgloss.Width("Checkout: ") - tiOverhead
+	p.targetBranchInput.Width = gitContentWidth - prefix - lipgloss.Width("Target: ") - tiOverhead
 	p.recalcHeight()
 }
 
@@ -306,20 +309,34 @@ func (p *promptView) SwitchFocus(forward bool) {
 	p.checkoutInput.Blur()
 	p.targetBranchInput.Blur()
 
+	hasWorkflows := len(p.workflows) > 1
+
 	if !p.worktree {
-		// Only title ↔ description when worktree is off
+		// title ↔ description ↔ [workflow] when worktree is off
 		if forward {
-			switch p.focusField {
-			case promptFieldTitle:
+			switch {
+			case p.activePane == paneWorkflow:
+				p.activePane = paneTask
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			case p.focusField == promptFieldTitle:
 				p.focusField = promptFieldDescription
 				p.textarea.Focus()
+			case hasWorkflows:
+				p.activePane = paneWorkflow
 			default:
 				p.focusField = promptFieldTitle
 				p.titleInput.Focus()
 			}
 		} else {
-			switch p.focusField {
-			case promptFieldDescription:
+			switch {
+			case p.activePane == paneWorkflow:
+				p.activePane = paneTask
+				p.focusField = promptFieldDescription
+				p.textarea.Focus()
+			case p.focusField == promptFieldTitle && hasWorkflows:
+				p.activePane = paneWorkflow
+			case p.focusField == promptFieldDescription:
 				p.focusField = promptFieldTitle
 				p.titleInput.Focus()
 			default:
@@ -331,32 +348,44 @@ func (p *promptView) SwitchFocus(forward bool) {
 	}
 
 	if p.branchMode == branchModeNew {
-		// Forward: title → description → branch → targetBranch → title
-		// Backward: title → targetBranch → branch → description → title
+		// Forward: title → description → branch → targetBranch → [workflow] → title
+		// Backward: title → [workflow] → targetBranch → branch → description → title
 		if forward {
-			switch p.focusField {
-			case promptFieldTitle:
+			switch {
+			case p.activePane == paneWorkflow:
+				p.activePane = paneTask
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			case p.focusField == promptFieldTitle:
 				p.focusField = promptFieldDescription
 				p.textarea.Focus()
-			case promptFieldDescription:
+			case p.focusField == promptFieldDescription:
 				p.focusField = promptFieldBranch
 				p.branchInput.Focus()
-			case promptFieldBranch:
+			case p.focusField == promptFieldBranch:
 				p.focusField = promptFieldTargetBranch
 				p.targetBranchInput.Focus()
+			case hasWorkflows:
+				p.activePane = paneWorkflow
 			default:
 				p.focusField = promptFieldTitle
 				p.titleInput.Focus()
 			}
 		} else {
-			switch p.focusField {
-			case promptFieldTitle:
+			switch {
+			case p.activePane == paneWorkflow:
+				p.activePane = paneTask
 				p.focusField = promptFieldTargetBranch
 				p.targetBranchInput.Focus()
-			case promptFieldTargetBranch:
+			case p.focusField == promptFieldTitle && hasWorkflows:
+				p.activePane = paneWorkflow
+			case p.focusField == promptFieldTitle:
+				p.focusField = promptFieldTargetBranch
+				p.targetBranchInput.Focus()
+			case p.focusField == promptFieldTargetBranch:
 				p.focusField = promptFieldBranch
 				p.branchInput.Focus()
-			case promptFieldBranch:
+			case p.focusField == promptFieldBranch:
 				p.focusField = promptFieldDescription
 				p.textarea.Focus()
 			default:
@@ -365,32 +394,44 @@ func (p *promptView) SwitchFocus(forward bool) {
 			}
 		}
 	} else {
-		// Forward: title → description → checkout → targetBranch → title
-		// Backward: title → targetBranch → checkout → description → title
+		// Forward: title → description → checkout → targetBranch → [workflow] → title
+		// Backward: title → [workflow] → targetBranch → checkout → description → title
 		if forward {
-			switch p.focusField {
-			case promptFieldTitle:
+			switch {
+			case p.activePane == paneWorkflow:
+				p.activePane = paneTask
+				p.focusField = promptFieldTitle
+				p.titleInput.Focus()
+			case p.focusField == promptFieldTitle:
 				p.focusField = promptFieldDescription
 				p.textarea.Focus()
-			case promptFieldDescription:
+			case p.focusField == promptFieldDescription:
 				p.focusField = promptFieldCheckout
 				p.checkoutInput.Focus()
-			case promptFieldCheckout:
+			case p.focusField == promptFieldCheckout:
 				p.focusField = promptFieldTargetBranch
 				p.targetBranchInput.Focus()
+			case hasWorkflows:
+				p.activePane = paneWorkflow
 			default:
 				p.focusField = promptFieldTitle
 				p.titleInput.Focus()
 			}
 		} else {
-			switch p.focusField {
-			case promptFieldTitle:
+			switch {
+			case p.activePane == paneWorkflow:
+				p.activePane = paneTask
 				p.focusField = promptFieldTargetBranch
 				p.targetBranchInput.Focus()
-			case promptFieldTargetBranch:
+			case p.focusField == promptFieldTitle && hasWorkflows:
+				p.activePane = paneWorkflow
+			case p.focusField == promptFieldTitle:
+				p.focusField = promptFieldTargetBranch
+				p.targetBranchInput.Focus()
+			case p.focusField == promptFieldTargetBranch:
 				p.focusField = promptFieldCheckout
 				p.checkoutInput.Focus()
-			case promptFieldCheckout:
+			case p.focusField == promptFieldCheckout:
 				p.focusField = promptFieldDescription
 				p.textarea.Focus()
 			default:
@@ -502,12 +543,23 @@ func isImagePath(s string) bool {
 
 // renderWorkflowList renders the workflow selector list for the right pane.
 func (p *promptView) renderWorkflowList() string {
+	activeHighlight := selectedStyle
+	inactiveHighlight := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#E8E8E8")).
+		Background(lipgloss.Color("#3A3A3A"))
+
 	var wf strings.Builder
 	for i, name := range p.workflows {
+		label := fmt.Sprintf("%d. %s", i+1, name)
 		if i == p.workflowCursor {
-			wf.WriteString(selectedStyle.Render("> " + name))
+			if p.activePane == paneWorkflow {
+				wf.WriteString(activeHighlight.Render("> " + label))
+			} else {
+				wf.WriteString(inactiveHighlight.Render("  " + label))
+			}
 		} else {
-			wf.WriteString("  " + name)
+			wf.WriteString("  " + label)
 		}
 		if i < len(p.workflows)-1 {
 			wf.WriteString("\n")
@@ -540,8 +592,8 @@ func (p *promptView) View() string {
 		gitBorderColor = activeBorder
 	}
 
-	// Inner width for framed content
-	innerWidth := p.width - 4
+	// Inner width for framed sections (1-space left prefix applied in output)
+	innerWidth := p.width - 1
 	if innerWidth < 10 {
 		innerWidth = 10
 	}
@@ -556,16 +608,7 @@ func (p *promptView) View() string {
 		titleText = fmt.Sprintf(" New Task (blocks %s) ", blockInfo)
 	}
 	title := titleStyle.Render(titleText)
-	if p.workflowName != "" && p.width > 0 {
-		workflowWidget := projectIndicatorStyle.Render("[" + p.workflowName + "]")
-		gap := p.width - lipgloss.Width(title) - lipgloss.Width(workflowWidget)
-		if gap < 0 {
-			gap = 0
-		}
-		b.WriteString(title + strings.Repeat(" ", gap) + workflowWidget)
-	} else {
-		b.WriteString(title)
-	}
+	b.WriteString(title)
 	b.WriteString("\n\n")
 
 	// Title input
@@ -651,17 +694,17 @@ func (p *promptView) View() string {
 		const minSideBySide = 60
 		if p.width >= minSideBySide {
 			leftWidth := innerWidth * 2 / 3
-			rightWidth := innerWidth - leftWidth - 1 // -1 for gap
+			rightWidth := innerWidth - leftWidth // no gap — frames share the border
 			gitFrame := p.renderFramedSection("Git", gitBorderColor, gitContent.String(), leftWidth)
 			wfFrame := p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, rightWidth)
-			b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, gitFrame, " ", wfFrame))
+			b.WriteString(indentBlock(" ", joinFramesHorizontal(gitFrame, wfFrame, leftWidth, rightWidth)))
 		} else {
-			b.WriteString(p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth))
+			b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth)))
 			b.WriteString("\n")
-			b.WriteString(p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, innerWidth))
+			b.WriteString(indentBlock(" ", p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, innerWidth)))
 		}
 	} else {
-		b.WriteString(p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth))
+		b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth)))
 	}
 	b.WriteString("\n")
 
@@ -690,49 +733,98 @@ func (p *promptView) View() string {
 
 // renderFramedSection renders content inside a rounded border with a label
 // embedded in the top border line: ╭─ Label ────────────╮
+// Width is the total outer width including border characters.
 func (p *promptView) renderFramedSection(label string, borderColor lipgloss.Color, content string, width int) string {
-	borderStyle := lipgloss.NewStyle().Foreground(borderColor)
-	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(borderColor)
+	bs := lipgloss.NewStyle().Foreground(borderColor)
+	ls := lipgloss.NewStyle().Bold(true).Foreground(borderColor)
 
-	// Top border: ╭─ Label ─────...─╮
-	labelText := labelStyle.Render(" " + label + " ")
-	labelWidth := lipgloss.Width(labelText)
-	// Account for ╭─ (2 chars) and ─╮ (2 chars)
-	fillWidth := width - 2 - labelWidth - 2 + 2 // +2 for border chars counted in width
-	if fillWidth < 0 {
-		fillWidth = 0
-	}
-	topBorder := borderStyle.Render("╭─") + labelText + borderStyle.Render(strings.Repeat("─", fillWidth)+"╮")
-
-	// Wrap content lines with side borders
-	contentWidth := width - 2 // inner space (minus left + right border chars)
+	// Inner content width = outer - │(1) - space(1) - │(1)
+	contentWidth := width - 3
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
 
-	var framed strings.Builder
-	framed.WriteString(topBorder)
-	framed.WriteString("\n")
+	// ── Top border: ╭─ Label ─────╮ ──
+	labelText := ls.Render(" " + label + " ")
+	labelW := lipgloss.Width(labelText)
+	topFill := width - 2 - labelW - 1 // 2 for "╭─", 1 for "╮"
+	if topFill < 0 {
+		topFill = 0
+	}
+	top := bs.Render("╭─") + labelText + bs.Render(strings.Repeat("─", topFill)+"╮")
 
-	contentLines := strings.Split(content, "\n")
-	for _, line := range contentLines {
-		lineWidth := lipgloss.Width(line)
-		padding := contentWidth - lineWidth
-		if padding < 0 {
-			padding = 0
+	// ── Content lines with side borders: │ content  │ ──
+	var out strings.Builder
+	out.WriteString(top)
+	out.WriteByte('\n')
+
+	truncStyle := lipgloss.NewStyle().MaxWidth(contentWidth)
+	for _, line := range strings.Split(content, "\n") {
+		lw := lipgloss.Width(line)
+		if lw > contentWidth {
+			line = truncStyle.Render(line)
+			lw = contentWidth
 		}
-		framed.WriteString(borderStyle.Render("│") + " " + line + strings.Repeat(" ", padding) + borderStyle.Render("│"))
-		framed.WriteString("\n")
+		pad := contentWidth - lw
+		out.WriteString(bs.Render("│") + " " + line + strings.Repeat(" ", pad) + bs.Render("│"))
+		out.WriteByte('\n')
 	}
 
-	// Bottom border: ╰─────...─╯
-	bottomFill := width - 2 + 2
-	if bottomFill < 0 {
-		bottomFill = 0
+	// ── Bottom border: ╰─────╯ ──
+	botFill := width - 2 // 1 for "╰", 1 for "╯"
+	if botFill < 0 {
+		botFill = 0
 	}
-	framed.WriteString(borderStyle.Render("╰" + strings.Repeat("─", bottomFill) + "╯"))
+	out.WriteString(bs.Render("╰" + strings.Repeat("─", botFill) + "╯"))
 
-	return framed.String()
+	return out.String()
+}
+
+// indentBlock prepends prefix to every line of a multi-line string.
+func indentBlock(prefix, block string) string {
+	lines := strings.Split(block, "\n")
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// joinFramesHorizontal joins two frame strings side-by-side, forcing each line
+// of the left frame to exactly leftWidth and the right frame to rightWidth.
+// This avoids lipgloss.JoinHorizontal's max-width padding that causes glitches
+// when ANSI-styled content has inconsistent visual widths.
+func joinFramesHorizontal(left, right string, leftWidth, rightWidth int) string {
+	leftLines := strings.Split(left, "\n")
+	rightLines := strings.Split(right, "\n")
+
+	// Equalize line counts
+	maxLines := len(leftLines)
+	if len(rightLines) > maxLines {
+		maxLines = len(rightLines)
+	}
+	for len(leftLines) < maxLines {
+		leftLines = append(leftLines, "")
+	}
+	for len(rightLines) < maxLines {
+		rightLines = append(rightLines, "")
+	}
+
+	var out strings.Builder
+	for i := range leftLines {
+		// Pad or truncate left line to exactly leftWidth
+		lw := lipgloss.Width(leftLines[i])
+		if lw < leftWidth {
+			leftLines[i] += strings.Repeat(" ", leftWidth-lw)
+		} else if lw > leftWidth {
+			leftLines[i] = lipgloss.NewStyle().MaxWidth(leftWidth).Render(leftLines[i])
+		}
+		if i > 0 {
+			out.WriteByte('\n')
+		}
+		out.WriteString(leftLines[i])
+		out.WriteString(rightLines[i])
+	}
+	return out.String()
 }
 
 func (p *promptView) renderHelp() string {

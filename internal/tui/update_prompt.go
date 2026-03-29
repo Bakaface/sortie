@@ -23,6 +23,48 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.prompt.activePane = paneWorkflow
 				m.prompt.Blur()
 			}
+		case "j":
+			// Move down: from title/description → git fields, from git → workflow (if present)
+			if m.prompt.activePane == paneTask {
+				if m.prompt.focusField == promptFieldTitle || m.prompt.focusField == promptFieldDescription {
+					if m.prompt.worktree {
+						// Jump to first git field
+						m.prompt.Blur()
+						if m.prompt.branchMode == branchModeNew {
+							m.prompt.focusField = promptFieldBranch
+							m.prompt.branchInput.Focus()
+						} else {
+							m.prompt.focusField = promptFieldCheckout
+							m.prompt.checkoutInput.Focus()
+						}
+					} else if len(m.prompt.workflows) > 1 {
+						m.prompt.activePane = paneWorkflow
+						m.prompt.Blur()
+					}
+				} else if len(m.prompt.workflows) > 1 {
+					// Already in git fields → go to workflow pane
+					m.prompt.activePane = paneWorkflow
+					m.prompt.Blur()
+				}
+			}
+		case "k":
+			// Move up: from workflow → git, from git → description
+			if m.prompt.activePane == paneWorkflow {
+				m.prompt.activePane = paneTask
+				if m.prompt.worktree {
+					m.prompt.focusField = promptFieldTargetBranch
+					m.prompt.targetBranchInput.Focus()
+				} else {
+					m.prompt.focusField = promptFieldDescription
+					m.prompt.textarea.Focus()
+				}
+			} else if m.prompt.activePane == paneTask {
+				if m.prompt.focusField == promptFieldBranch || m.prompt.focusField == promptFieldCheckout || m.prompt.focusField == promptFieldTargetBranch {
+					m.prompt.Blur()
+					m.prompt.focusField = promptFieldDescription
+					m.prompt.textarea.Focus()
+				}
+			}
 		}
 		// Any other key: chord cancelled, do nothing
 		return m, nil
@@ -239,10 +281,14 @@ func (m Model) handleWorkflowPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.Focus()
 		return m, nil
 
-	case key.Matches(msg, pk.SwitchField), key.Matches(msg, pk.SwitchFieldPrev):
-		// Tab/shift-tab: switch back to task pane
-		m.prompt.activePane = paneTask
-		m.prompt.Focus()
+	case key.Matches(msg, pk.SwitchField):
+		// Tab/ctrl+n: cycle to next field (title)
+		m.prompt.SwitchFocus(true)
+		return m, nil
+
+	case key.Matches(msg, pk.SwitchFieldPrev):
+		// Shift-tab/ctrl+p: cycle to previous field
+		m.prompt.SwitchFocus(false)
 		return m, nil
 
 	case key.Matches(msg, pk.Help):
@@ -250,7 +296,8 @@ func (m Model) handleWorkflowPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	switch msg.String() {
+	keyStr := msg.String()
+	switch keyStr {
 	case "j", "down":
 		if m.prompt.workflowCursor < len(m.prompt.workflows)-1 {
 			m.prompt.workflowCursor++
@@ -267,6 +314,16 @@ func (m Model) handleWorkflowPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.workflowCursor = max(0, len(m.prompt.workflows)-1)
 		m.prompt.workflowName = m.prompt.workflows[m.prompt.workflowCursor]
 		m.selectedWorkflow = m.prompt.workflowName
+	default:
+		// Number keys for quick selection (1-9)
+		if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
+			idx := int(keyStr[0] - '1')
+			if idx < len(m.prompt.workflows) {
+				m.prompt.workflowCursor = idx
+				m.prompt.workflowName = m.prompt.workflows[idx]
+				m.selectedWorkflow = m.prompt.workflowName
+			}
+		}
 	}
 
 	return m, nil
