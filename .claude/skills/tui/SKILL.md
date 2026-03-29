@@ -57,6 +57,7 @@ Model (app.go)
 |------|----------------|
 | `actions.go` | Async `tea.Cmd` functions: API calls, editor spawning, tmux attachment, log loading |
 | `command.go` | Vim-style `:` command parsing with declarative option registry (`boolOption`/`intOption` slices → `matchSetOption`/`execSetOption`). Add new `:set` options by appending to `boolOptions` or `intOptions`. Also: goto line, RunTask, noh. |
+| `selector.go` | Generic list-pick dialog: `selector` struct with `HandleKey()`/`View()`, vim navigation, number-key quick select. Used for workflow, task, init, priority, artifact selection. |
 | `search.go` | Forward/backward search with match highlighting via `performSearch()`, `nextMatch()`, `previousMatch()` |
 
 ## Custom Message Types
@@ -78,7 +79,7 @@ System: `clientConnectedMsg`, `tmuxDetachedMsg`, `tickMsg`, `errorMsg`
 User key -> handler returns `tea.Cmd` -> goroutine -> `tea.Msg` -> `Update()` processes. Async API calls in `actions.go`, return typed messages.
 
 ### Selection/Confirmation Dialogs
-Dedicated state flags per dialog: `selecting*` + `*Cursor` + `*PendingG`. Confirmation: `confirmAction` + `confirmTaskID` for y/n prompts.
+Generic `selector` struct (`selector.go`) handles all list-pick dialogs (workflow, task, init, priority, artifact). Add new selectors by appending a `selectorKind` const and a case in `handleSelectorChoice()`. Branch selection stays separate (has fuzzy filtering). Confirmation: `confirmAction` + `confirmTaskID` for y/n prompts.
 
 ### Styling
 - Pre-computed style maps in `styles.go`: `stateStyles`, `priorityStyles`
