@@ -401,8 +401,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case viewArtifact:
 		return m.handleArtifactViewKey(msg)
 	case viewSortie:
-		// Ignore keys during animation
-		return m, nil
+		// Any keypress skips the animation
+		m.view = viewList
+		deferred := m.sortieCmd
+		m.sortieCmd = nil
+		return m, deferred
 	}
 	return m, nil
 }

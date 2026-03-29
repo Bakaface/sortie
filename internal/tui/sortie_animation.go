@@ -11,7 +11,7 @@ import (
 type sortieTickMsg time.Time
 
 func sortieTickCmd() tea.Cmd {
-	return tea.Tick(60*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(time.Duration(tickInterval)*time.Millisecond, func(t time.Time) tea.Msg {
 		return sortieTickMsg(t)
 	})
 }
@@ -27,31 +27,46 @@ type sortieAnimation struct {
 	width  int
 	height int
 	frame  int
+	speed  int // columns per tick
 	done   bool
 }
 
-func newSortieAnimation(planeCount, width, height int) sortieAnimation {
-	planes := make([]planeState, planeCount)
+const tickInterval = 33 // ms per tick
 
-	// Center the group of planes vertically, spaced 2 rows apart
-	totalRows := (planeCount-1)*2 + 1
-	startY := (height - totalRows) / 2
-	if startY < 0 {
-		startY = 0
+// newSortieAnimation creates an animation with planes at the given screen positions.
+// positions is a list of {x, y} pairs representing where each ✈ sat in the prompt view.
+// durationMs is the target animation duration in milliseconds.
+func newSortieAnimation(positions [][2]int, width, height, durationMs int) sortieAnimation {
+	planes := make([]planeState, len(positions))
+	for i, pos := range positions {
+		planes[i] = planeState{
+			x:          pos[0],
+			y:          pos[1],
+			startDelay: i + 2, // +2 so first rendered frame shows all planes at original positions
+		}
 	}
 
-	for i := range planes {
-		planes[i] = planeState{
-			x:          2,
-			y:          startY + i*2,
-			startDelay: i * 2,
-		}
+	// Compute speed: how many columns per tick to cross the screen in durationMs.
+	// The last plane has the longest delay, so account for that.
+	totalTicks := durationMs / tickInterval
+	if totalTicks < 1 {
+		totalTicks = 1
+	}
+	maxDelay := len(positions) + 1 // last plane's startDelay
+	moveTicks := totalTicks - maxDelay
+	if moveTicks < 1 {
+		moveTicks = 1
+	}
+	speed := (width + 6) / moveTicks // +6 for trail to fully exit
+	if speed < 1 {
+		speed = 1
 	}
 
 	return sortieAnimation{
 		planes: planes,
 		width:  width,
 		height: height,
+		speed:  speed,
 		frame:  0,
 		done:   false,
 	}
@@ -63,7 +78,7 @@ func (a sortieAnimation) Update() sortieAnimation {
 	allDone := true
 	for i := range a.planes {
 		if a.frame >= a.planes[i].startDelay {
-			a.planes[i].x += 2
+			a.planes[i].x += a.speed
 		}
 		if a.planes[i].x <= a.width {
 			allDone = false
@@ -82,15 +97,16 @@ func (a sortieAnimation) View() string {
 		return ""
 	}
 
-	// Build a grid of spaces
-	rows := make([][]rune, a.height)
-	for i := range rows {
-		rows[i] = []rune(strings.Repeat(" ", a.width))
-	}
-
 	planeStyle := lipgloss.NewStyle().Foreground(highlight)
 	trailSolidStyle := lipgloss.NewStyle().Foreground(highlight)
 	trailFadeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B"))
+
+	// Build a map of row -> plane index for quick lookup
+	// All planes are always visible; startDelay only gates movement
+	planeByRow := make(map[int]int, len(a.planes))
+	for i := range a.planes {
+		planeByRow[a.planes[i].y] = i
+	}
 
 	var sb strings.Builder
 
@@ -99,44 +115,23 @@ func (a sortieAnimation) View() string {
 			sb.WriteByte('\n')
 		}
 
-		// Check if any plane occupies this row
-		planeOnRow := -1
-		for i, p := range a.planes {
-			if p.y == row && a.frame >= p.startDelay {
-				planeOnRow = i
-				break
-			}
-		}
-
-		if planeOnRow == -1 {
-			// No plane on this row — output blank line
-			sb.WriteString(string(rows[row]))
+		pi, hasPlane := planeByRow[row]
+		if !hasPlane {
+			sb.WriteString(strings.Repeat(" ", a.width))
 			continue
 		}
 
-		p := a.planes[planeOnRow]
-
-		// Build the line with trail + plane overlaid
-		// We work left-to-right and emit styled segments
+		p := a.planes[pi]
 
 		// Trail positions (relative to plane):
 		//   x-1, x-2, x-3 => solid '─'
 		//   x-4, x-5, x-6 => fading '·'
 		// The plane sits at p.x
 
-		line := make([]byte, a.width)
-		for i := range line {
-			line[i] = ' '
-		}
-
-		// Write the line segment by segment for efficiency
-		// Find: leading spaces, fade trail, solid trail, plane, trailing spaces
-
 		fadeStart := p.x - 6
 		solidStart := p.x - 3
 		planePos := p.x
 
-		// Clamp
 		if fadeStart < 0 {
 			fadeStart = 0
 		}
@@ -144,14 +139,13 @@ func (a sortieAnimation) View() string {
 			solidStart = 0
 		}
 
-		// Emit leading spaces up to fade trail
+		// Leading spaces
 		if fadeStart > 0 {
 			sb.WriteString(strings.Repeat(" ", fadeStart))
 		}
 
-		// Emit fade trail
-		fadeCount := solidStart - fadeStart
-		if fadeCount > 0 && fadeStart < a.width {
+		// Fade trail
+		if solidStart > fadeStart && fadeStart < a.width {
 			end := solidStart
 			if end > a.width {
 				end = a.width
@@ -159,9 +153,8 @@ func (a sortieAnimation) View() string {
 			sb.WriteString(trailFadeStyle.Render(strings.Repeat("·", end-fadeStart)))
 		}
 
-		// Emit solid trail
-		solidCount := planePos - solidStart
-		if solidCount > 0 && solidStart < a.width {
+		// Solid trail
+		if planePos > solidStart && solidStart < a.width {
 			end := planePos
 			if end > a.width {
 				end = a.width
@@ -169,12 +162,12 @@ func (a sortieAnimation) View() string {
 			sb.WriteString(trailSolidStyle.Render(strings.Repeat("─", end-solidStart)))
 		}
 
-		// Emit plane character
+		// Plane character
 		if planePos >= 0 && planePos < a.width {
 			sb.WriteString(planeStyle.Render("✈"))
 		}
 
-		// Emit trailing spaces
+		// Trailing spaces
 		trailingStart := planePos + 1
 		if trailingStart < 0 {
 			trailingStart = 0
@@ -182,8 +175,6 @@ func (a sortieAnimation) View() string {
 		if trailingStart < a.width {
 			sb.WriteString(strings.Repeat(" ", a.width-trailingStart))
 		}
-
-		_ = line // unused now, but kept for clarity
 	}
 
 	return sb.String()

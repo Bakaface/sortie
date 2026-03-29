@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -32,9 +33,9 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.continueTaskID = 0
 			m.continueSelectedWorkflow = ""
 			deferred := m.continueTask(taskID, workflow, description)
-			if m.width > 0 && m.height > 0 {
-				planeCount := countLines(description)
-				m.sortie = newSortieAnimation(planeCount, m.width, m.height)
+			if m.animationEnabled() {
+				positions := m.planePositions(description)
+				m.sortie = newSortieAnimation(positions, m.width, m.height, m.animationDuration())
 				m.sortieCmd = deferred
 				m.view = viewSortie
 				return m, sortieTickCmd()
@@ -54,9 +55,9 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		targetBranch := m.prompt.TargetBranch()
 		worktree := m.prompt.Worktree()
 		deferred := m.createTaskWithPrompt(title, description, branchName, worktree, images, targetBranch, checkoutBranch)
-		if m.width > 0 && m.height > 0 {
-			planeCount := countLines(description)
-			m.sortie = newSortieAnimation(planeCount, m.width, m.height)
+		if m.animationEnabled() {
+			positions := m.planePositions(description)
+			m.sortie = newSortieAnimation(positions, m.width, m.height, m.animationDuration())
 			m.sortieCmd = deferred
 			m.view = viewSortie
 			return m, sortieTickCmd()
@@ -114,19 +115,74 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// countLines returns the number of non-empty lines in s, clamped between 1 and 8.
-func countLines(s string) int {
-	count := 0
-	for _, line := range strings.Split(s, "\n") {
-		if strings.TrimSpace(line) != "" {
-			count++
+// animationEnabled returns true if the sortie animation is configured on.
+// Disabled by default; requires options.animation.enabled: true in config.
+func (m Model) animationEnabled() bool {
+	if m.width == 0 || m.height == 0 {
+		return false
+	}
+	if m.cfg == nil || m.cfg.Options.Animation == nil || m.cfg.Options.Animation.Enabled == nil {
+		return false
+	}
+	return *m.cfg.Options.Animation.Enabled
+}
+
+// animationDuration returns the configured animation duration in milliseconds,
+// defaulting to 1000ms.
+func (m Model) animationDuration() int {
+	if m.cfg != nil && m.cfg.Options.Animation != nil && m.cfg.Options.Animation.Duration != nil {
+		d := *m.cfg.Options.Animation.Duration
+		if d > 0 {
+			return d
 		}
 	}
-	if count < 1 {
-		count = 1
+	return 1000
+}
+
+// planePositions returns the screen coordinates of each ✈ prompt prefix
+// in the prompt view, so the animation can keep planes in their exact spots.
+// Layout: title(1) + blank(1) + "Title: " input(1) + blank(1) = row 4 is the first textarea line.
+// Each textarea line's ✈ sits at column 4 (2 padding + prompt char position).
+// Soft-wrapped continuation lines also get a plane.
+func (m Model) planePositions(description string) [][2]int {
+	const (
+		textareaStartRow = 4 // rows above the textarea in prompt view
+		planeCol         = 2 // left padding where ✈ renders
+		maxPlanes        = 12
+	)
+
+	if description == "" {
+		return [][2]int{{planeCol, textareaStartRow}}
 	}
-	if count > 8 {
-		count = 8
+
+	// Calculate content width matching promptView.visualLineCount() logic
+	promptWidth := lipgloss.Width(PromptPrefix)
+	contentWidth := (m.width - 4) - promptWidth
+	if contentWidth < 1 {
+		contentWidth = 1
 	}
-	return count
+
+	var positions [][2]int
+	row := textareaStartRow
+	for _, line := range strings.Split(description, "\n") {
+		lineWidth := lipgloss.Width(line)
+		if lineWidth == 0 {
+			positions = append(positions, [2]int{planeCol, row})
+			row++
+		} else {
+			visualLines := (lineWidth + contentWidth - 1) / contentWidth
+			for v := 0; v < visualLines; v++ {
+				positions = append(positions, [2]int{planeCol, row})
+				row++
+				if len(positions) >= maxPlanes {
+					return positions
+				}
+			}
+		}
+	}
+
+	if len(positions) == 0 {
+		positions = append(positions, [2]int{planeCol, textareaStartRow})
+	}
+	return positions
 }

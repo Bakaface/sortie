@@ -10,11 +10,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// AnimationConfig controls the sortie (airplane) animation on task submission.
+type AnimationConfig struct {
+	Enabled  *bool `yaml:"enabled,omitempty"`
+	Duration *int  `yaml:"duration,omitempty"` // milliseconds
+}
+
 // OptionsConfig holds TUI display options configurable via .sortie.yml
 type OptionsConfig struct {
-	Number *bool `yaml:"number,omitempty"`
-	Branch *bool `yaml:"branch,omitempty"`
-	Target *bool `yaml:"target,omitempty"`
+	Number    *bool            `yaml:"number,omitempty"`
+	Branch    *bool            `yaml:"branch,omitempty"`
+	Target    *bool            `yaml:"target,omitempty"`
+	Animation *AnimationConfig `yaml:"animation,omitempty"`
 }
 
 // WorktreeSyncPathsConfig specifies paths to sync into worktrees via copy or symlink.
@@ -526,6 +533,17 @@ func loadGlobalConfig(path string, cfg *Config) error {
 		if global.Options.Target != nil {
 			cfg.Options.Target = global.Options.Target
 		}
+		if global.Options.Animation != nil {
+			if cfg.Options.Animation == nil {
+				cfg.Options.Animation = &AnimationConfig{}
+			}
+			if global.Options.Animation.Enabled != nil {
+				cfg.Options.Animation.Enabled = global.Options.Animation.Enabled
+			}
+			if global.Options.Animation.Duration != nil {
+				cfg.Options.Animation.Duration = global.Options.Animation.Duration
+			}
+		}
 	}
 
 	return nil
@@ -590,6 +608,17 @@ func loadProjectConfig(path string, cfg *Config) error {
 		}
 		if proj.Options.Target != nil {
 			cfg.Options.Target = proj.Options.Target
+		}
+		if proj.Options.Animation != nil {
+			if cfg.Options.Animation == nil {
+				cfg.Options.Animation = &AnimationConfig{}
+			}
+			if proj.Options.Animation.Enabled != nil {
+				cfg.Options.Animation.Enabled = proj.Options.Animation.Enabled
+			}
+			if proj.Options.Animation.Duration != nil {
+				cfg.Options.Animation.Duration = proj.Options.Animation.Duration
+			}
 		}
 	}
 
