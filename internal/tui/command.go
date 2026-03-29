@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aface/sortie/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -54,6 +55,16 @@ var commands = []command{
 		match: matchSetTarget,
 		exec:  execSetTarget,
 		help:  "toggle target branch display",
+	},
+	{
+		match: matchSetAnimation,
+		exec:  execSetAnimation,
+		help:  "toggle sortie animation",
+	},
+	{
+		match: matchSetAnimationDuration,
+		exec:  execSetAnimationDuration,
+		help:  "set animation duration (ms)",
 	},
 	{
 		match: matchNoh,
@@ -201,6 +212,72 @@ func execSetTarget(m Model, args string) (tea.Model, tea.Cmd) {
 		m.list.showTarget = false
 	case "set target!":
 		m.list.showTarget = !m.list.showTarget
+	}
+	return m, nil
+}
+
+// matchSetAnimation matches "set animation", "set noanimation", and "set animation!" commands.
+func matchSetAnimation(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	switch input {
+	case "set animation", "set noanimation", "set animation!":
+		return input, true
+	}
+	return "", false
+}
+
+// ensureAnimationConfig ensures the config animation pointer chain exists.
+func ensureAnimationConfig(m *Model) {
+	if m.cfg == nil {
+		return
+	}
+	if m.cfg.Options.Animation == nil {
+		m.cfg.Options.Animation = &config.AnimationConfig{}
+	}
+}
+
+// execSetAnimation enables, disables, or toggles the sortie animation.
+func execSetAnimation(m Model, args string) (tea.Model, tea.Cmd) {
+	ensureAnimationConfig(&m)
+	if m.cfg == nil {
+		return m, nil
+	}
+	switch args {
+	case "set animation":
+		v := true
+		m.cfg.Options.Animation.Enabled = &v
+	case "set noanimation":
+		v := false
+		m.cfg.Options.Animation.Enabled = &v
+	case "set animation!":
+		v := !m.animationEnabled()
+		m.cfg.Options.Animation.Enabled = &v
+	}
+	return m, nil
+}
+
+// matchSetAnimationDuration matches "set animation-duration=<N>" commands.
+func matchSetAnimationDuration(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	if strings.HasPrefix(input, "set animation-duration=") {
+		val := input[len("set animation-duration="):]
+		if _, err := strconv.Atoi(val); err == nil {
+			return input, true
+		}
+	}
+	return "", false
+}
+
+// execSetAnimationDuration sets the animation duration in milliseconds.
+func execSetAnimationDuration(m Model, args string) (tea.Model, tea.Cmd) {
+	ensureAnimationConfig(&m)
+	if m.cfg == nil {
+		return m, nil
+	}
+	val := args[len("set animation-duration="):]
+	n, _ := strconv.Atoi(val)
+	if n > 0 {
+		m.cfg.Options.Animation.Duration = &n
 	}
 	return m, nil
 }
