@@ -60,6 +60,18 @@ file maps that prevent mistakes.
 
 If a task touches multiple packages, load all relevant skills.
 
+## Verifying Non-Interactive Output
+
+The TUI cannot be run interactively from this harness. When modifying any `View()` method or layout code, you MUST verify rendering correctness programmatically — do not rely on reasoning about the math alone.
+
+Write a standalone Go program (or test) that:
+1. Constructs the component with realistic data
+2. Calls `View()` or the relevant render function
+3. Splits the output into lines and checks `lipgloss.Width()` on each line
+4. Asserts structural properties (uniform width, border alignment, expected content)
+
+Run this program via Bash to confirm correctness before telling the user it's fixed.
+
 ## Code Style
 
 - Follow existing patterns in the codebase

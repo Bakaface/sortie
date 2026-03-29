@@ -104,6 +104,26 @@ The `promptView` includes a worktree toggle (`alt+w`):
 - The toggle state persists per-project (stored in DB via `default_worktree`) and within a TUI session (survives `Reset()`)
 - When worktree is toggled off while branch field is focused, focus auto-switches to description
 
+## Verifying Layout & Rendering
+
+See CLAUDE.md for the general principle. Below are lipgloss/BubbleTea-specific traps:
+
+### Common rendering traps
+
+- **String prefix on multi-line output**: `b.WriteString(" " + multiLineString)` only prefixes the FIRST line. Use a helper like `indentBlock()` that prefixes every line.
+- **`textinput.View()` width**: Renders at `Width + len(Prompt) + 1` (cursor char), NOT just `Width`. Always subtract `lipgloss.Width(input.Prompt) + 1` when sizing inputs to fit inside a frame.
+- **`lipgloss.JoinHorizontal()` width inflation**: Pads ALL lines of the left block to the width of its WIDEST line. If even one content line overflows, every border line gets trailing padding, visually breaking the frame. Either ensure uniform widths before joining or use a manual line-by-line join (see `joinFramesHorizontal()`).
+- **`SetSize()` timing**: Must be called AFTER populating dynamic content (e.g., workflow list) that affects layout calculations, not just on `WindowSizeMsg`.
+- **lipgloss v1.x has no border labels**: `Border(lipgloss.RoundedBorder())` cannot embed a label in the top border. Use manual frame construction (`renderFramedSection()`).
+
+### Verification checklist for layout changes
+
+1. Render the component with realistic data (multiple workflows, long branch names, styled labels)
+2. Assert every line in framed/boxed sections has exactly the expected `lipgloss.Width()`
+3. Test at multiple terminal widths (narrow <60, normal ~120, wide ~200)
+4. Test with both focused and unfocused states (cursor presence affects width)
+5. Run `go test ./internal/tui/...` — existing tests check structural properties
+
 ## Pitfalls
 
 - List view uses custom `renderTask()`, NOT `table.Model`'s built-in rendering
