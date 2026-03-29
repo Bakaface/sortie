@@ -280,22 +280,39 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 		}
 
-		// Record step completion with context
+		// Record step completion with context.
+		// For summarize_chat, store last_message immediately and kick off
+		// background summarization that will overwrite the context when done.
 		stepContextText := resultText
-		if step.SummarizationStrategy == "summarize_chat" {
-			logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
-			if summary, err := e.summarizeChatLog(ctx, t, step.Name, logPath); err != nil {
-				log.Printf("Warning: summarize_chat failed for step %q of task #%d: %v", step.Name, t.ID, err)
-			} else if summary != "" {
-				stepContextText = summary
-			}
-		}
 		var ctxPtr *string
 		if stepContextText != "" {
 			ctxPtr = &stepContextText
 		}
 		if err := e.database.CompleteTaskStep(t.ID, step.Name, ctxPtr, exitCode); err != nil {
 			log.Printf("Warning: failed to complete task step record: %v", err)
+		}
+
+		if step.SummarizationStrategy == config.SummarizationStrategySummarizeChat {
+			stepName := step.Name
+			taskID := t.ID
+			taskCopy := *t
+			logPath := ProjectLogPath(e.dataDir, taskID, stepName)
+			go func() {
+				bgCtx := context.Background()
+				summary, err := e.summarizeChatLog(bgCtx, &taskCopy, stepName, logPath)
+				if err != nil {
+					log.Printf("Warning: summarize_chat failed for step %q of task #%d: %v", stepName, taskID, err)
+					return
+				}
+				if summary == "" {
+					return
+				}
+				if err := e.database.UpdateTaskStepContext(taskID, stepName, summary); err != nil {
+					log.Printf("Warning: failed to update step context after summarize_chat for step %q of task #%d: %v", stepName, taskID, err)
+				} else {
+					log.Printf("summarize_chat updated step context for step %q of task #%d (%d chars)", stepName, taskID, len(summary))
+				}
+			}()
 		}
 
 		// Evaluate loop condition

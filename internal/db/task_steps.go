@@ -28,6 +28,16 @@ func (db *DB) CompleteTaskStep(taskID int64, stepName string, context *string, e
 	return err
 }
 
+// UpdateTaskStepContext overwrites the context for a completed step.
+// Used by background summarization to replace the initial last_message context.
+func (db *DB) UpdateTaskStepContext(taskID int64, stepName string, context string) error {
+	_, err := db.Exec(
+		`UPDATE task_steps SET context = ? WHERE task_id = ? AND step_name = ? AND status = 'completed'`,
+		context, taskID, stepName,
+	)
+	return err
+}
+
 // GetTaskStepContext returns the context for a single completed step.
 func (db *DB) GetTaskStepContext(taskID int64, stepName string) (string, error) {
 	var context sql.NullString

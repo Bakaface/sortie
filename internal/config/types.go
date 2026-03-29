@@ -237,6 +237,18 @@ func (wf *WorkflowConfig) ValidateLoops() error {
 	return nil
 }
 
+// ValidateSteps checks step-level configurations for correctness.
+func (wf *WorkflowConfig) ValidateSteps() error {
+	for _, step := range wf.Steps {
+		if !ValidSummarizationStrategies[step.SummarizationStrategy] {
+			return fmt.Errorf("step %q: invalid summarization_strategy %q (must be %q or %q)",
+				step.Name, step.SummarizationStrategy,
+				SummarizationStrategyLastMessage, SummarizationStrategySummarizeChat)
+		}
+	}
+	return nil
+}
+
 // UseTmux returns whether this step should use tmux execution.
 // Step-level setting overrides the workflow default.
 func (s *StepConfig) UseTmux(workflowDefault bool) bool {
@@ -252,7 +264,21 @@ const (
 
 	// defaultOutputBufferLines is the default size of the per-agent output ring buffer.
 	defaultOutputBufferLines = 10000
+
+	// SummarizationStrategyLastMessage uses the Claude result event text as step context (default).
+	SummarizationStrategyLastMessage = "last_message"
+
+	// SummarizationStrategySummarizeChat spins up a background haiku process to
+	// summarize the full chat log and stores the summary as step context.
+	SummarizationStrategySummarizeChat = "summarize_chat"
 )
+
+// ValidSummarizationStrategies enumerates accepted values for StepConfig.SummarizationStrategy.
+var ValidSummarizationStrategies = map[string]bool{
+	"":                                 true, // empty means default (last_message)
+	SummarizationStrategyLastMessage:   true,
+	SummarizationStrategySummarizeChat: true,
+}
 
 // GlobalConfig from ~/.config/sortie/config.yaml
 type GlobalConfig struct {

@@ -671,6 +671,37 @@ func TestValidateLoopsNoLoop(t *testing.T) {
 	}
 }
 
+func TestValidateStepsSummarizationStrategy(t *testing.T) {
+	tests := []struct {
+		name     string
+		strategy string
+		wantErr  bool
+	}{
+		{"empty (default)", "", false},
+		{"last_message", "last_message", false},
+		{"summarize_chat", "summarize_chat", false},
+		{"invalid", "bogus", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wf := &WorkflowConfig{
+				Name: "test",
+				Steps: []StepConfig{
+					{Name: "step1", Prompt: "Do something", SummarizationStrategy: tt.strategy},
+				},
+			}
+			err := wf.ValidateSteps()
+			if tt.wantErr && err == nil {
+				t.Error("expected error for invalid summarization_strategy")
+			}
+			if !tt.wantErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestResolveBranchTemplate(t *testing.T) {
 	tests := []struct {
 		name     string

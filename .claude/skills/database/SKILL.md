@@ -114,6 +114,7 @@ HasCircularDependency(taskID, newBlockedByID int64) (bool, error) // BFS cycle d
 ```go
 CreateTaskStep(taskID int64, stepName string) error                               // INSERT OR REPLACE with status='running'
 CompleteTaskStep(taskID int64, stepName string, context *string, exitCode int) error // Update to 'completed' with context/exit_code
+UpdateTaskStepContext(taskID int64, stepName string, context string) error          // Overwrite context for a completed step (used by background summarize_chat)
 GetTaskStepContext(taskID int64, stepName string) (string, error)                  // Single completed step context
 GetTaskStepContexts(taskID int64, stepNames []string) (map[string]string, error)  // Multiple step contexts by name
 GetAllTaskStepContexts(taskID int64) (map[string]string, error)                   // All completed step contexts

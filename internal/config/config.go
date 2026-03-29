@@ -361,9 +361,12 @@ func resolveWorkflows(cfg *Config, proj *ProjectConfig) error {
 		}
 	}
 
-	// Validate loop configurations (after all workflows are assembled)
+	// Validate workflow configurations (after all workflows are assembled)
 	for i := range cfg.Workflows {
 		if err := cfg.Workflows[i].ValidateLoops(); err != nil {
+			return fmt.Errorf("workflow %q: %w", cfg.Workflows[i].Name, err)
+		}
+		if err := cfg.Workflows[i].ValidateSteps(); err != nil {
 			return fmt.Errorf("workflow %q: %w", cfg.Workflows[i].Name, err)
 		}
 	}
