@@ -539,6 +539,16 @@ func (m Model) createBranchTask(branch string) tea.Cmd {
 	}
 }
 
+// blockingTaskTitleFromList looks up a task title by ID from the current list.
+func (m Model) blockingTaskTitleFromList(taskID int64) string {
+	for _, t := range m.list.allTasks {
+		if t.ID == taskID {
+			return t.Title
+		}
+	}
+	return ""
+}
+
 // fuzzyFilterBranches returns branches that match the query using fuzzy matching.
 // Characters in the query must appear in order in the branch name, but not necessarily contiguously.
 func fuzzyFilterBranches(branches []string, query string) []string {

@@ -48,6 +48,7 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		checkoutBranch := m.prompt.CheckoutBranch()
 		// Allow empty description only when using existing branch mode
 		if description == "" && checkoutBranch == "" {
+			m.prompt.validationError = "description required"
 			return m, nil
 		}
 		title := m.prompt.TitleValue()
@@ -104,12 +105,20 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, pk.CycleWorkflow): // "alt+f"
+		m.prompt.CycleWorkflow()
+		// Update selectedWorkflow to match
+		m.selectedWorkflow = m.prompt.workflowName
+		return m, nil
+
 	case key.Matches(msg, pk.RemoveImage): // "ctrl+x"
 		// Remove last image
 		m.prompt.RemoveLastImage()
 		return m, nil
 
 	default:
+		// Clear validation error on typing
+		m.prompt.validationError = ""
 		// Pass all other keys to the prompt view
 		cmd := m.prompt.Update(msg)
 		return m, cmd

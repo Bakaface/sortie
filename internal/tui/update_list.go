@@ -184,6 +184,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.view = viewPrompt
 					m.prompt.Reset()
 					m.prompt.workflowName = "default"
+					m.prompt.workflows = workflows
 					m.prompt.Focus()
 					return m, nil
 				}
@@ -264,6 +265,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = viewPrompt
 		m.prompt.Reset()
 		m.prompt.workflowName = ""
+		m.prompt.workflows = workflows
 		m.prompt.Focus()
 		return m, nil
 
@@ -295,7 +297,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = viewPrompt
 		m.prompt.Reset()
 		m.prompt.workflowName = ""
+		m.prompt.workflows = workflows
 		m.prompt.blockingTaskID = m.blockingTaskID
+		m.prompt.blockingTaskTitle = m.blockingTaskTitleFromList(m.blockingTaskID)
 		m.prompt.Focus()
 		return m, nil
 
@@ -468,6 +472,11 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 		m.view = viewPrompt
 		m.prompt.Reset()
 		m.prompt.workflowName = item
+		m.prompt.workflows = m.cfg.ListWorkflowNames()
+		if m.blockingTaskID != 0 {
+			m.prompt.blockingTaskID = m.blockingTaskID
+			m.prompt.blockingTaskTitle = m.blockingTaskTitleFromList(m.blockingTaskID)
+		}
 		m.prompt.Focus()
 		return m, nil
 
@@ -476,6 +485,7 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 		m.view = viewPrompt
 		m.prompt.Reset()
 		m.prompt.workflowName = item
+		m.prompt.workflows = m.cfg.ListWorkflowNames()
 		m.prompt.Focus()
 		return m, nil
 
