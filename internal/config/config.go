@@ -11,6 +11,8 @@ import (
 )
 
 func defaultConfig() *Config {
+	animEnabled := true
+	animDuration := 1500
 	return &Config{
 		MaxWorkers: 3,
 		Git: GitConfig{
@@ -27,6 +29,12 @@ func defaultConfig() *Config {
 		Claude: ClaudeConfig{
 			Command: "claude",
 			Yolo:    false,
+		},
+		Options: OptionsConfig{
+			Animation: &AnimationConfig{
+				Enabled:  &animEnabled,
+				Duration: &animDuration,
+			},
 		},
 		PollInterval: 5 * time.Second,
 		Agents: agentsCompat{

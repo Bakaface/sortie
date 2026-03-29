@@ -126,7 +126,7 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // animationEnabled returns true if the sortie animation is configured on.
-// Disabled by default; requires options.animation.enabled: true in config.
+// Enabled by default; can be disabled via options.animation.enabled: false in config.
 func (m Model) animationEnabled() bool {
 	if m.width == 0 || m.height == 0 {
 		return false
@@ -138,7 +138,7 @@ func (m Model) animationEnabled() bool {
 }
 
 // animationDuration returns the configured animation duration in milliseconds,
-// defaulting to 1000ms.
+// defaulting to 1500ms.
 func (m Model) animationDuration() int {
 	if m.cfg != nil && m.cfg.Options.Animation != nil && m.cfg.Options.Animation.Duration != nil {
 		d := *m.cfg.Options.Animation.Duration
@@ -146,7 +146,7 @@ func (m Model) animationDuration() int {
 			return d
 		}
 	}
-	return 1000
+	return 1500
 }
 
 // planePositions returns the screen coordinates of each ✈ prompt prefix
