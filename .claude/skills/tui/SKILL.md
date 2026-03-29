@@ -56,6 +56,7 @@ Model (app.go)
 | File | Responsibility |
 |------|----------------|
 | `actions.go` | Async `tea.Cmd` functions: API calls, editor spawning, tmux attachment, log loading |
+| `chords.go` | Declarative two-key chord registry (`chordRegistry` map[view]map[string]chordEntry). Add new chords by appending to the registry in `init()`. Single `pendingChord` field replaces per-chord booleans. Includes `tryChord()` dispatcher and all chord handler functions. |
 | `command.go` | Vim-style `:` command parsing with declarative option registry (`boolOption`/`intOption` slices → `matchSetOption`/`execSetOption`). Add new `:set` options by appending to `boolOptions` or `intOptions`. Also: goto line, RunTask, noh. |
 | `selector.go` | Generic list-pick dialog: `selector` struct with `HandleKey()`/`View()`, vim navigation, number-key quick select. Used for workflow, task, init, priority, artifact selection. |
 | `search.go` | Forward/backward search with match highlighting via `performSearch()`, `nextMatch()`, `previousMatch()` |
@@ -73,7 +74,9 @@ System: `clientConnectedMsg`, `tmuxDetachedMsg`, `tickMsg`, `errorMsg`
 - Define in `keys.go` as `keyMap` structs with `key.Binding` fields
 - Multiple KeyMaps: `keyMap` (list), `detailKeyMap`, `detailFollowKeyMap`, `detailNormalKeyMap`, `taskInfoKeyMap`
 - Vim-style mnemonics: `gg`/`G`, `dd`, `/`/`?`, `:`
-- Multi-key sequences tracked via `pending*` booleans — reset on view switch
+
+### Chord Sequences
+Two-key sequences (dd, gg, oa, ea, ed, et, ec, yd, yc) are handled by a declarative registry in `chords.go`. A single `pendingChord string` field on Model tracks the first key. `tryChord(keyStr)` is called at the top of `handleListKey`/`handleTaskInfoKey` — returns `(model, cmd, true)` if consumed. Add new chords by appending to `chordRegistry[view]` in `init()`. Note: detail/artifact/selector views still use their own `pendingG` for `gg` — only list and taskInfo views use the chord system.
 
 ### Message Flow
 User key -> handler returns `tea.Cmd` -> goroutine -> `tea.Msg` -> `Update()` processes. Async API calls in `actions.go`, return typed messages.
