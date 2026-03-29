@@ -30,7 +30,9 @@ type Server struct {
 | File | Purpose |
 |------|---------|
 | `server.go` | Lifecycle, connection handling, project context caching |
-| `handlers.go` | Business logic for all message types |
+| `handlers_task.go` | Task CRUD & metadata: create, get, list, delete, retry, update priority/field/dependency, revert, step contexts, title generation |
+| `handlers_agent.go` | Agent ops, subscriptions, logs: list/start/stop agents, get output, subscribe/unsubscribe, get logs |
+| `handlers_continue.go` | Continuation flow: continue/finalize tasks, worktree/branch management, tmux setup |
 | `broadcast.go` | Event broadcasting, agent state change handling |
 | `protocol.go` | Message types, request/response structs |
 | `poller.go` | Background polling for pending tasks |
@@ -89,7 +91,7 @@ type TaskInfo struct {
 
 1. Add constant to `protocol.go`
 2. Create request/response structs
-3. Add handler in `handlers.go`
+3. Add handler in the appropriate `handlers_*.go` file
 4. Wire in `handleMessage()` switch
 
 ## Task Polling

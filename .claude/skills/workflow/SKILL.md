@@ -30,7 +30,10 @@ description: >
 
 | File | Purpose |
 |------|---------|
-| `engine.go` | Core orchestrator: `RunTask()`, `runClaudeStep()`, `runClaudeStepTmux()`, `executeOnComplete()`, `FinalizeTask()`, `ResumeAfterApproval()`, `resolveConflicts()`, `runSummarizer()`, `cleanupMergedWorktree()` |
+| `engine.go` | Core orchestrator: `Engine` struct, `NewEngine()`, `RunTask()`, `ResumeAfterApproval()` |
+| `step.go` | Claude step execution: `runClaudeStep()`, `runClaudeStepTmux()`, `writeTmuxLogMessage()` |
+| `merge.go` | Merge operations: `executeOnComplete()`, `executeMerge()`, `resolveConflicts()`, `cleanupMergedWorktree()`, `waitForCleanTarget()`, `AcquireMergeLock()`/`ReleaseMergeLock()` |
+| `summarizer.go` | Summarization + finalization: `FinalizeTask()`, `runSummarizer()`, `summarizeChatLog()`, `RunWorktreeSetupCommand()`, `runClaudeSync()` |
 | `template.go` | `{{placeholder}}` interpolation via `ResolveTemplate()` |
 | `system-prompt.go` | `BuildSystemPrompt()` — builds system prompt string for spawned Claude agents |
 | `artifact.go` | Directory management, image copying |

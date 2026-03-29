@@ -160,6 +160,15 @@ GetStepTimeout(step StepConfig) time.Duration       // Parses Timeout string, fa
 GetWorkflowSteps() []StepConfig                     // Steps from first tasks workflow
 ```
 
+## File Map
+
+| File | Purpose |
+|------|---------|
+| `types.go` | All struct/type definitions and their methods (`Config`, `ProjectConfig`, `WorkflowConfig`, `StepConfig`, etc.) |
+| `config.go` | Loading, parsing, merging, defaults (`Load()`, `LoadForProject()`, `defaultConfig()`, `resolveWorkflows()`) |
+| `accessors.go` | Workflow accessors, branch templates, save (`GetWorkflow()`, `ListWorkflowNames()`, `ResolveBranchTemplate()`, `Save()`) |
+| `detect.go` | Project type detection (`DetectProject()`) |
+
 ## Project Detection (detect.go)
 
 `DetectProject()` probes for `package.json`, `go.mod`, `Gemfile`, Python markers, `Cargo.toml`. Returns `DetectedProject{Type, Name, Commands}`. Detects `bun.lockb` and swaps npm -> bun.
