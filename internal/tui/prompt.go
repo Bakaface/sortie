@@ -490,6 +490,57 @@ func (p *promptView) FocusGitSection() {
 	}
 }
 
+// CyclePane cycles through sections: main inputs ↔ git ↔ workflow.
+// Skips git if worktree is off, skips workflow if only one workflow.
+// forward=true goes main→git→workflow; forward=false reverses.
+func (p *promptView) CyclePane(forward bool) {
+	isMainField := p.activePane == paneTask &&
+		(p.focusField == promptFieldTitle || p.focusField == promptFieldDescription)
+	isGitField := p.activePane == paneTask &&
+		(p.focusField == promptFieldBranch || p.focusField == promptFieldCheckout || p.focusField == promptFieldTargetBranch)
+	hasGit := p.worktree
+	hasWorkflows := len(p.workflows) > 1
+
+	// Order: main → git → workflow (forward), reverse for backward.
+	// next/prev pick the adjacent section, wrapping around and skipping unavailable ones.
+	switch {
+	case isMainField:
+		if forward {
+			if hasGit {
+				p.FocusGitSection()
+			} else if hasWorkflows {
+				p.FocusWorkflowPane()
+			}
+		} else {
+			if hasWorkflows {
+				p.FocusWorkflowPane()
+			} else if hasGit {
+				p.FocusGitSection()
+			}
+		}
+	case isGitField:
+		if forward {
+			if hasWorkflows {
+				p.FocusWorkflowPane()
+			} else {
+				p.FocusOn(promptFieldDescription)
+			}
+		} else {
+			p.FocusOn(promptFieldDescription)
+		}
+	case p.activePane == paneWorkflow:
+		if forward {
+			p.FocusOn(promptFieldDescription)
+		} else {
+			if hasGit {
+				p.FocusGitSection()
+			} else {
+				p.FocusOn(promptFieldDescription)
+			}
+		}
+	}
+}
+
 // Focus focuses the currently active input
 func (p *promptView) Focus() {
 	switch p.focusField {

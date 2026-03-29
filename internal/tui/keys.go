@@ -461,6 +461,8 @@ type promptKeyMap struct {
 	FocusWorkflow    key.Binding
 	Worktree         key.Binding
 	BranchMode       key.Binding
+	SwitchPane       key.Binding
+	SwitchPanePrev   key.Binding
 	Editor           key.Binding
 	Help             key.Binding
 }
@@ -515,6 +517,14 @@ func newPromptKeyMap() promptKeyMap {
 			key.WithKeys("alt+M"),
 			key.WithHelp("alt+M", "branch mode"),
 		),
+		SwitchPane: key.NewBinding(
+			key.WithKeys("alt+tab", "alt+]"),
+			key.WithHelp("alt+]/[", "next/prev pane"),
+		),
+		SwitchPanePrev: key.NewBinding(
+			key.WithKeys("alt+shift+tab", "alt+["),
+			key.WithHelp("alt+[", "prev pane"),
+		),
 		Editor: key.NewBinding(
 			key.WithKeys("ctrl+g"),
 			key.WithHelp("ctrl+g", "editor"),
@@ -534,7 +544,7 @@ func (k promptKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Submit, k.Cancel, k.SwitchField, k.Newline},
 		{k.FocusTitle, k.FocusDescription, k.FocusGit, k.FocusWorkflow},
-		{k.Worktree, k.BranchMode, k.Editor, k.RemoveImage},
+		{k.SwitchPane, k.Worktree, k.BranchMode, k.Editor, k.RemoveImage},
 		{k.Help},
 	}
 }

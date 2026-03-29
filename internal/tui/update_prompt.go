@@ -66,6 +66,14 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, pk.SwitchPane):
+		m.prompt.CyclePane(true)
+		return m, nil
+
+	case key.Matches(msg, pk.SwitchPanePrev):
+		m.prompt.CyclePane(false)
+		return m, nil
+
 	}
 
 	// ── Pane-specific keys ──
