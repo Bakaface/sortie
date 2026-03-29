@@ -38,27 +38,13 @@ go test ./...         # Test
 go build -o sortie ./cmd/sortie  # Build binary
 ```
 
-## Domain Skills — MUST load before editing
+## Domain Context
 
-Before modifying any package, you MUST invoke the corresponding skill using the Skill tool.
-This is not optional — these skills contain critical architectural context, conventions, and
-file maps that prevent mistakes.
+Each package directory contains a `CLAUDE.md` with critical invariants and a pointer to the
+corresponding domain skill. These auto-load when you read/edit files in that directory.
 
-| Package path | Skill to load |
-|---|---|
-| `cmd/sortie/` | `/cli` |
-| `internal/config/` | `/config` |
-| `internal/daemon/` | `/daemon` |
-| `internal/workflow/` | `/workflow` |
-| `internal/claude/`, `internal/agent/` | `/claude-process` |
-| `internal/tui/` | `/tui` |
-| `internal/db/` | `/database` |
-| `internal/git/` | `/git-operations` |
-| `internal/task/` | `/task-lifecycle` |
-| `internal/tmux/` | `/tmux` |
-| `internal/client/` | `/client` |
-
-If a task touches multiple packages, load all relevant skills.
+For substantial changes, load the full domain skill (referenced in each subdirectory's `CLAUDE.md`)
+to get file maps, struct definitions, protocol details, and deeper conventions.
 
 ## Verifying Non-Interactive Output
 
