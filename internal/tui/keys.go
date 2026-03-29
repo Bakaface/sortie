@@ -496,8 +496,8 @@ func newPromptKeyMap() promptKeyMap {
 			key.WithHelp("alt+t", "title"),
 		),
 		FocusDescription: key.NewBinding(
-			key.WithKeys("alt+d"),
-			key.WithHelp("alt+d", "description"),
+			key.WithKeys("alt+d", "alt+enter"),
+			key.WithHelp("alt+d/⏎", "description"),
 		),
 		FocusGit: key.NewBinding(
 			key.WithKeys("alt+g"),
