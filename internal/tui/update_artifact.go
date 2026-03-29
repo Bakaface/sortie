@@ -36,65 +36,6 @@ func (m Model) openArtifactSelection(task *daemon.TaskInfo, action string) (tea.
 	}
 }
 
-func (m Model) handleArtifactSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	keyStr := msg.String()
-
-	// Handle "gg" sequence for go-to-top
-	if keyStr == "g" {
-		if m.artifactPendingG {
-			m.artifactPendingG = false
-			m.artifactCursor = 0
-			return m, nil
-		}
-		m.artifactPendingG = true
-		return m, nil
-	}
-	m.artifactPendingG = false
-
-	switch keyStr {
-	case "up", "k":
-		if m.artifactCursor > 0 {
-			m.artifactCursor--
-		}
-		return m, nil
-	case "down", "j":
-		if m.artifactCursor < len(m.artifactNames)-1 {
-			m.artifactCursor++
-		}
-		return m, nil
-	case "G":
-		m.artifactCursor = max(0, len(m.artifactNames)-1)
-		return m, nil
-	case "ctrl+d", "pgdown":
-		half := max(1, len(m.artifactNames)/2)
-		m.artifactCursor = min(m.artifactCursor+half, len(m.artifactNames)-1)
-		return m, nil
-	case "ctrl+u", "pgup":
-		half := max(1, len(m.artifactNames)/2)
-		m.artifactCursor = max(m.artifactCursor-half, 0)
-		return m, nil
-	case "enter":
-		name := m.artifactNames[m.artifactCursor]
-		m.selectingArtifact = false
-		return m.performArtifactAction(name, m.artifactAction)
-	case "esc", "q":
-		m.selectingArtifact = false
-		return m, nil
-	}
-
-	// Number keys for quick selection (1-9)
-	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
-		idx := int(keyStr[0] - '1')
-		if idx < len(m.artifactNames) {
-			name := m.artifactNames[idx]
-			m.selectingArtifact = false
-			return m.performArtifactAction(name, m.artifactAction)
-		}
-	}
-
-	return m, nil
-}
-
 func (m Model) performArtifactAction(stepName, action string) (tea.Model, tea.Cmd) {
 	if action == "edit" {
 		// Editing step contexts directly is not supported (they come from Claude's output)

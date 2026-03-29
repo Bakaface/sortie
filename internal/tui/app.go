@@ -53,34 +53,15 @@ type Model struct {
 	confirmTaskID int64
 	pendingDelete bool // tracks first "d" press for dd sequence
 
-	// Workflow selection state
-	selectingWorkflow bool
-	workflowCursor    int
-	workflowPendingG  bool
-	selectedWorkflow  string
+	// Workflow selection state (kept after selector closes)
+	selectedWorkflow string
 
-	// Continue workflow selection state
-	selectingContinueWorkflow bool
-	continueWorkflowCursor    int
-	continueWorkflowPendingG  bool
-	continueTaskID            int64
-	continueSelectedWorkflow  string // workflow selected for continue, held while user enters prompt
+	// Continue workflow selection state (kept after selector closes)
+	continueTaskID           int64
+	continueSelectedWorkflow string // workflow selected for continue, held while user enters prompt
 
-	// Predefined task (one-off) selection state
-	selectingTask bool
-	taskCursor    int
-	taskPendingG  bool
-
-	// Init workflow selection state
-	selectingInit bool
-	initCursor    int
-	initPendingG  bool
-
-	// Priority selection state
-	selectingPriority bool
-	priorityCursor    int
-	priorityPendingG  bool
-	priorityTaskID    int64
+	// Generic selection dialog state
+	selector selector
 
 	// Branch selection state (for "b" keybind — fuzzy-searchable branch picker)
 	selectingBranch bool
@@ -94,14 +75,8 @@ type Model struct {
 	pendingO bool // tracks first "o" press for oa sequence
 	pendingE bool // tracks first "e" press for ea sequence
 
-	// Artifact selection state
-	selectingArtifact bool
-	artifactCursor    int
-	artifactPendingG  bool
-	artifactNames     []string
-	artifactTaskID    int64
-	artifactAction    string // "view" or "edit"
-	stepContexts      map[string]string // loaded step contexts for current selection
+	// Step context state (kept after selector closes)
+	stepContexts map[string]string // loaded step contexts for current selection
 
 	// Artifact viewer state
 	artifactView artifactViewState
@@ -291,11 +266,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		m.selectingArtifact = true
-		m.artifactCursor = 0
-		m.artifactNames = names
-		m.artifactTaskID = msg.taskID
-		m.artifactAction = msg.action
+		m.selector = selector{
+			kind:   selectorArtifact,
+			title:  "Select Step Context",
+			items:  names,
+			taskID: msg.taskID,
+			action: msg.action,
+		}
 		m.stepContexts = msg.contexts
 		return m, nil
 
@@ -429,113 +406,9 @@ func (m Model) View() string {
 		return m.renderPromptHelpOverlay()
 	}
 
-	// Show priority selection as its own screen
-	if m.selectingPriority {
-		priorities := []string{"low", "medium", "high", "urgent"}
-		var b strings.Builder
-		b.WriteString(titleStyle.Render(" Select Priority ") + "\n\n")
-		for i, name := range priorities {
-			label := fmt.Sprintf("  %d. %s", i+1, name)
-			if i == m.priorityCursor {
-				b.WriteString(selectedStyle.Render("> "+label) + "\n")
-			} else {
-				b.WriteString("    " + priorityStyle(name).Render(label) + "\n")
-			}
-		}
-		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | 1-4: quick select | esc: cancel"))
-		return b.String()
-	}
-
-	// Show workflow selection as its own screen
-	if m.selectingWorkflow {
-		workflows := m.cfg.ListWorkflowNames()
-		var b strings.Builder
-		b.WriteString(titleStyle.Render(" Select Workflow ") + "\n\n")
-		for i, name := range workflows {
-			label := fmt.Sprintf("  %d. %s", i+1, name)
-			if i == m.workflowCursor {
-				b.WriteString(selectedStyle.Render("> "+label) + "\n")
-			} else {
-				b.WriteString("    " + label + "\n")
-			}
-		}
-		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel"))
-		return b.String()
-	}
-
-	// Show continue workflow selection as its own screen
-	if m.selectingContinueWorkflow {
-		workflows := m.cfg.ListWorkflowNames()
-		var b strings.Builder
-		b.WriteString(titleStyle.Render(fmt.Sprintf(" Continue Task #%d - Select Workflow ", m.continueTaskID)) + "\n\n")
-		for i, name := range workflows {
-			label := fmt.Sprintf("  %d. %s", i+1, name)
-			if i == m.continueWorkflowCursor {
-				b.WriteString(selectedStyle.Render("> "+label) + "\n")
-			} else {
-				b.WriteString("    " + label + "\n")
-			}
-		}
-		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel"))
-		return b.String()
-	}
-
-	// Show predefined task selection as its own screen
-	if m.selectingTask {
-		tasks := m.cfg.ListPredefinedTaskNames()
-		var b strings.Builder
-		b.WriteString(titleStyle.Render(" Run Predefined Task ") + "\n\n")
-		for i, name := range tasks {
-			taskCfg := m.cfg.GetPredefinedTask(name)
-			label := fmt.Sprintf("  %d. %s", i+1, name)
-			if i == m.taskCursor {
-				b.WriteString(selectedStyle.Render("> "+label) + "\n")
-				if taskCfg != nil && taskCfg.Description != "" {
-					b.WriteString(dimStyle.Render("     "+taskCfg.Description) + "\n")
-				}
-			} else {
-				b.WriteString("    " + label + "\n")
-			}
-		}
-		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel"))
-		return b.String()
-	}
-
-	// Show init workflow selection as its own screen
-	if m.selectingInit {
-		inits := m.cfg.ListInitWorkflowNames()
-		var b strings.Builder
-		b.WriteString(titleStyle.Render(" Run Init Workflow ") + "\n\n")
-		for i, name := range inits {
-			initCfg := m.cfg.GetInitWorkflow(name)
-			label := fmt.Sprintf("  %d. %s", i+1, name)
-			if i == m.initCursor {
-				b.WriteString(selectedStyle.Render("> "+label) + "\n")
-				if initCfg != nil && initCfg.Description != "" {
-					b.WriteString(dimStyle.Render("     "+initCfg.Description) + "\n")
-				}
-			} else {
-				b.WriteString("    " + label + "\n")
-			}
-		}
-		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | esc: cancel"))
-		return b.String()
-	}
-
-	// Show artifact selection as its own screen
-	if m.selectingArtifact {
-		var b strings.Builder
-		b.WriteString(titleStyle.Render(" Select Step Context ") + "\n\n")
-		for i, name := range m.artifactNames {
-			label := fmt.Sprintf("  %d. %s", i+1, name)
-			if i == m.artifactCursor {
-				b.WriteString(selectedStyle.Render("> "+label) + "\n")
-			} else {
-				b.WriteString("    " + label + "\n")
-			}
-		}
-		b.WriteString("\n" + dimStyle.Render("  j/k: navigate | enter: select | 1-9: quick select | esc: cancel"))
-		return b.String()
+	// Show selection dialog
+	if m.selector.IsActive() {
+		return m.selector.View()
 	}
 
 	// Show branch selection as its own screen (fuzzy-searchable)

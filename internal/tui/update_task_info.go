@@ -15,9 +15,9 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	}
 
-	// Handle artifact selection if active (must come before q/esc handling)
-	if m.selectingArtifact {
-		return m.handleArtifactSelectKey(msg)
+	// Handle selection dialog if active (must come before q/esc handling)
+	if m.selector.IsActive() {
+		return m.handleSelectorKey(msg)
 	}
 
 	// Handle second key after "o" prefix (must come before single-key handlers)

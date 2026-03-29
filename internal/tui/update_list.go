@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // deleteWordBackward removes the last word from s, mimicking ctrl+backspace behavior.
@@ -33,39 +35,14 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCommandKey(msg)
 	}
 
-	// Handle priority selection if active
-	if m.selectingPriority {
-		return m.handlePrioritySelectKey(msg)
-	}
-
-	// Handle workflow selection if active
-	if m.selectingWorkflow {
-		return m.handleWorkflowSelectKey(msg)
-	}
-
-	// Handle predefined task selection if active
-	if m.selectingTask {
-		return m.handleTaskSelectKey(msg)
-	}
-
-	// Handle init workflow selection if active
-	if m.selectingInit {
-		return m.handleInitSelectKey(msg)
-	}
-
-	// Handle continue workflow selection if active
-	if m.selectingContinueWorkflow {
-		return m.handleContinueWorkflowSelectKey(msg)
+	// Handle generic selection dialog if active
+	if m.selector.IsActive() {
+		return m.handleSelectorKey(msg)
 	}
 
 	// Handle branch selection if active
 	if m.selectingBranch {
 		return m.handleBranchSelectKey(msg)
-	}
-
-	// Handle artifact selection if active
-	if m.selectingArtifact {
-		return m.handleArtifactSelectKey(msg)
 	}
 
 	// Handle confirmation prompt if active
@@ -235,8 +212,20 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.client != nil && m.projectPath != "" {
 			tasks := m.cfg.ListPredefinedTaskNames()
 			if len(tasks) > 0 {
-				m.selectingTask = true
-				m.taskCursor = 0
+				var descs []string
+				for _, name := range tasks {
+					if tc := m.cfg.GetPredefinedTask(name); tc != nil {
+						descs = append(descs, tc.Description)
+					} else {
+						descs = append(descs, "")
+					}
+				}
+				m.selector = selector{
+					kind:         selectorTask,
+					title:        "Run Predefined Task",
+					items:        tasks,
+					descriptions: descs,
+				}
 				return m, nil
 			}
 		}
@@ -275,17 +264,19 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if task.Status == "completed" || task.Status == "failed" {
 				workflows := m.cfg.ListWorkflowNames()
 				m.continueTaskID = task.ID
-				m.selectingContinueWorkflow = true
-				m.continueWorkflowCursor = 0
 				// If only one workflow (default), skip selection and go to prompt
 				if len(workflows) == 1 && workflows[0] == "default" {
-					m.selectingContinueWorkflow = false
 					m.continueSelectedWorkflow = "default"
 					m.view = viewPrompt
 					m.prompt.Reset()
 					m.prompt.workflowName = "default"
 					m.prompt.Focus()
 					return m, nil
+				}
+				m.selector = selector{
+					kind:  selectorContinueWorkflow,
+					title: fmt.Sprintf("Continue Task #%d - Select Workflow", task.ID),
+					items: workflows,
 				}
 				return m, nil
 			}
@@ -299,9 +290,14 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "p":
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			m.selectingPriority = true
-			m.priorityTaskID = task.ID
-			m.priorityCursor = 0
+			m.selector = selector{
+				kind:      selectorPriority,
+				title:     "Select Priority",
+				items:     []string{"low", "medium", "high", "urgent"},
+				itemStyle: func(name string) lipgloss.Style { return priorityStyle(name) },
+				hint:      "j/k: navigate | enter: select | 1-4: quick select | esc: cancel",
+				taskID:    task.ID,
+			}
 			return m, nil
 		}
 		return m, nil
@@ -311,8 +307,20 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.client != nil && m.projectPath != "" {
 			inits := m.cfg.ListInitWorkflowNames()
 			if len(inits) > 0 {
-				m.selectingInit = true
-				m.initCursor = 0
+				var descs []string
+				for _, name := range inits {
+					if ic := m.cfg.GetInitWorkflow(name); ic != nil {
+						descs = append(descs, ic.Description)
+					} else {
+						descs = append(descs, "")
+					}
+				}
+				m.selector = selector{
+					kind:         selectorInit,
+					title:        "Run Init Workflow",
+					items:        inits,
+					descriptions: descs,
+				}
 				return m, nil
 			}
 		}
@@ -330,8 +338,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		workflows := m.cfg.ListWorkflowNames()
 		if len(workflows) > 1 {
-			m.selectingWorkflow = true
-			m.workflowCursor = 0
+			m.selector = selector{
+				kind:  selectorWorkflow,
+				title: "Select Workflow",
+				items: workflows,
+			}
 			return m, nil
 		}
 		// Single workflow (or default) — skip selection and open prompt view
@@ -359,8 +370,11 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.blockingTaskID = task.ID
 		workflows := m.cfg.ListWorkflowNames()
 		if len(workflows) > 1 {
-			m.selectingWorkflow = true
-			m.workflowCursor = 0
+			m.selector = selector{
+				kind:  selectorWorkflow,
+				title: "Select Workflow",
+				items: workflows,
+			}
 			return m, nil
 		}
 		m.selectedWorkflow = ""
@@ -514,360 +528,85 @@ func (m Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-func (m Model) handleWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	workflows := m.cfg.ListWorkflowNames()
-	keyStr := msg.String()
-
-	// Handle "gg" sequence for go-to-top
-	if keyStr == "g" {
-		if m.workflowPendingG {
-			m.workflowPendingG = false
-			m.workflowCursor = 0
-			return m, nil
-		}
-		m.workflowPendingG = true
-		return m, nil
+// handleSelectorKey dispatches key events to the generic selector and handles the result.
+func (m Model) handleSelectorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	result := m.selector.HandleKey(msg.String())
+	switch result {
+	case selChosen:
+		return m.handleSelectorChoice()
+	case selCancelled:
+		return m.handleSelectorCancel()
 	}
-	m.workflowPendingG = false
-
-	switch keyStr {
-	case "up", "k":
-		if m.workflowCursor > 0 {
-			m.workflowCursor--
-		}
-		return m, nil
-	case "down", "j":
-		if m.workflowCursor < len(workflows)-1 {
-			m.workflowCursor++
-		}
-		return m, nil
-	case "G":
-		m.workflowCursor = max(0, len(workflows)-1)
-		return m, nil
-	case "ctrl+d", "pgdown":
-		half := max(1, len(workflows)/2)
-		m.workflowCursor = min(m.workflowCursor+half, len(workflows)-1)
-		return m, nil
-	case "ctrl+u", "pgup":
-		half := max(1, len(workflows)/2)
-		m.workflowCursor = max(m.workflowCursor-half, 0)
-		return m, nil
-	case "enter":
-		m.selectedWorkflow = workflows[m.workflowCursor]
-		m.selectingWorkflow = false
-		m.view = viewPrompt
-		m.prompt.Reset()
-		m.prompt.workflowName = m.selectedWorkflow
-		m.prompt.Focus()
-		return m, nil
-	case "esc", "q":
-		m.selectingWorkflow = false
-		return m, nil
-	}
-
-	// Number keys for quick selection (1-9)
-	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
-		idx := int(keyStr[0] - '1')
-		if idx < len(workflows) {
-			m.selectedWorkflow = workflows[idx]
-			m.selectingWorkflow = false
-			m.view = viewPrompt
-			m.prompt.Reset()
-			m.prompt.workflowName = m.selectedWorkflow
-			m.prompt.Focus()
-			return m, nil
-		}
-	}
-
 	return m, nil
 }
 
-func (m Model) handleTaskSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	tasks := m.cfg.ListPredefinedTaskNames()
-	keyStr := msg.String()
+// handleSelectorChoice dispatches the selected item based on selector kind.
+func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
+	item := m.selector.Selected()
+	kind := m.selector.kind
+	taskID := m.selector.taskID
+	action := m.selector.action
+	m.selector.Reset()
 
-	// Handle "gg" sequence for go-to-top
-	if keyStr == "g" {
-		if m.taskPendingG {
-			m.taskPendingG = false
-			m.taskCursor = 0
-			return m, nil
-		}
-		m.taskPendingG = true
+	switch kind {
+	case selectorWorkflow:
+		m.selectedWorkflow = item
+		m.view = viewPrompt
+		m.prompt.Reset()
+		m.prompt.workflowName = item
+		m.prompt.Focus()
 		return m, nil
-	}
-	m.taskPendingG = false
 
-	switch keyStr {
-	case "up", "k":
-		if m.taskCursor > 0 {
-			m.taskCursor--
-		}
+	case selectorContinueWorkflow:
+		m.continueSelectedWorkflow = item
+		m.view = viewPrompt
+		m.prompt.Reset()
+		m.prompt.workflowName = item
+		m.prompt.Focus()
 		return m, nil
-	case "down", "j":
-		if m.taskCursor < len(tasks)-1 {
-			m.taskCursor++
-		}
-		return m, nil
-	case "G":
-		m.taskCursor = max(0, len(tasks)-1)
-		return m, nil
-	case "ctrl+d", "pgdown":
-		half := max(1, len(tasks)/2)
-		m.taskCursor = min(m.taskCursor+half, len(tasks)-1)
-		return m, nil
-	case "ctrl+u", "pgup":
-		half := max(1, len(tasks)/2)
-		m.taskCursor = max(m.taskCursor-half, 0)
-		return m, nil
-	case "enter":
-		taskName := tasks[m.taskCursor]
-		taskCfg := m.cfg.GetPredefinedTask(taskName)
-		m.selectingTask = false
+
+	case selectorTask:
+		taskCfg := m.cfg.GetPredefinedTask(item)
 		if taskCfg == nil {
 			return m, nil
 		}
-		// Create task directly with the predefined description and workflow
 		m.selectedWorkflow = "oneoff:" + taskCfg.Name
 		description := taskCfg.Description
 		if description == "" {
 			description = taskCfg.Name
 		}
 		return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
-	case "esc", "q":
-		m.selectingTask = false
-		return m, nil
-	}
 
-	// Number keys for quick selection (1-9)
-	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
-		idx := int(keyStr[0] - '1')
-		if idx < len(tasks) {
-			taskName := tasks[idx]
-			taskCfg := m.cfg.GetPredefinedTask(taskName)
-			m.selectingTask = false
-			if taskCfg == nil {
-				return m, nil
-			}
-			m.selectedWorkflow = "oneoff:" + taskCfg.Name
-			description := taskCfg.Description
-			if description == "" {
-				description = taskCfg.Name
-			}
-			return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
-		}
-	}
-
-	return m, nil
-}
-
-func (m Model) handlePrioritySelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	priorities := []string{"low", "medium", "high", "urgent"}
-	keyStr := msg.String()
-
-	// Handle "gg" sequence for go-to-top
-	if keyStr == "g" {
-		if m.priorityPendingG {
-			m.priorityPendingG = false
-			m.priorityCursor = 0
-			return m, nil
-		}
-		m.priorityPendingG = true
-		return m, nil
-	}
-	m.priorityPendingG = false
-
-	switch keyStr {
-	case "up", "k":
-		if m.priorityCursor > 0 {
-			m.priorityCursor--
-		}
-		return m, nil
-	case "down", "j":
-		if m.priorityCursor < len(priorities)-1 {
-			m.priorityCursor++
-		}
-		return m, nil
-	case "G":
-		m.priorityCursor = len(priorities) - 1
-		return m, nil
-	case "ctrl+d", "pgdown":
-		half := max(1, len(priorities)/2)
-		m.priorityCursor = min(m.priorityCursor+half, len(priorities)-1)
-		return m, nil
-	case "ctrl+u", "pgup":
-		half := max(1, len(priorities)/2)
-		m.priorityCursor = max(m.priorityCursor-half, 0)
-		return m, nil
-	case "enter":
-		selected := priorities[m.priorityCursor]
-		m.selectingPriority = false
-		return m, m.updateTaskPriority(m.priorityTaskID, selected)
-	case "esc", "q":
-		m.selectingPriority = false
-		return m, nil
-	}
-
-	// Number keys for quick selection (1-4)
-	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '4' {
-		idx := int(keyStr[0] - '1')
-		selected := priorities[idx]
-		m.selectingPriority = false
-		return m, m.updateTaskPriority(m.priorityTaskID, selected)
-	}
-
-	return m, nil
-}
-
-func (m Model) handleInitSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	inits := m.cfg.ListInitWorkflowNames()
-	keyStr := msg.String()
-
-	// Handle "gg" sequence for go-to-top
-	if keyStr == "g" {
-		if m.initPendingG {
-			m.initPendingG = false
-			m.initCursor = 0
-			return m, nil
-		}
-		m.initPendingG = true
-		return m, nil
-	}
-	m.initPendingG = false
-
-	switch keyStr {
-	case "up", "k":
-		if m.initCursor > 0 {
-			m.initCursor--
-		}
-		return m, nil
-	case "down", "j":
-		if m.initCursor < len(inits)-1 {
-			m.initCursor++
-		}
-		return m, nil
-	case "G":
-		m.initCursor = max(0, len(inits)-1)
-		return m, nil
-	case "ctrl+d", "pgdown":
-		half := max(1, len(inits)/2)
-		m.initCursor = min(m.initCursor+half, len(inits)-1)
-		return m, nil
-	case "ctrl+u", "pgup":
-		half := max(1, len(inits)/2)
-		m.initCursor = max(m.initCursor-half, 0)
-		return m, nil
-	case "enter":
-		initName := inits[m.initCursor]
-		initCfg := m.cfg.GetInitWorkflow(initName)
-		m.selectingInit = false
+	case selectorInit:
+		initCfg := m.cfg.GetInitWorkflow(item)
 		if initCfg == nil {
 			return m, nil
 		}
-		// Create task directly with the init workflow description
 		m.selectedWorkflow = "init:" + initCfg.Name
 		description := initCfg.Description
 		if description == "" {
 			description = initCfg.Name
 		}
 		return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
-	case "esc", "q":
-		m.selectingInit = false
-		return m, nil
-	}
 
-	// Number keys for quick selection (1-9)
-	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
-		idx := int(keyStr[0] - '1')
-		if idx < len(inits) {
-			initName := inits[idx]
-			initCfg := m.cfg.GetInitWorkflow(initName)
-			m.selectingInit = false
-			if initCfg == nil {
-				return m, nil
-			}
-			m.selectedWorkflow = "init:" + initCfg.Name
-			description := initCfg.Description
-			if description == "" {
-				description = initCfg.Name
-			}
-			return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
-		}
+	case selectorPriority:
+		return m, m.updateTaskPriority(taskID, item)
+
+	case selectorArtifact:
+		return m.performArtifactAction(item, action)
 	}
 
 	return m, nil
 }
 
-func (m Model) handleContinueWorkflowSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	workflows := m.cfg.ListWorkflowNames()
-	keyStr := msg.String()
+// handleSelectorCancel handles cleanup when a selection is cancelled.
+func (m Model) handleSelectorCancel() (tea.Model, tea.Cmd) {
+	kind := m.selector.kind
+	m.selector.Reset()
 
-	// Handle "gg" sequence for go-to-top
-	if keyStr == "g" {
-		if m.continueWorkflowPendingG {
-			m.continueWorkflowPendingG = false
-			m.continueWorkflowCursor = 0
-			return m, nil
-		}
-		m.continueWorkflowPendingG = true
-		return m, nil
-	}
-	m.continueWorkflowPendingG = false
-
-	switch keyStr {
-	case "up", "k":
-		if m.continueWorkflowCursor > 0 {
-			m.continueWorkflowCursor--
-		}
-		return m, nil
-	case "down", "j":
-		if m.continueWorkflowCursor < len(workflows)-1 {
-			m.continueWorkflowCursor++
-		}
-		return m, nil
-	case "G":
-		m.continueWorkflowCursor = max(0, len(workflows)-1)
-		return m, nil
-	case "ctrl+d", "pgdown":
-		half := max(1, len(workflows)/2)
-		m.continueWorkflowCursor = min(m.continueWorkflowCursor+half, len(workflows)-1)
-		return m, nil
-	case "ctrl+u", "pgup":
-		half := max(1, len(workflows)/2)
-		m.continueWorkflowCursor = max(m.continueWorkflowCursor-half, 0)
-		return m, nil
-	case "enter":
-		workflow := workflows[m.continueWorkflowCursor]
-		m.continueSelectedWorkflow = workflow
-		m.selectingContinueWorkflow = false
-		// Don't zero continueTaskID - prompt view needs it
-		m.view = viewPrompt
-		m.prompt.Reset()
-		m.prompt.workflowName = workflow
-		m.prompt.Focus()
-		return m, nil
-	case "esc", "q":
-		m.selectingContinueWorkflow = false
+	if kind == selectorContinueWorkflow {
 		m.continueTaskID = 0
-		return m, nil
 	}
-
-	// Number keys for quick selection (1-9)
-	if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
-		idx := int(keyStr[0] - '1')
-		if idx < len(workflows) {
-			workflow := workflows[idx]
-			m.continueSelectedWorkflow = workflow
-			m.selectingContinueWorkflow = false
-			// Don't zero continueTaskID - prompt view needs it
-			m.view = viewPrompt
-			m.prompt.Reset()
-			m.prompt.workflowName = workflow
-			m.prompt.Focus()
-			return m, nil
-		}
-	}
-
 	return m, nil
 }
 

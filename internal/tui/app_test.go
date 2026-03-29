@@ -734,8 +734,8 @@ func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if !updated.selectingContinueWorkflow {
-		t.Error("expected selectingContinueWorkflow to be true")
+	if updated.selector.kind != selectorContinueWorkflow {
+		t.Error("expected selector kind to be selectorContinueWorkflow")
 	}
 	if updated.continueTaskID != 10 {
 		t.Errorf("expected continueTaskID to be 10, got %d", updated.continueTaskID)
@@ -770,8 +770,8 @@ func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if !updated.selectingContinueWorkflow {
-		t.Error("expected selectingContinueWorkflow to be true")
+	if updated.selector.kind != selectorContinueWorkflow {
+		t.Error("expected selector kind to be selectorContinueWorkflow")
 	}
 	if updated.continueTaskID != 11 {
 		t.Errorf("expected continueTaskID to be 11, got %d", updated.continueTaskID)
@@ -1153,11 +1153,11 @@ func TestHandleListKey_XShowsTaskSelection(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if !updated.selectingTask {
-		t.Error("expected selectingTask to be true")
+	if updated.selector.kind != selectorTask {
+		t.Error("expected selector kind to be selectorTask")
 	}
-	if updated.taskCursor != 0 {
-		t.Errorf("expected taskCursor to be 0, got %d", updated.taskCursor)
+	if updated.selector.cursor != 0 {
+		t.Errorf("expected selector cursor to be 0, got %d", updated.selector.cursor)
 	}
 	if cmd != nil {
 		t.Error("expected no command (selection screen shown), got non-nil")
@@ -1187,8 +1187,8 @@ func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
 	updated := result.(Model)
 
 	// Should retry, not show task selection
-	if updated.selectingTask {
-		t.Error("expected selectingTask to be false when retrying failed task")
+	if updated.selector.kind == selectorTask {
+		t.Error("expected selector kind not to be selectorTask when retrying failed task")
 	}
 	if cmd == nil {
 		t.Error("expected retry command, got nil")
@@ -1218,8 +1218,8 @@ func TestHandleListKey_RRetriesTmuxTask(t *testing.T) {
 	updated := result.(Model)
 
 	// Should retry, not show task selection
-	if updated.selectingTask {
-		t.Error("expected selectingTask to be false when retrying tmux task")
+	if updated.selector.kind == selectorTask {
+		t.Error("expected selector kind not to be selectorTask when retrying tmux task")
 	}
 	if cmd == nil {
 		t.Error("expected retry command, got nil")
@@ -1249,8 +1249,8 @@ func TestHandleListKey_RRetriesCompletedTask(t *testing.T) {
 	updated := result.(Model)
 
 	// Should retry, not show task selection
-	if updated.selectingTask {
-		t.Error("expected selectingTask to be false when retrying completed task")
+	if updated.selector.kind == selectorTask {
+		t.Error("expected selector kind not to be selectorTask when retrying completed task")
 	}
 	if cmd == nil {
 		t.Error("expected retry command, got nil")
@@ -1282,14 +1282,17 @@ func TestHandleListKey_RNoOpOnRunningTask(t *testing.T) {
 
 func TestHandleTaskSelectKey_Navigation(t *testing.T) {
 	m := Model{
-		keys:          newKeyMap(),
-		client:        &client.Client{},
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    0,
-		projectPath:   "/tmp/test",
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 0,
+			items:  []string{"Task A", "Task B", "Task C"},
+		},
+		projectPath: "/tmp/test",
 		cfg: &config.Config{
 			OneOff: []config.WorkflowConfig{
 				{Name: "Task A", Description: "Desc A"},
@@ -1301,43 +1304,46 @@ func TestHandleTaskSelectKey_Navigation(t *testing.T) {
 
 	// Move down
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
-	result, _ := m.handleTaskSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
-	if updated.taskCursor != 1 {
-		t.Errorf("expected cursor at 1 after j, got %d", updated.taskCursor)
+	if updated.selector.cursor != 1 {
+		t.Errorf("expected cursor at 1 after j, got %d", updated.selector.cursor)
 	}
 
 	// Move down again
 	m = updated
-	result, _ = m.handleTaskSelectKey(msg)
+	result, _ = m.handleSelectorKey(msg)
 	updated = result.(Model)
-	if updated.taskCursor != 2 {
-		t.Errorf("expected cursor at 2 after j, got %d", updated.taskCursor)
+	if updated.selector.cursor != 2 {
+		t.Errorf("expected cursor at 2 after j, got %d", updated.selector.cursor)
 	}
 
 	// Move down at bottom — should stay
 	m = updated
-	result, _ = m.handleTaskSelectKey(msg)
+	result, _ = m.handleSelectorKey(msg)
 	updated = result.(Model)
-	if updated.taskCursor != 2 {
-		t.Errorf("expected cursor to stay at 2, got %d", updated.taskCursor)
+	if updated.selector.cursor != 2 {
+		t.Errorf("expected cursor to stay at 2, got %d", updated.selector.cursor)
 	}
 
 	// Move up
 	m = updated
 	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}
-	result, _ = m.handleTaskSelectKey(msg)
+	result, _ = m.handleSelectorKey(msg)
 	updated = result.(Model)
-	if updated.taskCursor != 1 {
-		t.Errorf("expected cursor at 1 after k, got %d", updated.taskCursor)
+	if updated.selector.cursor != 1 {
+		t.Errorf("expected cursor at 1 after k, got %d", updated.selector.cursor)
 	}
 }
 
 func TestHandleTaskSelectKey_EscCancels(t *testing.T) {
 	m := Model{
-		keys:          newKeyMap(),
-		selectingTask: true,
-		taskCursor:    1,
+		keys: newKeyMap(),
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 1,
+			items:  []string{"Task A"},
+		},
 		cfg: &config.Config{
 			OneOff: []config.WorkflowConfig{
 				{Name: "Task A"},
@@ -1346,24 +1352,27 @@ func TestHandleTaskSelectKey_EscCancels(t *testing.T) {
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyEscape}
-	result, _ := m.handleTaskSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.selectingTask {
-		t.Error("expected selectingTask to be false after esc")
+	if updated.selector.kind == selectorTask {
+		t.Error("expected selector kind not to be selectorTask after esc")
 	}
 }
 
 func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
 	m := Model{
-		keys:          newKeyMap(),
-		client:        &client.Client{},
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    0,
-		projectPath:   "/tmp/test",
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 0,
+			items:  []string{"Housekeeping"},
+		},
+		projectPath: "/tmp/test",
 		cfg: &config.Config{
 			OneOff: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
@@ -1372,11 +1381,11 @@ func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
-	result, cmd := m.handleTaskSelectKey(msg)
+	result, cmd := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.selectingTask {
-		t.Error("expected selectingTask to be false after enter")
+	if updated.selector.kind == selectorTask {
+		t.Error("expected selector kind not to be selectorTask after enter")
 	}
 	if updated.selectedWorkflow != "oneoff:Housekeeping" {
 		t.Errorf("expected selectedWorkflow 'oneoff:Housekeeping', got %q", updated.selectedWorkflow)
@@ -1388,14 +1397,17 @@ func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
 
 func TestHandleTaskSelectKey_NumberKeyCreatesTask(t *testing.T) {
 	m := Model{
-		keys:          newKeyMap(),
-		client:        &client.Client{},
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    0,
-		projectPath:   "/tmp/test",
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 0,
+			items:  []string{"First", "Second"},
+		},
+		projectPath: "/tmp/test",
 		cfg: &config.Config{
 			OneOff: []config.WorkflowConfig{
 				{Name: "First", Description: "First task"},
@@ -1406,11 +1418,11 @@ func TestHandleTaskSelectKey_NumberKeyCreatesTask(t *testing.T) {
 
 	// Press "2" to select second task
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}}
-	result, cmd := m.handleTaskSelectKey(msg)
+	result, cmd := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.selectingTask {
-		t.Error("expected selectingTask to be false after number key")
+	if updated.selector.kind == selectorTask {
+		t.Error("expected selector kind not to be selectorTask after number key")
 	}
 	if updated.selectedWorkflow != "oneoff:Second" {
 		t.Errorf("expected selectedWorkflow 'task:Second', got %q", updated.selectedWorkflow)
@@ -1422,14 +1434,17 @@ func TestHandleTaskSelectKey_NumberKeyCreatesTask(t *testing.T) {
 
 func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
 	m := Model{
-		keys:          newKeyMap(),
-		client:        &client.Client{},
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    0,
-		projectPath:   "/tmp/test",
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 0,
+			items:  []string{"NoDesc"},
+		},
+		projectPath: "/tmp/test",
 		cfg: &config.Config{
 			OneOff: []config.WorkflowConfig{
 				{Name: "NoDesc"},
@@ -1438,11 +1453,11 @@ func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
-	result, cmd := m.handleTaskSelectKey(msg)
+	result, cmd := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.selectingTask {
-		t.Error("expected selectingTask to be false")
+	if updated.selector.kind == selectorTask {
+		t.Error("expected selector kind not to be selectorTask")
 	}
 	// When description is empty, the task name is used as description
 	if updated.selectedWorkflow != "oneoff:NoDesc" {
@@ -1455,12 +1470,17 @@ func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
 
 func TestViewRendersTaskSelection(t *testing.T) {
 	m := Model{
-		keys:          newKeyMap(),
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    0,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:         selectorTask,
+			title:        "Run Predefined Task",
+			cursor:       0,
+			items:        []string{"Housekeeping", "Security Scan"},
+			descriptions: []string{"Clean up code", "Run security audit"},
+		},
 		cfg: &config.Config{
 			OneOff: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
@@ -1748,60 +1768,66 @@ func TestHandleListKey_POpensPrioritySelection(t *testing.T) {
 	result, _ := m.handleListKey(pMsg)
 	updated := result.(Model)
 
-	if !updated.selectingPriority {
-		t.Error("expected selectingPriority to be true after 'p'")
+	if updated.selector.kind != selectorPriority {
+		t.Error("expected selector kind to be selectorPriority after 'p'")
 	}
-	if updated.priorityTaskID != 20 {
-		t.Errorf("expected priorityTaskID to be 20, got %d", updated.priorityTaskID)
+	if updated.selector.taskID != 20 {
+		t.Errorf("expected selector taskID to be 20, got %d", updated.selector.taskID)
 	}
 }
 
 func TestHandlePrioritySelectKey_EscCancels(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		client:            &client.Client{},
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingPriority: true,
-		priorityTaskID:    1,
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorPriority,
+			items:  []string{"low", "medium", "high", "urgent"},
+			taskID: 1,
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyEsc}
-	result, _ := m.handlePrioritySelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.selectingPriority {
-		t.Error("expected selectingPriority to be false after esc")
+	if updated.selector.kind == selectorPriority {
+		t.Error("expected selector kind not to be selectorPriority after esc")
 	}
 }
 
 func TestHandlePrioritySelectKey_Navigation(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		client:            &client.Client{},
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingPriority: true,
-		priorityCursor:    0,
-		priorityTaskID:    1,
+		keys:   newKeyMap(),
+		client: &client.Client{},
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorPriority,
+			cursor: 0,
+			items:  []string{"low", "medium", "high", "urgent"},
+			taskID: 1,
+		},
 	}
 
 	// Move down
 	downMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
-	result, _ := m.handlePrioritySelectKey(downMsg)
+	result, _ := m.handleSelectorKey(downMsg)
 	updated := result.(Model)
-	if updated.priorityCursor != 1 {
-		t.Errorf("expected cursor at 1, got %d", updated.priorityCursor)
+	if updated.selector.cursor != 1 {
+		t.Errorf("expected cursor at 1, got %d", updated.selector.cursor)
 	}
 
 	// Move up
 	upMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}
-	result, _ = updated.handlePrioritySelectKey(upMsg)
+	result, _ = updated.handleSelectorKey(upMsg)
 	updated = result.(Model)
-	if updated.priorityCursor != 0 {
-		t.Errorf("expected cursor at 0, got %d", updated.priorityCursor)
+	if updated.selector.cursor != 0 {
+		t.Errorf("expected cursor at 0, got %d", updated.selector.cursor)
 	}
 }
 
@@ -2577,14 +2603,14 @@ func TestHandleListKey_OAMultipleArtifactsShowsSelection(t *testing.T) {
 	result2, _ := updated.Update(msg)
 	updated2 := result2.(Model)
 
-	if !updated2.selectingArtifact {
-		t.Error("expected selectingArtifact to be true with multiple step contexts")
+	if updated2.selector.kind != selectorArtifact {
+		t.Error("expected selector kind to be selectorArtifact with multiple step contexts")
 	}
-	if len(updated2.artifactNames) != 2 {
-		t.Errorf("expected 2 artifact names, got %d", len(updated2.artifactNames))
+	if len(updated2.selector.items) != 2 {
+		t.Errorf("expected 2 selector items, got %d", len(updated2.selector.items))
 	}
-	if updated2.artifactAction != "view" {
-		t.Errorf("expected artifactAction 'view', got %q", updated2.artifactAction)
+	if updated2.selector.action != "view" {
+		t.Errorf("expected selector action 'view', got %q", updated2.selector.action)
 	}
 }
 
@@ -2918,11 +2944,13 @@ func TestHandleListKey_ONonAResetsPending(t *testing.T) {
 
 func TestHandleArtifactSelectKey_Navigation(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		selectingArtifact: true,
-		artifactCursor:    0,
-		artifactNames:     []string{"implement", "review", "test"},
-		artifactAction:    "view",
+		keys: newKeyMap(),
+		selector: selector{
+			kind:   selectorArtifact,
+			cursor: 0,
+			items:  []string{"implement", "review", "test"},
+			action: "view",
+		},
 		stepContexts: map[string]string{
 			"implement": "implement content",
 			"review":    "review content",
@@ -2932,50 +2960,52 @@ func TestHandleArtifactSelectKey_Navigation(t *testing.T) {
 
 	// Move down
 	jMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
-	result, _ := m.handleArtifactSelectKey(jMsg)
+	result, _ := m.handleSelectorKey(jMsg)
 	updated := result.(Model)
-	if updated.artifactCursor != 1 {
-		t.Errorf("expected cursor at 1, got %d", updated.artifactCursor)
+	if updated.selector.cursor != 1 {
+		t.Errorf("expected cursor at 1, got %d", updated.selector.cursor)
 	}
 
 	// Move down again
-	result, _ = updated.handleArtifactSelectKey(jMsg)
+	result, _ = updated.handleSelectorKey(jMsg)
 	updated = result.(Model)
-	if updated.artifactCursor != 2 {
-		t.Errorf("expected cursor at 2, got %d", updated.artifactCursor)
+	if updated.selector.cursor != 2 {
+		t.Errorf("expected cursor at 2, got %d", updated.selector.cursor)
 	}
 
 	// Move down at bottom — should stay
-	result, _ = updated.handleArtifactSelectKey(jMsg)
+	result, _ = updated.handleSelectorKey(jMsg)
 	updated = result.(Model)
-	if updated.artifactCursor != 2 {
-		t.Errorf("expected cursor to stay at 2, got %d", updated.artifactCursor)
+	if updated.selector.cursor != 2 {
+		t.Errorf("expected cursor to stay at 2, got %d", updated.selector.cursor)
 	}
 
 	// Move up
 	kMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}}
-	result, _ = updated.handleArtifactSelectKey(kMsg)
+	result, _ = updated.handleSelectorKey(kMsg)
 	updated = result.(Model)
-	if updated.artifactCursor != 1 {
-		t.Errorf("expected cursor at 1, got %d", updated.artifactCursor)
+	if updated.selector.cursor != 1 {
+		t.Errorf("expected cursor at 1, got %d", updated.selector.cursor)
 	}
 }
 
 func TestHandleArtifactSelectKey_EscCancels(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		selectingArtifact: true,
-		artifactCursor:    1,
-		artifactNames:     []string{"implement", "review"},
-		artifactAction:    "view",
+		keys: newKeyMap(),
+		selector: selector{
+			kind:   selectorArtifact,
+			cursor: 1,
+			items:  []string{"implement", "review"},
+			action: "view",
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyEscape}
-	result, _ := m.handleArtifactSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.selectingArtifact {
-		t.Error("expected selectingArtifact to be false after esc")
+	if updated.selector.kind == selectorArtifact {
+		t.Error("expected selector kind not to be selectorArtifact after esc")
 	}
 }
 
@@ -3157,14 +3187,17 @@ func TestHandleTaskInfoKey_YCEmptyContextNoOp(t *testing.T) {
 
 func TestViewRendersStepContextSelection(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingArtifact: true,
-		artifactCursor:    0,
-		artifactNames:     []string{"implement", "review"},
-		artifactAction:    "view",
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorArtifact,
+			cursor: 0,
+			items:  []string{"implement", "review"},
+			title:  "Select Step Context",
+			action: "view",
+		},
 	}
 
 	output := m.View()
@@ -3236,8 +3269,8 @@ func TestStepContextsLoadedMsg_SingleContextShowsDirectly(t *testing.T) {
 	result, _ := m.Update(msg)
 	updated := result.(Model)
 
-	if updated.selectingArtifact {
-		t.Error("expected selectingArtifact to be false for single context")
+	if updated.selector.kind == selectorArtifact {
+		t.Error("expected selector kind not to be selectorArtifact for single context")
 	}
 	if updated.view != viewArtifact {
 		t.Errorf("expected view to be viewArtifact, got %d", updated.view)
@@ -3286,15 +3319,17 @@ func TestTaskInfoKeyMap_ContainsArtifactBindings(t *testing.T) {
 
 func TestHandleTaskInfoKey_EscDismissesArtifactSelection(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		taskInfo:          newTaskInfoView(),
-		view:              viewTaskInfo,
-		selectingArtifact: true,
-		artifactCursor:    0,
-		artifactNames:     []string{"implement", "review"},
-		artifactAction:    "view",
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		taskInfo: newTaskInfoView(),
+		view:   viewTaskInfo,
+		selector: selector{
+			kind:   selectorArtifact,
+			cursor: 0,
+			items:  []string{"implement", "review"},
+			action: "view",
+		},
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Status: "completed"}
 	m.taskInfo.SetTask(&task)
@@ -3303,8 +3338,8 @@ func TestHandleTaskInfoKey_EscDismissesArtifactSelection(t *testing.T) {
 	result, _ := m.handleTaskInfoKey(msg)
 	updated := result.(Model)
 
-	if updated.selectingArtifact {
-		t.Error("expected selectingArtifact to be false after esc")
+	if updated.selector.kind == selectorArtifact {
+		t.Error("expected selector kind not to be selectorArtifact after esc")
 	}
 	// Should stay in task info view, not return to list
 	if updated.view != viewTaskInfo {
@@ -4563,24 +4598,31 @@ func newTestModelWithWorkflows(n int) Model {
 		workflows[i] = config.WorkflowConfig{Name: fmt.Sprintf("workflow-%d", i+1)}
 	}
 	cfg := &config.Config{TaskWorkflows: workflows}
+	names := make([]string, len(workflows))
+	for i, w := range workflows {
+		names[i] = w.Name
+	}
 	return Model{
-		cfg:               cfg,
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		prompt:            newPromptView(true, ""),
-		view:              viewList,
-		selectingWorkflow: true,
-		workflowCursor:    0,
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		prompt: newPromptView(true, ""),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorWorkflow,
+			cursor: 0,
+			items:  names,
+		},
 	}
 }
 
 func TestWorkflowSelect_EnterSetsWorkflowNameOnPrompt(t *testing.T) {
 	m := newTestModelWithWorkflows(3)
-	m.workflowCursor = 1
+	m.selector.cursor = 1
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
-	result, _ := m.handleWorkflowSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	if updated.view != viewPrompt {
@@ -4595,7 +4637,7 @@ func TestWorkflowSelect_NumberKeySetsWorkflowNameOnPrompt(t *testing.T) {
 	m := newTestModelWithWorkflows(3)
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}}
-	result, _ := m.handleWorkflowSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	if updated.view != viewPrompt {
@@ -4608,193 +4650,205 @@ func TestWorkflowSelect_NumberKeySetsWorkflowNameOnPrompt(t *testing.T) {
 
 func TestWorkflowSelect_GGGoesToTop(t *testing.T) {
 	m := newTestModelWithWorkflows(10)
-	m.workflowCursor = 7
+	m.selector.cursor = 7
 
 	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
 
 	// First "g"
-	result, _ := m.handleWorkflowSelectKey(gMsg)
+	result, _ := m.handleSelectorKey(gMsg)
 	m = result.(Model)
-	if m.workflowCursor != 7 {
-		t.Errorf("expected cursor at 7 after first 'g', got %d", m.workflowCursor)
+	if m.selector.cursor != 7 {
+		t.Errorf("expected cursor at 7 after first 'g', got %d", m.selector.cursor)
 	}
-	if !m.workflowPendingG {
-		t.Error("expected workflowPendingG to be true after first 'g'")
+	if !m.selector.pendingG {
+		t.Error("expected selector pendingG to be true after first 'g'")
 	}
 
 	// Second "g"
-	result, _ = m.handleWorkflowSelectKey(gMsg)
+	result, _ = m.handleSelectorKey(gMsg)
 	m = result.(Model)
-	if m.workflowCursor != 0 {
-		t.Errorf("expected cursor at 0 after 'gg', got %d", m.workflowCursor)
+	if m.selector.cursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.selector.cursor)
 	}
 }
 
 func TestWorkflowSelect_GGResetByOtherKey(t *testing.T) {
 	m := newTestModelWithWorkflows(10)
-	m.workflowCursor = 5
+	m.selector.cursor = 5
 
 	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
-	result, _ := m.handleWorkflowSelectKey(gMsg)
+	result, _ := m.handleSelectorKey(gMsg)
 	m = result.(Model)
 
 	jMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}}
-	result, _ = m.handleWorkflowSelectKey(jMsg)
+	result, _ = m.handleSelectorKey(jMsg)
 	m = result.(Model)
 
-	if m.workflowCursor != 6 {
-		t.Errorf("expected cursor at 6 after g+j, got %d", m.workflowCursor)
+	if m.selector.cursor != 6 {
+		t.Errorf("expected cursor at 6 after g+j, got %d", m.selector.cursor)
 	}
-	if m.workflowPendingG {
-		t.Error("expected workflowPendingG to be false after non-g key")
+	if m.selector.pendingG {
+		t.Error("expected selector pendingG to be false after non-g key")
 	}
 }
 
 func TestWorkflowSelect_ShiftGGoesToBottom(t *testing.T) {
 	m := newTestModelWithWorkflows(10)
-	m.workflowCursor = 0
+	m.selector.cursor = 0
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
-	result, _ := m.handleWorkflowSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.workflowCursor != 9 {
-		t.Errorf("expected cursor at 9 after 'G', got %d", updated.workflowCursor)
+	if updated.selector.cursor != 9 {
+		t.Errorf("expected cursor at 9 after 'G', got %d", updated.selector.cursor)
 	}
 }
 
 func TestWorkflowSelect_CtrlDPageDown(t *testing.T) {
 	m := newTestModelWithWorkflows(10)
-	m.workflowCursor = 0
+	m.selector.cursor = 0
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
-	result, _ := m.handleWorkflowSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	// half = 10/2 = 5
-	if updated.workflowCursor != 5 {
-		t.Errorf("expected cursor at 5 after ctrl+d, got %d", updated.workflowCursor)
+	if updated.selector.cursor != 5 {
+		t.Errorf("expected cursor at 5 after ctrl+d, got %d", updated.selector.cursor)
 	}
 }
 
 func TestWorkflowSelect_CtrlUPageUp(t *testing.T) {
 	m := newTestModelWithWorkflows(10)
-	m.workflowCursor = 8
+	m.selector.cursor = 8
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
-	result, _ := m.handleWorkflowSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	// half = 10/2 = 5
-	if updated.workflowCursor != 3 {
-		t.Errorf("expected cursor at 3 after ctrl+u, got %d", updated.workflowCursor)
+	if updated.selector.cursor != 3 {
+		t.Errorf("expected cursor at 3 after ctrl+u, got %d", updated.selector.cursor)
 	}
 }
 
 func TestWorkflowSelect_CtrlDClampsToEnd(t *testing.T) {
 	m := newTestModelWithWorkflows(10)
-	m.workflowCursor = 8
+	m.selector.cursor = 8
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
-	result, _ := m.handleWorkflowSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.workflowCursor != 9 {
-		t.Errorf("expected cursor clamped to 9 after ctrl+d, got %d", updated.workflowCursor)
+	if updated.selector.cursor != 9 {
+		t.Errorf("expected cursor clamped to 9 after ctrl+d, got %d", updated.selector.cursor)
 	}
 }
 
 func TestWorkflowSelect_CtrlUClampsToStart(t *testing.T) {
 	m := newTestModelWithWorkflows(10)
-	m.workflowCursor = 2
+	m.selector.cursor = 2
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
-	result, _ := m.handleWorkflowSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.workflowCursor != 0 {
-		t.Errorf("expected cursor clamped to 0 after ctrl+u, got %d", updated.workflowCursor)
+	if updated.selector.cursor != 0 {
+		t.Errorf("expected cursor clamped to 0 after ctrl+u, got %d", updated.selector.cursor)
 	}
 }
 
 func TestPrioritySelect_GGGoesToTop(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingPriority: true,
-		priorityCursor:    3,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorPriority,
+			cursor: 3,
+			items:  []string{"low", "medium", "high", "urgent"},
+		},
 	}
 
 	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
 
-	result, _ := m.handlePrioritySelectKey(gMsg)
+	result, _ := m.handleSelectorKey(gMsg)
 	m = result.(Model)
-	result, _ = m.handlePrioritySelectKey(gMsg)
+	result, _ = m.handleSelectorKey(gMsg)
 	m = result.(Model)
 
-	if m.priorityCursor != 0 {
-		t.Errorf("expected cursor at 0 after 'gg', got %d", m.priorityCursor)
+	if m.selector.cursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.selector.cursor)
 	}
 }
 
 func TestPrioritySelect_ShiftGGoesToBottom(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingPriority: true,
-		priorityCursor:    0,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorPriority,
+			cursor: 0,
+			items:  []string{"low", "medium", "high", "urgent"},
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
-	result, _ := m.handlePrioritySelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.priorityCursor != 3 {
-		t.Errorf("expected cursor at 3 after 'G', got %d", updated.priorityCursor)
+	if updated.selector.cursor != 3 {
+		t.Errorf("expected cursor at 3 after 'G', got %d", updated.selector.cursor)
 	}
 }
 
 func TestPrioritySelect_CtrlDPageDown(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingPriority: true,
-		priorityCursor:    0,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorPriority,
+			cursor: 0,
+			items:  []string{"low", "medium", "high", "urgent"},
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
-	result, _ := m.handlePrioritySelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	// half = 4/2 = 2
-	if updated.priorityCursor != 2 {
-		t.Errorf("expected cursor at 2 after ctrl+d, got %d", updated.priorityCursor)
+	if updated.selector.cursor != 2 {
+		t.Errorf("expected cursor at 2 after ctrl+d, got %d", updated.selector.cursor)
 	}
 }
 
 func TestPrioritySelect_CtrlUPageUp(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingPriority: true,
-		priorityCursor:    3,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorPriority,
+			cursor: 3,
+			items:  []string{"low", "medium", "high", "urgent"},
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
-	result, _ := m.handlePrioritySelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	// half = 4/2 = 2
-	if updated.priorityCursor != 1 {
-		t.Errorf("expected cursor at 1 after ctrl+u, got %d", updated.priorityCursor)
+	if updated.selector.cursor != 1 {
+		t.Errorf("expected cursor at 1 after ctrl+u, got %d", updated.selector.cursor)
 	}
 }
 
@@ -4802,27 +4856,32 @@ func TestTaskSelect_GGGoesToTop(t *testing.T) {
 	cfg := &config.Config{
 		OneOff: make([]config.WorkflowConfig, 10),
 	}
+	items := make([]string, 10)
 	for i := range cfg.OneOff {
 		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1), Description: fmt.Sprintf("desc %d", i+1)}
+		items[i] = cfg.OneOff[i].Name
 	}
 	m := Model{
-		cfg:           cfg,
-		keys:          newKeyMap(),
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    7,
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 7,
+			items:  items,
+		},
 	}
 
 	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
-	result, _ := m.handleTaskSelectKey(gMsg)
+	result, _ := m.handleSelectorKey(gMsg)
 	m = result.(Model)
-	result, _ = m.handleTaskSelectKey(gMsg)
+	result, _ = m.handleSelectorKey(gMsg)
 	m = result.(Model)
 
-	if m.taskCursor != 0 {
-		t.Errorf("expected cursor at 0 after 'gg', got %d", m.taskCursor)
+	if m.selector.cursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.selector.cursor)
 	}
 }
 
@@ -4830,25 +4889,30 @@ func TestTaskSelect_ShiftGGoesToBottom(t *testing.T) {
 	cfg := &config.Config{
 		OneOff: make([]config.WorkflowConfig, 10),
 	}
+	items := make([]string, 10)
 	for i := range cfg.OneOff {
 		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
+		items[i] = cfg.OneOff[i].Name
 	}
 	m := Model{
-		cfg:           cfg,
-		keys:          newKeyMap(),
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    0,
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 0,
+			items:  items,
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
-	result, _ := m.handleTaskSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.taskCursor != 9 {
-		t.Errorf("expected cursor at 9 after 'G', got %d", updated.taskCursor)
+	if updated.selector.cursor != 9 {
+		t.Errorf("expected cursor at 9 after 'G', got %d", updated.selector.cursor)
 	}
 }
 
@@ -4856,26 +4920,31 @@ func TestTaskSelect_CtrlDPageDown(t *testing.T) {
 	cfg := &config.Config{
 		OneOff: make([]config.WorkflowConfig, 10),
 	}
+	items := make([]string, 10)
 	for i := range cfg.OneOff {
 		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
+		items[i] = cfg.OneOff[i].Name
 	}
 	m := Model{
-		cfg:           cfg,
-		keys:          newKeyMap(),
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    0,
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 0,
+			items:  items,
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
-	result, _ := m.handleTaskSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	// half = 10/2 = 5
-	if updated.taskCursor != 5 {
-		t.Errorf("expected cursor at 5 after ctrl+d, got %d", updated.taskCursor)
+	if updated.selector.cursor != 5 {
+		t.Errorf("expected cursor at 5 after ctrl+d, got %d", updated.selector.cursor)
 	}
 }
 
@@ -4883,110 +4952,123 @@ func TestTaskSelect_CtrlUPageUp(t *testing.T) {
 	cfg := &config.Config{
 		OneOff: make([]config.WorkflowConfig, 10),
 	}
+	items := make([]string, 10)
 	for i := range cfg.OneOff {
 		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
+		items[i] = cfg.OneOff[i].Name
 	}
 	m := Model{
-		cfg:           cfg,
-		keys:          newKeyMap(),
-		list:          newListView(false, ""),
-		detail:        newDetailView(),
-		view:          viewList,
-		selectingTask: true,
-		taskCursor:    8,
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 8,
+			items:  items,
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
-	result, _ := m.handleTaskSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	// half = 10/2 = 5
-	if updated.taskCursor != 3 {
-		t.Errorf("expected cursor at 3 after ctrl+u, got %d", updated.taskCursor)
+	if updated.selector.cursor != 3 {
+		t.Errorf("expected cursor at 3 after ctrl+u, got %d", updated.selector.cursor)
 	}
 }
 
 func TestArtifactSelect_GGGoesToTop(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingArtifact: true,
-		artifactCursor:    5,
-		artifactNames:     []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorArtifact,
+			cursor: 5,
+			items:  []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+		},
 	}
 
 	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
-	result, _ := m.handleArtifactSelectKey(gMsg)
+	result, _ := m.handleSelectorKey(gMsg)
 	m = result.(Model)
-	result, _ = m.handleArtifactSelectKey(gMsg)
+	result, _ = m.handleSelectorKey(gMsg)
 	m = result.(Model)
 
-	if m.artifactCursor != 0 {
-		t.Errorf("expected cursor at 0 after 'gg', got %d", m.artifactCursor)
+	if m.selector.cursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.selector.cursor)
 	}
 }
 
 func TestArtifactSelect_ShiftGGoesToBottom(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingArtifact: true,
-		artifactCursor:    0,
-		artifactNames:     []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorArtifact,
+			cursor: 0,
+			items:  []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
-	result, _ := m.handleArtifactSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.artifactCursor != 7 {
-		t.Errorf("expected cursor at 7 after 'G', got %d", updated.artifactCursor)
+	if updated.selector.cursor != 7 {
+		t.Errorf("expected cursor at 7 after 'G', got %d", updated.selector.cursor)
 	}
 }
 
 func TestArtifactSelect_CtrlDPageDown(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingArtifact: true,
-		artifactCursor:    0,
-		artifactNames:     []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorArtifact,
+			cursor: 0,
+			items:  []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
-	result, _ := m.handleArtifactSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	// half = 8/2 = 4
-	if updated.artifactCursor != 4 {
-		t.Errorf("expected cursor at 4 after ctrl+d, got %d", updated.artifactCursor)
+	if updated.selector.cursor != 4 {
+		t.Errorf("expected cursor at 4 after ctrl+d, got %d", updated.selector.cursor)
 	}
 }
 
 func TestArtifactSelect_CtrlUPageUp(t *testing.T) {
 	m := Model{
-		keys:              newKeyMap(),
-		list:              newListView(false, ""),
-		detail:            newDetailView(),
-		view:              viewList,
-		selectingArtifact: true,
-		artifactCursor:    6,
-		artifactNames:     []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorArtifact,
+			cursor: 6,
+			items:  []string{"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8"},
+		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
-	result, _ := m.handleArtifactSelectKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
 	// half = 8/2 = 4
-	if updated.artifactCursor != 2 {
-		t.Errorf("expected cursor at 2 after ctrl+u, got %d", updated.artifactCursor)
+	if updated.selector.cursor != 2 {
+		t.Errorf("expected cursor at 2 after ctrl+u, got %d", updated.selector.cursor)
 	}
 }
 
@@ -5383,8 +5465,8 @@ func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
 	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if !updated.selectingTask {
-		t.Fatal("expected selectingTask to be true")
+	if updated.selector.kind != selectorTask {
+		t.Fatal("expected selector kind to be selectorTask")
 	}
 
 	// All one-off workflows are visible (unlisted removed)
@@ -5403,12 +5485,16 @@ func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
 func TestViewRendersTaskSelection_HidesUnlisted(t *testing.T) {
 	// Since unlisted is removed, all one-off workflows are now visible
 	m := Model{
-		keys:        newKeyMap(),
-		list:        newListView(false, ""),
-		detail:      newDetailView(),
-		view:        viewList,
-		selectingTask: true,
-		taskCursor:    0,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorTask,
+			cursor: 0,
+			items:  []string{"Visible", "Hidden"},
+			title:  "Run Predefined Task",
+		},
 		cfg: &config.Config{
 			OneOff: []config.WorkflowConfig{
 				{Name: "Visible", Description: "A visible task"},
