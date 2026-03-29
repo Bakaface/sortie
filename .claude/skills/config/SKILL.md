@@ -38,8 +38,29 @@ type ProjectConfig struct {
     WorktreeSyncPaths        WorktreeSyncPathsConfig // Paths to copy/link into worktrees
     Notifications            *NotificationsConfig
     TmuxNestedAttachBehavior string               // "switch" (default) or "nest"
+    Options                  *OptionsConfig       // TUI display options
 }
 ```
+
+### OptionsConfig
+
+```go
+type OptionsConfig struct {
+    Number    *bool            // show line numbers
+    Branch    *bool            // show branch column
+    Target    *bool            // show target branch column
+    Animation *AnimationConfig // sortie animation on task submit
+}
+
+type AnimationConfig struct {
+    Enabled  *bool // disabled by default
+    Duration *int  // milliseconds (default 1000)
+}
+```
+
+Options are also settable at runtime via vim-style `:set` commands.
+Boolean options: `:set X`, `:set noX`, `:set X!` (toggle).
+Value options: `:set X=N`. See `command.go` `boolOptions`/`intOptions` registries.
 
 ### WorkflowConfig
 
@@ -64,6 +85,7 @@ type GlobalConfig struct {
     Verification             *VerificationConfig
     Notifications            NotificationsConfig
     TmuxNestedAttachBehavior string
+    Options                  *OptionsConfig
 }
 ```
 

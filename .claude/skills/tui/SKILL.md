@@ -56,7 +56,7 @@ Model (app.go)
 | File | Responsibility |
 |------|----------------|
 | `actions.go` | Async `tea.Cmd` functions: API calls, editor spawning, tmux attachment, log loading |
-| `command.go` | Vim-style `:` command parsing: goto line, toggle line numbers, toggle finished, clear search |
+| `command.go` | Vim-style `:` command parsing with declarative option registry (`boolOption`/`intOption` slices → `matchSetOption`/`execSetOption`). Add new `:set` options by appending to `boolOptions` or `intOptions`. Also: goto line, RunTask, noh. |
 | `search.go` | Forward/backward search with match highlighting via `performSearch()`, `nextMatch()`, `previousMatch()` |
 
 ## Custom Message Types
