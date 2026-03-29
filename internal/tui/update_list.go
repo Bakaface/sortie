@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -54,7 +55,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle help overlay — consume all keys except ctrl+h and esc which dismiss it
 	if m.list.showHelp {
-		if keyStr == "ctrl+h" || keyStr == "esc" {
+		if key.Matches(msg, m.keys.Help) || key.Matches(msg, m.keys.Back) {
 			m.list.showHelp = false
 			return m, nil
 		}
@@ -66,35 +67,35 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return ret, cmd
 	}
 
-	switch keyStr {
-	case "q", "ctrl+c":
+	switch {
+	case key.Matches(msg, m.keys.Quit):
 		m.quitting = true
 		if m.client != nil {
 			m.client.Close()
 		}
 		return m, tea.Quit
 
-	case "up", "k":
+	case key.Matches(msg, m.keys.Up):
 		m.list.MoveUp()
 		return m, nil
 
-	case "down", "j":
+	case key.Matches(msg, m.keys.Down):
 		m.list.MoveDown()
 		return m, nil
 
-	case "G":
+	case key.Matches(msg, m.keys.GotoBottom):
 		m.list.GotoBottom()
 		return m, nil
 
-	case "ctrl+d", "pgdown":
+	case key.Matches(msg, m.keys.PageDown):
 		m.list.PageDown()
 		return m, nil
 
-	case "ctrl+u", "pgup":
+	case key.Matches(msg, m.keys.PageUp):
 		m.list.PageUp()
 		return m, nil
 
-	case "enter":
+	case key.Matches(msg, m.keys.Enter):
 		if task := m.list.Selected(); task != nil {
 			m.view = viewTaskInfo
 			m.taskInfo.SetTask(task)
@@ -103,7 +104,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "l":
+	case key.Matches(msg, m.keys.Logs):
 		if task := m.list.Selected(); task != nil {
 			m.view = viewDetail
 			m.detail.SetTask(task)
@@ -112,7 +113,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "r":
+	case key.Matches(msg, m.keys.Retry):
 		// Retry if selected task is failed, completed, or stale tmux
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "failed" || task.Status == "completed" || task.Status == "tmux" {
@@ -120,7 +121,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "x":
+	case key.Matches(msg, m.keys.RunTask):
 		// Show predefined task selection if tasks are configured
 		if m.client != nil && m.projectPath != "" {
 			tasks := m.cfg.ListPredefinedTaskNames()
@@ -143,7 +144,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case "R":
+	case key.Matches(msg, m.keys.Revert):
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "completed" || task.Status == "failed" {
 				m.confirmAction = "revert"
@@ -153,7 +154,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "s":
+	case key.Matches(msg, m.keys.Stop):
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			m.confirmAction = "stop"
 			m.confirmTaskID = task.ID
@@ -161,13 +162,13 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "t":
+	case key.Matches(msg, m.keys.Attach):
 		if task := m.list.Selected(); task != nil {
 			return m, m.attachTmuxSession(task.ID)
 		}
 		return m, nil
 
-	case "c":
+	case key.Matches(msg, m.keys.Continue):
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "awaiting-approval" {
 				m.confirmAction = "continue"
@@ -201,7 +202,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "p":
+	case key.Matches(msg, m.keys.ChangePriority):
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			m.selector = selector{
 				kind:      selectorPriority,
@@ -215,7 +216,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "i":
+	case key.Matches(msg, m.keys.InitWorkflow):
 		// Show init workflow selection if init workflows are configured
 		if m.client != nil && m.projectPath != "" {
 			inits := m.cfg.ListInitWorkflowNames()
@@ -239,7 +240,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "n":
+	case key.Matches(msg, m.keys.NewTask):
 		// If search is active, "n" navigates to next match
 		if len(m.list.matchedIndices) > 0 {
 			m.list.nextMatch(m.searchDirection)
@@ -266,7 +267,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.Focus()
 		return m, nil
 
-	case "N":
+	case key.Matches(msg, m.keys.NewBlockingTask):
 		// Previous match (opposite direction) if search is active
 		if len(m.list.matchedIndices) > 0 {
 			m.list.previousMatch(m.searchDirection)
@@ -298,7 +299,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.prompt.Focus()
 		return m, nil
 
-	case "D":
+	case key.Matches(msg, m.keys.DetachBranch):
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Worktree && task.WorktreePath != "" && !task.WorktreeDetached {
 				return m, m.detachBranch(task.ID)
@@ -306,7 +307,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "A":
+	case key.Matches(msg, m.keys.AttachBranch):
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Worktree && task.WorktreePath != "" && task.WorktreeDetached {
 				return m, m.attachBranch(task.ID)
@@ -314,34 +315,34 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "b":
+	case key.Matches(msg, m.keys.BranchTask):
 		if m.client != nil && m.projectPath != "" {
 			return m, m.loadLocalBranches()
 		}
 		return m, nil
 
-	case "ctrl+h":
+	case key.Matches(msg, m.keys.Help):
 		m.list.showHelp = !m.list.showHelp
 		return m, nil
 
-	case "/":
+	case key.Matches(msg, m.keys.SearchForward):
 		m.searchMode = true
 		m.searchQuery = ""
 		m.searchDirection = 1 // forward search
 		return m, nil
 
-	case "?":
+	case key.Matches(msg, m.keys.SearchBackward):
 		m.searchMode = true
 		m.searchQuery = ""
 		m.searchDirection = -1 // backward search
 		return m, nil
 
-	case ":":
+	case key.Matches(msg, m.keys.GotoTask):
 		m.commandMode = true
 		m.commandInput = ""
 		return m, nil
 
-	case "esc":
+	case key.Matches(msg, m.keys.Back):
 		// Clear search highlights (like :noh in vim)
 		m.list.matchedIndices = nil
 		m.list.currentMatchIdx = 0

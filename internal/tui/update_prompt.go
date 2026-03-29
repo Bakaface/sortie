@@ -3,28 +3,29 @@ package tui
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	keyStr := msg.String()
+	pk := cachedPromptKeyMap
 
 	// When help overlay is showing, only allow closing it
 	if m.prompt.showHelp {
-		if keyStr == "ctrl+h" || keyStr == "esc" {
+		if key.Matches(msg, pk.Help) || key.Matches(msg, pk.Cancel) {
 			m.prompt.showHelp = false
 			return m, nil
 		}
 		return m, nil
 	}
 
-	switch keyStr {
-	case "ctrl+h":
+	switch {
+	case key.Matches(msg, pk.Help):
 		m.prompt.showHelp = true
 		return m, nil
 
-	case "enter":
+	case key.Matches(msg, pk.Submit): // "enter"
 		description := m.prompt.Value()
 		// Continue mode: send continue request with prompt
 		if m.continueTaskID != 0 && m.continueSelectedWorkflow != "" {
@@ -65,17 +66,17 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = viewList
 		return m, deferred
 
-	case "tab", "ctrl+n":
+	case key.Matches(msg, pk.SwitchField): // "tab", "ctrl+n"
 		// Switch focus to next field
 		m.prompt.SwitchFocus(true)
 		return m, nil
 
-	case "shift+tab", "ctrl+p":
+	case key.Matches(msg, pk.SwitchFieldPrev): // "shift+tab", "ctrl+p"
 		// Switch focus to previous field
 		m.prompt.SwitchFocus(false)
 		return m, nil
 
-	case "esc":
+	case key.Matches(msg, pk.Cancel): // "esc"
 		// Cancel and return to list
 		m.continueTaskID = 0
 		m.continueSelectedWorkflow = ""
@@ -83,7 +84,7 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.view = viewList
 		return m, nil
 
-	case "ctrl+g":
+	case key.Matches(msg, pk.Editor): // "ctrl+g"
 		// Open $EDITOR for prompt editing (only from description field)
 		if m.prompt.focusField == promptFieldDescription {
 			return m, m.openEditorForPrompt()
@@ -91,19 +92,19 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.prompt.Update(msg)
 		return m, cmd
 
-	case "alt+w":
+	case key.Matches(msg, pk.Worktree): // "alt+w"
 		// Toggle worktree mode
 		m.prompt.ToggleWorktree()
 		return m, nil
 
-	case "alt+m":
+	case key.Matches(msg, pk.BranchMode): // "alt+m"
 		// Toggle branch mode (only when worktree is on)
 		if m.prompt.worktree {
 			m.prompt.ToggleBranchMode()
 		}
 		return m, nil
 
-	case "ctrl+x":
+	case key.Matches(msg, pk.RemoveImage): // "ctrl+x"
 		// Remove last image
 		m.prompt.RemoveLastImage()
 		return m, nil

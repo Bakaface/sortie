@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -22,23 +23,25 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return ret, cmd
 	}
 
-	switch keyStr {
-	case "q", "esc":
+	tk := cachedTaskInfoKeyMap
+
+	switch {
+	case key.Matches(msg, tk.Back): // "esc", "q"
 		m.view = viewList
 		return m, nil
-	case "ctrl+c":
+	case key.Matches(msg, tk.Stop): // "ctrl+c"
 		if m.taskInfo.task != nil && m.client != nil {
 			m.confirmAction = "stop"
 			m.confirmTaskID = m.taskInfo.task.ID
 			return m, nil
 		}
 		return m, nil
-	case "t":
+	case key.Matches(msg, tk.Attach): // "t"
 		if m.taskInfo.task != nil {
 			return m, m.attachTmuxSession(m.taskInfo.task.ID)
 		}
 		return m, nil
-	case "l":
+	case key.Matches(msg, tk.Logs): // "l"
 		if m.taskInfo.task != nil {
 			m.view = viewDetail
 			m.detail.SetTask(m.taskInfo.task)
@@ -46,19 +49,19 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.loadOutput(m.taskInfo.task.ID, 0)
 		}
 		return m, nil
-	case "G":
+	case key.Matches(msg, tk.GotoBtm): // "G"
 		m.taskInfo.GotoBottom()
 		return m, nil
-	case "j", "down":
+	case key.Matches(msg, tk.Down): // "j", "down"
 		m.taskInfo.ScrollDown()
 		return m, nil
-	case "k", "up":
+	case key.Matches(msg, tk.Up): // "k", "up"
 		m.taskInfo.ScrollUp()
 		return m, nil
-	case "ctrl+d", "pgdown":
+	case key.Matches(msg, tk.HalfDown): // "ctrl+d", "pgdown"
 		m.taskInfo.PageDown()
 		return m, nil
-	case "ctrl+u", "pgup":
+	case key.Matches(msg, tk.HalfUp): // "ctrl+u", "pgup"
 		m.taskInfo.PageUp()
 		return m, nil
 	}

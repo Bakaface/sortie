@@ -328,6 +328,49 @@ type taskInfoKeyMap struct {
 	YankContext  key.Binding
 }
 
+type artifactViewKeyMap struct {
+	Back       key.Binding
+	GotoTop    key.Binding
+	GotoBottom key.Binding
+	Up         key.Binding
+	Down       key.Binding
+	HalfUp     key.Binding
+	HalfDown   key.Binding
+}
+
+func newArtifactViewKeyMap() artifactViewKeyMap {
+	return artifactViewKeyMap{
+		Back: key.NewBinding(
+			key.WithKeys("q", "esc"),
+			key.WithHelp("q/esc", "back"),
+		),
+		GotoTop: key.NewBinding(
+			key.WithKeys("g"),
+			key.WithHelp("gg", "top"),
+		),
+		GotoBottom: key.NewBinding(
+			key.WithKeys("G"),
+			key.WithHelp("G", "bottom"),
+		),
+		Up: key.NewBinding(
+			key.WithKeys("k", "up"),
+			key.WithHelp("k", "up"),
+		),
+		Down: key.NewBinding(
+			key.WithKeys("j", "down"),
+			key.WithHelp("j", "down"),
+		),
+		HalfUp: key.NewBinding(
+			key.WithKeys("ctrl+u", "pgup"),
+			key.WithHelp("ctrl+u", "half up"),
+		),
+		HalfDown: key.NewBinding(
+			key.WithKeys("ctrl+d", "pgdown"),
+			key.WithHelp("ctrl+d", "half down"),
+		),
+	}
+}
+
 func newTaskInfoKeyMap() taskInfoKeyMap {
 	return taskInfoKeyMap{
 		Up: key.NewBinding(
@@ -406,15 +449,16 @@ func (k taskInfoKeyMap) ShortHelp() []key.Binding {
 }
 
 type promptKeyMap struct {
-	Submit      key.Binding
-	SwitchField key.Binding
-	Newline     key.Binding
-	Cancel      key.Binding
-	RemoveImage key.Binding
-	Worktree    key.Binding
-	BranchMode  key.Binding
-	Editor      key.Binding
-	Help        key.Binding
+	Submit          key.Binding
+	SwitchField     key.Binding
+	SwitchFieldPrev key.Binding
+	Newline         key.Binding
+	Cancel          key.Binding
+	RemoveImage     key.Binding
+	Worktree        key.Binding
+	BranchMode      key.Binding
+	Editor          key.Binding
+	Help            key.Binding
 }
 
 func newPromptKeyMap() promptKeyMap {
@@ -424,8 +468,12 @@ func newPromptKeyMap() promptKeyMap {
 			key.WithHelp("enter", "submit"),
 		),
 		SwitchField: key.NewBinding(
-			key.WithKeys("tab"),
+			key.WithKeys("tab", "ctrl+n"),
 			key.WithHelp("tab/s-tab", "next/prev field"),
+		),
+		SwitchFieldPrev: key.NewBinding(
+			key.WithKeys("shift+tab", "ctrl+p"),
+			key.WithHelp("s-tab", "prev field"),
 		),
 		Newline: key.NewBinding(
 			key.WithKeys("ctrl+j"),
@@ -475,4 +523,6 @@ var (
 	cachedDetailFollowKeyMap = newDetailFollowKeyMap()
 	cachedDetailNormalKeyMap = newDetailNormalKeyMap()
 	cachedPromptKeyMap       = newPromptKeyMap()
+	cachedTaskInfoKeyMap     = newTaskInfoKeyMap()
+	cachedArtifactViewKeyMap = newArtifactViewKeyMap()
 )

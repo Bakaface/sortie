@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/aface/sortie/internal/daemon"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -55,16 +56,16 @@ func (m Model) performArtifactAction(stepName, action string) (tea.Model, tea.Cm
 }
 
 func (m Model) handleArtifactViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	keyStr := msg.String()
+	ak := cachedArtifactViewKeyMap
 
-	switch keyStr {
-	case "q", "esc":
+	switch {
+	case key.Matches(msg, ak.Back): // "q", "esc"
 		m.view = viewList
 		return m, nil
 	}
 
 	// Handle "gg" sequence
-	if keyStr == "g" {
+	if key.Matches(msg, ak.GotoTop) {
 		if m.artifactView.pendingG {
 			m.artifactView.pendingG = false
 			m.artifactView.GotoTop()
@@ -75,20 +76,20 @@ func (m Model) handleArtifactViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.artifactView.pendingG = false
 
-	switch keyStr {
-	case "G":
+	switch {
+	case key.Matches(msg, ak.GotoBottom): // "G"
 		m.artifactView.GotoBottom()
 		return m, nil
-	case "j", "down":
+	case key.Matches(msg, ak.Down): // "j", "down"
 		m.artifactView.ScrollDown()
 		return m, nil
-	case "k", "up":
+	case key.Matches(msg, ak.Up): // "k", "up"
 		m.artifactView.ScrollUp()
 		return m, nil
-	case "ctrl+d", "pgdown":
+	case key.Matches(msg, ak.HalfDown): // "ctrl+d", "pgdown"
 		m.artifactView.PageDown()
 		return m, nil
-	case "ctrl+u", "pgup":
+	case key.Matches(msg, ak.HalfUp): // "ctrl+u", "pgup"
 		m.artifactView.PageUp()
 		return m, nil
 	}
