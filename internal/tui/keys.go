@@ -449,17 +449,20 @@ func (k taskInfoKeyMap) ShortHelp() []key.Binding {
 }
 
 type promptKeyMap struct {
-	Submit          key.Binding
-	SwitchField     key.Binding
-	SwitchFieldPrev key.Binding
-	Newline         key.Binding
-	Cancel          key.Binding
-	RemoveImage     key.Binding
-	Worktree        key.Binding
-	BranchMode      key.Binding
-	PaneSwitch      key.Binding
-	Editor          key.Binding
-	Help            key.Binding
+	Submit           key.Binding
+	SwitchField      key.Binding
+	SwitchFieldPrev  key.Binding
+	Newline          key.Binding
+	Cancel           key.Binding
+	RemoveImage      key.Binding
+	FocusTitle       key.Binding
+	FocusDescription key.Binding
+	FocusGit         key.Binding
+	FocusWorkflow    key.Binding
+	Worktree         key.Binding
+	BranchMode       key.Binding
+	Editor           key.Binding
+	Help             key.Binding
 }
 
 func newPromptKeyMap() promptKeyMap {
@@ -488,17 +491,29 @@ func newPromptKeyMap() promptKeyMap {
 			key.WithKeys("ctrl+x"),
 			key.WithHelp("ctrl+x", "remove last image"),
 		),
-		Worktree: key.NewBinding(
+		FocusTitle: key.NewBinding(
+			key.WithKeys("alt+t"),
+			key.WithHelp("alt+t", "title"),
+		),
+		FocusDescription: key.NewBinding(
+			key.WithKeys("alt+d"),
+			key.WithHelp("alt+d", "description"),
+		),
+		FocusGit: key.NewBinding(
+			key.WithKeys("alt+g"),
+			key.WithHelp("alt+g", "git"),
+		),
+		FocusWorkflow: key.NewBinding(
 			key.WithKeys("alt+w"),
-			key.WithHelp("alt+w", "worktree"),
+			key.WithHelp("alt+w", "workflow"),
+		),
+		Worktree: key.NewBinding(
+			key.WithKeys("alt+W"),
+			key.WithHelp("alt+W", "worktree"),
 		),
 		BranchMode: key.NewBinding(
-			key.WithKeys("alt+m"),
-			key.WithHelp("alt+m", "branch mode"),
-		),
-		PaneSwitch: key.NewBinding(
-			key.WithKeys("ctrl+w"),
-			key.WithHelp("ctrl+w", "switch pane"),
+			key.WithKeys("alt+M"),
+			key.WithHelp("alt+M", "branch mode"),
 		),
 		Editor: key.NewBinding(
 			key.WithKeys("ctrl+g"),
@@ -518,7 +533,8 @@ func (k promptKeyMap) ShortHelp() []key.Binding {
 func (k promptKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Submit, k.Cancel, k.SwitchField, k.Newline},
-		{k.Worktree, k.BranchMode, k.PaneSwitch, k.Editor, k.RemoveImage},
+		{k.FocusTitle, k.FocusDescription, k.FocusGit, k.FocusWorkflow},
+		{k.Worktree, k.BranchMode, k.Editor, k.RemoveImage},
 		{k.Help},
 	}
 }

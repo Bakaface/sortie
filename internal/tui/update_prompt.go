@@ -11,116 +11,107 @@ import (
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	pk := cachedPromptKeyMap
 
-	// Handle pending ctrl+w pane switch chord
-	if m.prompt.pendingPaneSwitch {
-		m.prompt.pendingPaneSwitch = false
-		switch msg.String() {
-		case "h":
-			m.prompt.activePane = paneTask
-			m.prompt.Focus()
-		case "l":
-			if len(m.prompt.workflows) > 1 {
-				m.prompt.activePane = paneWorkflow
-				m.prompt.Blur()
-			}
-		case "j":
-			// Move down: from title/description → git fields, from git → workflow (if present)
-			if m.prompt.activePane == paneTask {
-				if m.prompt.focusField == promptFieldTitle || m.prompt.focusField == promptFieldDescription {
-					if m.prompt.worktree {
-						// Jump to first git field
-						m.prompt.Blur()
-						if m.prompt.branchMode == branchModeNew {
-							m.prompt.focusField = promptFieldBranch
-							m.prompt.branchInput.Focus()
-						} else {
-							m.prompt.focusField = promptFieldCheckout
-							m.prompt.checkoutInput.Focus()
-						}
-					} else if len(m.prompt.workflows) > 1 {
-						m.prompt.activePane = paneWorkflow
-						m.prompt.Blur()
-					}
-				} else if len(m.prompt.workflows) > 1 {
-					// Already in git fields → go to workflow pane
-					m.prompt.activePane = paneWorkflow
-					m.prompt.Blur()
-				}
-			}
-		case "k":
-			// Move up: from workflow → git, from git → description
-			if m.prompt.activePane == paneWorkflow {
-				m.prompt.activePane = paneTask
-				if m.prompt.worktree {
-					m.prompt.focusField = promptFieldTargetBranch
-					m.prompt.targetBranchInput.Focus()
-				} else {
-					m.prompt.focusField = promptFieldDescription
-					m.prompt.textarea.Focus()
-				}
-			} else if m.prompt.activePane == paneTask {
-				if m.prompt.focusField == promptFieldBranch || m.prompt.focusField == promptFieldCheckout || m.prompt.focusField == promptFieldTargetBranch {
-					m.prompt.Blur()
-					m.prompt.focusField = promptFieldDescription
-					m.prompt.textarea.Focus()
-				}
-			}
-		}
-		// Any other key: chord cancelled, do nothing
-		return m, nil
-	}
-
-	// When workflow pane is focused, handle its keys
-	if m.prompt.activePane == paneWorkflow {
-		return m.handleWorkflowPaneKey(msg)
-	}
-
 	// When help overlay is showing, only allow closing it
 	if m.prompt.showHelp {
 		if key.Matches(msg, pk.Help) || key.Matches(msg, pk.Cancel) {
 			m.prompt.showHelp = false
-			return m, nil
 		}
 		return m, nil
 	}
 
+	// ── Shared keys (work identically in both task and workflow panes) ──
 	switch {
 	case key.Matches(msg, pk.Help):
 		m.prompt.showHelp = true
 		return m, nil
 
-	case key.Matches(msg, pk.Submit): // "enter"
-		description := m.prompt.Value()
-		// Continue mode: send continue request with prompt
-		if m.continueTaskID != 0 && m.continueSelectedWorkflow != "" {
-			taskID := m.continueTaskID
-			workflow := m.continueSelectedWorkflow
-			m.continueTaskID = 0
-			m.continueSelectedWorkflow = ""
-			deferred := m.continueTask(taskID, workflow, description)
-			if m.animationEnabled() {
-				positions := m.planePositions(description)
-				m.sortie = newSortieAnimation(positions, m.width, m.height, m.animationDuration())
-				m.sortieCmd = deferred
-				m.view = viewSortie
-				return m, sortieTickCmd()
-			}
-			m.view = viewList
-			return m, deferred
+	case key.Matches(msg, pk.Cancel):
+		m.continueTaskID = 0
+		m.continueSelectedWorkflow = ""
+		m.blockingTaskID = 0
+		m.view = viewList
+		return m, nil
+
+	case key.Matches(msg, pk.SwitchField):
+		m.prompt.SwitchFocus(true)
+		return m, nil
+
+	case key.Matches(msg, pk.SwitchFieldPrev):
+		m.prompt.SwitchFocus(false)
+		return m, nil
+
+	case key.Matches(msg, pk.FocusTitle):
+		m.prompt.FocusOn(promptFieldTitle)
+		return m, nil
+
+	case key.Matches(msg, pk.FocusDescription):
+		m.prompt.FocusOn(promptFieldDescription)
+		return m, nil
+
+	case key.Matches(msg, pk.FocusGit):
+		m.prompt.FocusGitSection()
+		return m, nil
+
+	case key.Matches(msg, pk.FocusWorkflow):
+		m.prompt.FocusWorkflowPane()
+		return m, nil
+
+	case key.Matches(msg, pk.Worktree):
+		m.prompt.ToggleWorktree()
+		return m, nil
+
+	case key.Matches(msg, pk.BranchMode):
+		if m.prompt.worktree {
+			m.prompt.ToggleBranchMode()
 		}
-		// New task mode: create task with prompt
-		checkoutBranch := m.prompt.CheckoutBranch()
-		// Allow empty description only when using existing branch mode
-		if description == "" && checkoutBranch == "" {
-			m.prompt.validationError = "description required"
-			return m, nil
+		return m, nil
+
+	}
+
+	// ── Pane-specific keys ──
+	if m.prompt.activePane == paneWorkflow {
+		return m.handleWorkflowPaneKey(msg)
+	}
+	return m.handleTaskPaneKey(msg)
+}
+
+// handleTaskPaneKey handles keys specific to the task pane (title, description, git fields).
+func (m Model) handleTaskPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	pk := cachedPromptKeyMap
+
+	switch {
+	case key.Matches(msg, pk.Submit):
+		return m.handlePromptSubmit()
+
+	case key.Matches(msg, pk.Editor):
+		if m.prompt.focusField == promptFieldDescription {
+			return m, m.openEditorForPrompt()
 		}
-		title := m.prompt.TitleValue()
-		images := m.prompt.Images()
-		branchName := m.prompt.BranchName()
-		targetBranch := m.prompt.TargetBranch()
-		worktree := m.prompt.Worktree()
-		deferred := m.createTaskWithPrompt(title, description, branchName, worktree, images, targetBranch, checkoutBranch)
+		cmd := m.prompt.Update(msg)
+		return m, cmd
+
+	case key.Matches(msg, pk.RemoveImage):
+		m.prompt.RemoveLastImage()
+		return m, nil
+
+	default:
+		m.prompt.validationError = ""
+		cmd := m.prompt.Update(msg)
+		return m, cmd
+	}
+}
+
+// handlePromptSubmit handles the enter key to submit a new task or continue an existing one.
+func (m Model) handlePromptSubmit() (tea.Model, tea.Cmd) {
+	description := m.prompt.Value()
+
+	// Continue mode
+	if m.continueTaskID != 0 && m.continueSelectedWorkflow != "" {
+		taskID := m.continueTaskID
+		workflow := m.continueSelectedWorkflow
+		m.continueTaskID = 0
+		m.continueSelectedWorkflow = ""
+		deferred := m.continueTask(taskID, workflow, description)
 		if m.animationEnabled() {
 			positions := m.planePositions(description)
 			m.sortie = newSortieAnimation(positions, m.width, m.height, m.animationDuration())
@@ -130,61 +121,29 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.view = viewList
 		return m, deferred
-
-	case key.Matches(msg, pk.SwitchField): // "tab", "ctrl+n"
-		// Switch focus to next field
-		m.prompt.SwitchFocus(true)
-		return m, nil
-
-	case key.Matches(msg, pk.SwitchFieldPrev): // "shift+tab", "ctrl+p"
-		// Switch focus to previous field
-		m.prompt.SwitchFocus(false)
-		return m, nil
-
-	case key.Matches(msg, pk.Cancel): // "esc"
-		// Cancel and return to list
-		m.continueTaskID = 0
-		m.continueSelectedWorkflow = ""
-		m.blockingTaskID = 0
-		m.view = viewList
-		return m, nil
-
-	case key.Matches(msg, pk.Editor): // "ctrl+g"
-		// Open $EDITOR for prompt editing (only from description field)
-		if m.prompt.focusField == promptFieldDescription {
-			return m, m.openEditorForPrompt()
-		}
-		cmd := m.prompt.Update(msg)
-		return m, cmd
-
-	case key.Matches(msg, pk.Worktree): // "alt+w"
-		// Toggle worktree mode
-		m.prompt.ToggleWorktree()
-		return m, nil
-
-	case key.Matches(msg, pk.BranchMode): // "alt+m"
-		// Toggle branch mode (only when worktree is on)
-		if m.prompt.worktree {
-			m.prompt.ToggleBranchMode()
-		}
-		return m, nil
-
-	case key.Matches(msg, pk.PaneSwitch): // "ctrl+w"
-		m.prompt.pendingPaneSwitch = true
-		return m, nil
-
-	case key.Matches(msg, pk.RemoveImage): // "ctrl+x"
-		// Remove last image
-		m.prompt.RemoveLastImage()
-		return m, nil
-
-	default:
-		// Clear validation error on typing
-		m.prompt.validationError = ""
-		// Pass all other keys to the prompt view
-		cmd := m.prompt.Update(msg)
-		return m, cmd
 	}
+
+	// New task mode
+	checkoutBranch := m.prompt.CheckoutBranch()
+	if description == "" && checkoutBranch == "" {
+		m.prompt.validationError = "description required"
+		return m, nil
+	}
+	title := m.prompt.TitleValue()
+	images := m.prompt.Images()
+	branchName := m.prompt.BranchName()
+	targetBranch := m.prompt.TargetBranch()
+	worktree := m.prompt.Worktree()
+	deferred := m.createTaskWithPrompt(title, description, branchName, worktree, images, targetBranch, checkoutBranch)
+	if m.animationEnabled() {
+		positions := m.planePositions(description)
+		m.sortie = newSortieAnimation(positions, m.width, m.height, m.animationDuration())
+		m.sortieCmd = deferred
+		m.view = viewSortie
+		return m, sortieTickCmd()
+	}
+	m.view = viewList
+	return m, deferred
 }
 
 // animationEnabled returns true if the sortie animation is configured on.
@@ -259,40 +218,15 @@ func (m Model) planePositions(description string) [][2]int {
 	return positions
 }
 
+// handleWorkflowPaneKey handles keys unique to the workflow pane (list navigation).
+// Shared keys (focus, toggles, tab, cancel, help) are handled in handlePromptKey.
 func (m Model) handleWorkflowPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	pk := cachedPromptKeyMap
 
-	switch {
-	case key.Matches(msg, pk.PaneSwitch):
-		m.prompt.pendingPaneSwitch = true
-		return m, nil
-
-	case key.Matches(msg, pk.Cancel):
-		// Esc cancels prompt entirely (same as task pane)
-		m.continueTaskID = 0
-		m.continueSelectedWorkflow = ""
-		m.blockingTaskID = 0
-		m.view = viewList
-		return m, nil
-
-	case key.Matches(msg, pk.Submit):
-		// Enter from workflow pane: switch back to task pane (selection is implicit)
+	// Enter from workflow pane: confirm selection and return to task pane
+	if key.Matches(msg, pk.Submit) {
 		m.prompt.activePane = paneTask
 		m.prompt.Focus()
-		return m, nil
-
-	case key.Matches(msg, pk.SwitchField):
-		// Tab/ctrl+n: cycle to next field (title)
-		m.prompt.SwitchFocus(true)
-		return m, nil
-
-	case key.Matches(msg, pk.SwitchFieldPrev):
-		// Shift-tab/ctrl+p: cycle to previous field
-		m.prompt.SwitchFocus(false)
-		return m, nil
-
-	case key.Matches(msg, pk.Help):
-		m.prompt.showHelp = true
 		return m, nil
 	}
 

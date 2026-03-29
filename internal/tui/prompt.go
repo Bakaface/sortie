@@ -67,7 +67,6 @@ type promptView struct {
 	validationError   string // shown after failed submit attempt
 	activePane        promptPane
 	workflowCursor    int
-	pendingPaneSwitch bool // true after ctrl+w, awaiting h/j/k/l
 }
 
 func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
@@ -211,7 +210,6 @@ func (p *promptView) Reset() {
 	p.validationError = ""
 	p.activePane = paneTask
 	p.workflowCursor = 0
-	p.pendingPaneSwitch = false
 	p.focusField = promptFieldDescription
 	p.textarea.Focus()
 	p.branchInput.Blur()
@@ -442,6 +440,56 @@ func (p *promptView) SwitchFocus(forward bool) {
 	}
 }
 
+// FocusOn jumps directly to the given field, switching panes if necessary.
+func (p *promptView) FocusOn(field promptField) {
+	p.textarea.Blur()
+	p.titleInput.Blur()
+	p.branchInput.Blur()
+	p.checkoutInput.Blur()
+	p.targetBranchInput.Blur()
+	p.activePane = paneTask
+	p.focusField = field
+
+	switch field {
+	case promptFieldTitle:
+		p.titleInput.Focus()
+	case promptFieldDescription:
+		p.textarea.Focus()
+	case promptFieldBranch:
+		p.branchInput.Focus()
+	case promptFieldCheckout:
+		p.checkoutInput.Focus()
+	case promptFieldTargetBranch:
+		p.targetBranchInput.Focus()
+	}
+}
+
+// FocusWorkflowPane jumps directly to the workflow pane.
+func (p *promptView) FocusWorkflowPane() {
+	if len(p.workflows) <= 1 {
+		return
+	}
+	p.textarea.Blur()
+	p.titleInput.Blur()
+	p.branchInput.Blur()
+	p.checkoutInput.Blur()
+	p.targetBranchInput.Blur()
+	p.activePane = paneWorkflow
+}
+
+// FocusGitSection jumps to the first visible git field based on current mode.
+// If worktree is off, this is a no-op.
+func (p *promptView) FocusGitSection() {
+	if !p.worktree {
+		return
+	}
+	if p.branchMode == branchModeNew {
+		p.FocusOn(promptFieldBranch)
+	} else {
+		p.FocusOn(promptFieldCheckout)
+	}
+}
+
 // Focus focuses the currently active input
 func (p *promptView) Focus() {
 	switch p.focusField {
@@ -656,7 +704,7 @@ func (p *promptView) View() string {
 		gitContent.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#E88388")).Render("off"))
 		gitContent.WriteString(dimStyle.Render(" (runs in current directory)"))
 	}
-	gitContent.WriteString(dimStyle.Render(" (alt+w)"))
+	gitContent.WriteString(dimStyle.Render(" (alt+W)"))
 
 	// Branch/Checkout inputs (hidden when worktree is off)
 	if p.worktree {
@@ -668,7 +716,7 @@ func (p *promptView) View() string {
 		}
 		gitContent.WriteString(focusedLabel.Render("Mode: "))
 		gitContent.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#A8C8E8")).Render(modeLabel))
-		gitContent.WriteString(dimStyle.Render(" (alt+m)"))
+		gitContent.WriteString(dimStyle.Render(" (alt+M)"))
 		gitContent.WriteString("\n\n")
 
 		if p.branchMode == branchModeNew {
