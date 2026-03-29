@@ -23,6 +23,7 @@ const (
 	viewTaskInfo
 	viewPrompt
 	viewArtifact
+	viewSortie
 )
 
 type Model struct {
@@ -104,6 +105,10 @@ type Model struct {
 
 	// Artifact viewer state
 	artifactView artifactViewState
+
+	// Sortie animation state
+	sortie    sortieAnimation
+	sortieCmd tea.Cmd // deferred command to run when animation completes
 
 	// Yank sequence state (task info view)
 	pendingY bool
@@ -201,7 +206,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskInfo.SetSize(msg.Width, msg.Height)
 		m.prompt.SetSize(msg.Width, msg.Height)
 		m.artifactView.SetSize(msg.Width, msg.Height)
+		m.sortie.width = msg.Width
+		m.sortie.height = msg.Height
 		return m, nil
+
+	case sortieTickMsg:
+		m.sortie = m.sortie.Update()
+		if m.sortie.done {
+			m.view = viewList
+			deferred := m.sortieCmd
+			m.sortieCmd = nil
+			return m, deferred
+		}
+		return m, sortieTickCmd()
 
 	case clientConnectedMsg:
 		m.client = msg.client
@@ -383,6 +400,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePromptKey(msg)
 	case viewArtifact:
 		return m.handleArtifactViewKey(msg)
+	case viewSortie:
+		// Ignore keys during animation
+		return m, nil
 	}
 	return m, nil
 }
@@ -596,6 +616,8 @@ func (m Model) View() string {
 		content = m.prompt.View()
 	case viewArtifact:
 		content = m.artifactView.View()
+	case viewSortie:
+		return m.sortie.View()
 	default:
 		content = m.list.View()
 	}

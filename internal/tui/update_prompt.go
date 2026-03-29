@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -29,8 +31,16 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			workflow := m.continueSelectedWorkflow
 			m.continueTaskID = 0
 			m.continueSelectedWorkflow = ""
+			deferred := m.continueTask(taskID, workflow, description)
+			if m.width > 0 && m.height > 0 {
+				planeCount := countLines(description)
+				m.sortie = newSortieAnimation(planeCount, m.width, m.height)
+				m.sortieCmd = deferred
+				m.view = viewSortie
+				return m, sortieTickCmd()
+			}
 			m.view = viewList
-			return m, m.continueTask(taskID, workflow, description)
+			return m, deferred
 		}
 		// New task mode: create task with prompt
 		checkoutBranch := m.prompt.CheckoutBranch()
@@ -43,8 +53,16 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		branchName := m.prompt.BranchName()
 		targetBranch := m.prompt.TargetBranch()
 		worktree := m.prompt.Worktree()
+		deferred := m.createTaskWithPrompt(title, description, branchName, worktree, images, targetBranch, checkoutBranch)
+		if m.width > 0 && m.height > 0 {
+			planeCount := countLines(description)
+			m.sortie = newSortieAnimation(planeCount, m.width, m.height)
+			m.sortieCmd = deferred
+			m.view = viewSortie
+			return m, sortieTickCmd()
+		}
 		m.view = viewList
-		return m, m.createTaskWithPrompt(title, description, branchName, worktree, images, targetBranch, checkoutBranch)
+		return m, deferred
 
 	case "tab", "ctrl+n":
 		// Switch focus to next field
@@ -94,4 +112,21 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd := m.prompt.Update(msg)
 		return m, cmd
 	}
+}
+
+// countLines returns the number of non-empty lines in s, clamped between 1 and 8.
+func countLines(s string) int {
+	count := 0
+	for _, line := range strings.Split(s, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	if count < 1 {
+		count = 1
+	}
+	if count > 8 {
+		count = 8
+	}
+	return count
 }
