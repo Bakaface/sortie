@@ -61,18 +61,24 @@ Model (app.go)
 | `selector.go` | Generic list-pick dialog: `selector` struct with `HandleKey()`/`View()`, vim navigation, number-key quick select. Used for workflow, task, init, priority, artifact selection. |
 | `search.go` | Forward/backward search with match highlighting via `performSearch()`, `nextMatch()`, `previousMatch()` |
 
+### Misc
+
+| File | Responsibility |
+|------|----------------|
+| `sortie_animation.go` | Splash/idle animation with plane flyover and ASCII art, driven by `sortieTickMsg` |
+
 ## Custom Message Types
 
-Task updates: `taskUpdateMsg`, `taskCreatedMsg`, `taskDeletedMsg`, `tasksLoadedMsg`
-Output: `outputLoadedMsg`, `artifactLoadedMsg`
-Editor: `editorFinishedMsg`, `editorPromptFinishedMsg`, `editorFieldFinishedMsg`
-System: `clientConnectedMsg`, `tmuxDetachedMsg`, `tickMsg`, `errorMsg`
+Task updates: `taskUpdateMsg`, `taskCreatedMsg`, `taskDeletedMsg`, `tasksLoadedMsg`, `taskFieldUpdatedMsg`
+Output: `outputLoadedMsg`, `stepContextsLoadedMsg`, `branchesLoadedMsg`
+Editor: `editorFinishedMsg`, `editorPromptFinishedMsg`, `editorFieldFinishedMsg`, `editorLogFinishedMsg`
+System: `clientConnectedMsg`, `tmuxDetachedMsg`, `tmuxSessionsMsg`, `tickMsg`, `errorMsg`
 
 ## Key Patterns
 
 ### Keybindings
 - Define in `keys.go` as `keyMap` structs with `key.Binding` fields
-- Multiple KeyMaps: `keyMap` (list), `detailKeyMap`, `detailFollowKeyMap`, `detailNormalKeyMap`, `taskInfoKeyMap`
+- Multiple KeyMaps: `keyMap` (list), `detailFollowKeyMap`, `detailNormalKeyMap`, `taskInfoKeyMap`, `artifactViewKeyMap`, `promptKeyMap`
 - Vim-style mnemonics: `gg`/`G`, `dd`, `/`/`?`, `:`
 
 ### Chord Sequences

@@ -8,11 +8,11 @@ description: >
 
 # Database & Persistence
 
-SQLite with WAL mode, single writer (`MaxOpenConns=1`), foreign keys enabled. Schema versioned with progressive migrations (currently v10).
+SQLite with WAL mode, single writer (`MaxOpenConns=1`), foreign keys enabled. Schema versioned with progressive migrations (currently v16).
 
 ## Schema
 
-Read `internal/db/schema.sql` for the canonical table definitions. Core tables: `projects`, `tasks`, `task_dependencies`, `task_steps`. Migrations use `if version < N` blocks in `db.go:migrate()` — append the next version check; auto-applied on startup. Fresh databases apply the embedded `schema.sql` directly as version 10.
+Read `internal/db/schema.sql` for the canonical table definitions. Core tables: `projects`, `tasks`, `task_dependencies`, `task_steps`. Migrations use `if version < N` blocks in `db.go:migrate()` — append the next version check; auto-applied on startup. Fresh databases apply the embedded `schema.sql` directly as version 16.
 
 ### `task_steps` Table
 
@@ -39,6 +39,7 @@ type Project struct {
     Path            string
     Name            string
     DefaultPriority task.Priority
+    DefaultWorktree bool
     CreatedAt       time.Time
 }
 
@@ -47,7 +48,17 @@ GetProjectByPath(path string) (*Project, error)
 GetProject(id int64) (*Project, error)
 GetProjectsByName(name string) ([]*Project, error)
 ListProjects() ([]*Project, error)
+UpdateProjectDefaultWorktree(id int64, worktree bool) error
 ```
+
+## Task Creation
+
+```go
+CreateTask(projectID int64, title, description, slug, workflow, branch string, status task.Status, images []string) (*task.Task, error)
+CreateTaskWithPriority(projectID int64, title, description, slug, workflow, branchName, branch, targetBranch, checkoutBranch string, status task.Status, priority task.Priority, worktree bool, images []string) (*task.Task, error)
+```
+
+`CreateTask` is a convenience wrapper that delegates to `CreateTaskWithPriority` with medium priority and `worktree=true`.
 
 ## Task Query Patterns
 
@@ -65,6 +76,7 @@ Atomically transition pending -> running with `started_at`. Returns `(bool, erro
 ```go
 UpdateTaskStatus(id int64, status task.Status) error
 UpdateTaskWorktreePath(id int64, worktreePath string) error
+UpdateTaskBranch(id int64, branch string) error
 ClearWorktreePath(id int64) error
 UpdateTaskStep(id int64, stepIndex int, currentStep string) error
 UpdateTaskExitCode(id int64, exitCode int, errorMessage string) error
@@ -75,13 +87,39 @@ UpdateTaskTitle(id int64, title string) error
 UpdateTaskDescription(id int64, description string) error
 FinalizeTaskIdentity(id int64, title, slug, branch string) error
 UpdateTaskLoopIteration(id int64, iteration int) error
+SetWorktreeDetached(id int64, detached bool) error
+```
+
+### Commit Tracking
+```go
+AppendTaskCommit(id int64, commitHash string) error  // Append to JSON array of commit hashes
+GetTaskCommits(id int64) ([]string, error)            // Read commit hashes from JSON array
 ```
 
 ### Reset Operations
-- `ResetTaskForRetry(id int64)` — reset to pending, clear step/error/timing
-- `ResetTaskForRetryFromStep(id int64)` — reset to pending, clear current_step/error but **keep step_index**
-- `ResetTaskForContinue(id int64, workflow, prompt string)` — reset to pending, update workflow and context prompt
-- `DeleteTask(id int64)` — hard delete
+- `ResetTaskForRetry(id int64)` — reset to pending, clear step/error/timing, delete task_steps via `DeleteTaskSteps()`
+- `ResetTaskForRetryFromStep(id int64)` — reset to pending, clear current_step/error but **keep step_index**, delete task_steps via `DeleteTaskSteps()`
+- `ResetTaskForContinue(id int64, workflow, prompt string)` — reset to pending, update workflow and description prompt, delete task_steps via `DeleteTaskSteps()`
+- `DeleteTask(id int64)` — hard delete (also removes task_dependencies)
+
+### Dependency Management
+```go
+AddTaskDependency(taskID, blockedByID int64) error                // INSERT OR IGNORE
+RemoveTaskDependency(taskID, blockedByID int64) error             // Delete single edge
+SetTaskDependencies(taskID int64, blockedBy []int64) error        // Replace all deps in a transaction
+HasCircularDependency(taskID, newBlockedByID int64) (bool, error) // BFS cycle detection
+```
+
+### Task Step Operations
+```go
+CreateTaskStep(taskID int64, stepName string) error                               // INSERT OR REPLACE with status='running'
+CompleteTaskStep(taskID int64, stepName string, context *string, exitCode int) error // Update to 'completed' with context/exit_code
+GetTaskStepContext(taskID int64, stepName string) (string, error)                  // Single completed step context
+GetTaskStepContexts(taskID int64, stepNames []string) (map[string]string, error)  // Multiple step contexts by name
+GetAllTaskStepContexts(taskID int64) (map[string]string, error)                   // All completed step contexts
+DeleteTaskSteps(taskID int64) error                                               // Delete all steps for a task
+DeleteTaskStepsFrom(taskID int64, stepNames []string) error                       // Delete specific steps by name
+```
 
 ## Patterns
 
@@ -89,5 +127,5 @@ UpdateTaskLoopIteration(id int64, iteration int) error
 - Images stored as JSON array: `json.Marshal`/`json.Unmarshal`
 - Nullable fields use `sql.NullString`, `sql.NullInt64`, `sql.NullTime`
 - `blocked_by` computed from `task_dependencies` table, not stored directly
-- Test with `NewTestDB()` using in-memory SQLite (`":memory:"`)
+- Test with `Open(filepath.Join(t.TempDir(), "test.db"))` using a temp directory
 - New columns: add migration (`if version < N`), handle NULL defaults for existing rows

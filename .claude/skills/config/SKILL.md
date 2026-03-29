@@ -30,12 +30,13 @@ type ProjectConfig struct {
     MaxWorkers               int
     DefaultPriority          string
     Yolo                     *bool               // Skip Claude permissions (pointer for merge)
-    ValidateArtifact         *bool
     Verification             *VerificationConfig
     Git                      GitConfig            // BaseBranch, BranchTemplate, OnComplete
     Workflows                ProjectWorkflows     // tasks, one-off, init
     SystemPrompt             string
     WorktreeSyncPaths        WorktreeSyncPathsConfig // Paths to copy/link into worktrees
+    WorktreeSetupCommand     string               // Command to run after worktree creation
+    TmuxSetupCommand         string               // Command to run after tmux session creation
     Notifications            *NotificationsConfig
     TmuxNestedAttachBehavior string               // "switch" (default) or "nest"
     Options                  *OptionsConfig       // TUI display options
@@ -66,12 +67,14 @@ Value options: `:set X=N`. See `command.go` `boolOptions`/`intOptions` registrie
 
 ```go
 type WorkflowConfig struct {
-    Name              string
-    Description       string
-    Tmux              bool
-    Steps             []StepConfig
-    SummarizerPrompt  string
-    WorktreeSyncPaths WorktreeSyncPathsConfig // Per-workflow sync paths (override project-level)
+    Name                 string
+    Description          string
+    Tmux                 bool
+    Steps                []StepConfig
+    SummarizerPrompt     string
+    WorktreeSyncPaths    WorktreeSyncPathsConfig // Per-workflow sync paths (override project-level)
+    WorktreeSetupCommand string                  // Per-workflow setup command (override project-level)
+    TmuxSetupCommand     string                  // Per-workflow tmux setup command (override project-level)
 }
 ```
 
@@ -81,7 +84,6 @@ type WorkflowConfig struct {
 type GlobalConfig struct {
     MaxWorkers               int
     Yolo                     *bool
-    ValidateArtifact         *bool
     Verification             *VerificationConfig
     Notifications            NotificationsConfig
     TmuxNestedAttachBehavior string
@@ -93,7 +95,6 @@ type GlobalConfig struct {
 
 ```go
 type VerificationConfig struct {
-    ArtifactRetry    bool
     MaxRetries       int
     VerifySummarizer bool
 }
@@ -114,16 +115,30 @@ Legacy formats supported: plain list (`workflows: [...]`) and singular (`workflo
 
 ```go
 type StepConfig struct {
-    Name, Prompt, Mode string
-    Tmux     *bool          // Override workflow-level tmux
-    Timeout  string         // Parsed duration, default 30m (DefaultStepTimeout)
-    Human    bool           // Approval gate
-    Artifact bool           // Expect output artifact
-    Loop     *LoopConfig    // Optional retry loop
+    Name, Prompt, Mode    string
+    Tmux                  *bool          // Override workflow-level tmux
+    Timeout               string         // Parsed duration, default 30m (DefaultStepTimeout)
+    Human                 bool           // Approval gate
+    Loop                  *LoopConfig    // Optional retry loop
+    SummarizationStrategy string         // Strategy for summarizing step output
 }
 ```
 
 **Loop validation**: goto must reference earlier step, max_iterations >= 1, no human/tmux on looped steps, no overlapping ranges.
+
+### LoopConfig
+
+```go
+type LoopConfig struct {
+    Goto          string             // Target step name to jump back to
+    MaxIterations int                // Required, must be >= 1
+    ExitCondition *LoopExitCondition // Optional early exit condition
+}
+
+type LoopExitCondition struct {
+    StepContextEmpty string // Step name whose context to check; exit if empty
+}
+```
 
 ## Worktree Sync Paths
 
@@ -157,7 +172,17 @@ ListWorkflowNames() []string
 ListPredefinedTaskNames() []string
 ListInitWorkflowNames() []string
 GetStepTimeout(step StepConfig) time.Duration       // Parses Timeout string, falls back to 30m
-GetWorkflowSteps() []StepConfig                     // Steps from first tasks workflow
+GetWorktreeSetupCommand(wf *WorkflowConfig) string  // Workflow-level override, then project-level
+GetTmuxSetupCommand(wf *WorkflowConfig) string      // Workflow-level override, then project-level
+ResolveBranchForTask(taskID int64, taskTitle, taskSlug, branchName string) string
+WriteProjectConfig(path string, proj *ProjectConfig) error  // Package-level function
+```
+
+## Exported Utilities
+
+```go
+GetGlobalDataDir() string                           // ~/.config/sortie/ (respects XDG_CONFIG_HOME)
+SanitizeProjectName(name string) string             // Replaces dots with underscores
 ```
 
 ## File Map

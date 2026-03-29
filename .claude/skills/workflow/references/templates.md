@@ -6,18 +6,18 @@
 type TemplateContext struct {
     Task      TaskVars
     Steps     map[string]string   // step_name -> step context (from DB task_steps table)
-    Artifacts map[string]string   // step_name -> step context (backward compat alias for Steps)
     Git       GitVars
     Loop      LoopVars
 }
 
 type TaskVars struct {
-    ID, Title, Description, Slug, Branch string
+    ID          int64
+    Title, Description, Slug, Branch string
     Images []string  // worktree-relative paths
 }
 
 type GitVars struct {
-    BaseBranch, RepoRoot string
+    BaseBranch, TargetBranch, RepoRoot string
 }
 
 type LoopVars struct {
@@ -36,6 +36,7 @@ type LoopVars struct {
 | `{{task.branch}}` | Resolved branch name |
 | `{{task.images}}` | Newline-joined image paths |
 | `{{git.base_branch}}` | Base branch (e.g., main) |
+| `{{git.target_branch}}` | Effective target branch (per-task override or base branch) |
 | `{{git.repo_root}}` | Repository root path |
 | `{{loop.iteration}}` | Current loop iteration |
 | `{{loop.max_iterations}}` | Max iterations configured |

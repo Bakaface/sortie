@@ -9,6 +9,12 @@ description: >
 
 # Task Lifecycle
 
+## File Map
+
+| File | Purpose |
+|------|---------|
+| `task.go` | Task struct, Status/Priority enums, title sanitization, slugification |
+
 ## Task Struct
 
 ```go
@@ -21,14 +27,18 @@ type Task struct {
     StepIndex                  int
     CurrentStep                string
     LoopIteration              int
-    BranchName                 string    // User template
+    BranchName                 string    // User template (e.g. "feature/{{task.title}}")
     Branch                     string    // Resolved name
+    TargetBranch               string    // Per-task override for base/merge branch
+    CheckoutBranch             string    // Use an existing branch instead of creating a new one
     Worktree                   bool      // Default true; false = run in project root
     WorktreePath               string
+    WorktreeDetached           bool
     ExitCode                   *int
     ErrorMessage, Context      string
     BlockedBy                  []int64
     Images                     []string
+    Commits                    []string
     CreatedAt                  time.Time
     StartedAt, CompletedAt     *time.Time
     UpdatedAt                  time.Time

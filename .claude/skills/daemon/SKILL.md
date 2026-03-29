@@ -17,13 +17,26 @@ type Server struct {
     listener    net.Listener         // Unix socket
     manager     *agent.Manager       // Concurrent agent execution
     database    *db.DB
+    notifier    *notify.Notifier     // Desktop/sound notifications
+
+    projectsMu  sync.RWMutex
     projects    map[int64]*projectContext  // Lazy-loaded per-project config+engine
-    clients     map[net.Conn]bool    // All connected clients
-    subscribers map[net.Conn]bool    // Pub/sub subscribers
+
+    mergeMus    map[string]*sync.Mutex    // Per-repo merge mutexes, keyed by repoRoot
+    mergeMusMu  sync.Mutex                // Protects mergeMus map
+
+    mu           sync.RWMutex
+    clients      map[net.Conn]bool    // All connected clients
+    subscribers  map[net.Conn]bool    // Pub/sub subscribers
+    tmuxActivity map[int64]string     // Latest tmux activity per task ID
+
+    ctx    context.Context
+    cancel context.CancelFunc
+    wg     sync.WaitGroup
 }
 ```
 
-**Startup**: ensure dirs -> PID file -> Unix socket -> register agent callback -> recover orphans -> spawn `acceptLoop()` + `taskPollerLoop()`
+**Startup**: ensure dirs -> PID file -> Unix socket -> register agent callback -> recover orphans -> spawn `acceptLoop()` + `taskPollerLoop()` + `tmuxMonitorLoop()`
 
 ## File Map
 
@@ -32,7 +45,8 @@ type Server struct {
 | `server.go` | Lifecycle, connection handling, project context caching |
 | `handlers_task.go` | Task CRUD & metadata: create, get, list, delete, retry, update priority/field/dependency, revert, step contexts, title generation |
 | `handlers_agent.go` | Agent ops, subscriptions, logs: list/start/stop agents, get output, subscribe/unsubscribe, get logs |
-| `handlers_continue.go` | Continuation flow: continue/finalize tasks, worktree/branch management, tmux setup |
+| `handlers_continue.go` | Continuation flow: continue/finalize tasks, worktree/branch management, tmux setup, detach/attach branch |
+| `tmux_monitor.go` | Background tmux activity monitoring loop, broadcasts activity changes to subscribers |
 | `broadcast.go` | Event broadcasting, agent state change handling |
 | `protocol.go` | Message types, request/response structs |
 | `poller.go` | Background polling for pending tasks |
@@ -71,12 +85,17 @@ type TaskInfo struct {
     Status, Priority                        string
     StepIndex, LoopIteration                int
     CurrentStep, BranchName, Branch         string
+    TargetBranch, CheckoutBranch            string
     Worktree                                bool
-    WorktreePath, ErrorMessage, Context     string
+    WorktreePath                            string
+    WorktreeDetached                        bool
+    ErrorMessage, Context                   string
     BlockedBy                               []int64
     Images                                  []string
+    Commits                                 []string
     CreatedAt                               time.Time
     StartedAt, CompletedAt                  *time.Time
+    TmuxActivity                            string
 }
 ```
 

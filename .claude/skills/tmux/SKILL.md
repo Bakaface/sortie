@@ -2,22 +2,32 @@
 name: tmux
 description: >
   Sortie's tmux session management: session creation, lifecycle, pane capture,
-  key sending, and nested tmux detection. Use when editing files in internal/tmux/,
-  working on tmux session creation, attachment, log piping, or session cleanup.
+  key sending, nested tmux detection, and activity monitoring. Use when editing
+  files in internal/tmux/, working on tmux session creation, attachment, log
+  piping, session cleanup, or activity detection.
 ---
 
 # Tmux Session Management
 
-`internal/tmux/` manages tmux sessions for interactive task steps (single file: `session.go`).
+`internal/tmux/` manages tmux sessions for interactive task steps and monitors their activity state.
+
+## File Map
+
+| File | Purpose |
+|---|---|
+| `session.go` | Session struct, creation, teardown, pane interaction, attachment commands, setup command support |
+| `monitor.go` | Activity detection via content hash stability + idle pattern matching |
 
 ## Session Naming
 
 ```go
-const SessionPrefix = "sortie-"
+// SessionPrefix is a function that returns a project-scoped prefix.
+// The project name is sanitized (dots replaced with underscores) to match tmux behavior.
+func SessionPrefix(projectName string) string  // returns sanitizeSessionName(projectName) + "-"
 ```
 
-- Basic: `sortie-<taskID>` (via `NewSession`)
-- Step-scoped: `sortie-<taskID>-<stepName>` (via `NewStepSession`)
+- Session names are project-scoped: `<sanitizedProject>-<taskID>` (via `NewSession`)
+- `sanitizeSessionName(name string) string` replaces `.` with `_` to match tmux's own character replacements
 
 ## Session Struct & Lifecycle
 
@@ -27,8 +37,7 @@ type Session struct {
     WorkDir string
 }
 
-NewSession(taskID, workDir string) *Session
-NewStepSession(taskID, stepName, workDir string) *Session
+NewSession(projectName, taskID, workDir string) *Session
 ```
 
 ### Creation & Teardown
@@ -37,7 +46,25 @@ NewStepSession(taskID, stepName, workDir string) *Session
 (s *Session) Exists() bool
 (s *Session) IsAlive() bool                                // Has active processes
 (s *Session) Kill() error
-KillSessionsForTask(taskID string) error                   // Kill all sessions with prefix
+KillSessionsForTask(projectName, taskID string) error      // Kill all sessions matching prefix+taskID
+```
+
+## Setup Commands
+
+```go
+// SetupVars holds template variables for tmux setup command interpolation.
+type SetupVars struct {
+    ClaudeCommand string  // full claude CLI invocation
+    RunAgent      string  // path to wrapper script that runs Claude agent TUI
+}
+
+// Returns true if setup command contains {{run_agent}} or {{claude_command}},
+// meaning the user controls where the agent runs.
+SetupCommandControlsAgent(command string) bool
+
+// Runs a user-configured command after tmux session creation.
+// Template variables: {{session_name}}, {{worktree_path}}, {{claude_command}}, {{run_agent}}.
+(s *Session) RunSetupCommand(command string, vars *SetupVars) error
 ```
 
 ## Interaction
@@ -62,8 +89,60 @@ NestedAttachCommand(sessionName string) *exec.Cmd     // For nested tmux scenari
 IsAvailable() bool                              // tmux binary exists and works
 IsInsideTmux() bool                             // Checks $TMUX env var
 ListSessions(prefix string) ([]*Session, error) // List sessions matching prefix
-ExtractTaskID(sessionName string) string        // Parse task ID from session name
+ExtractTaskID(projectName, sessionName string) string  // Parse task ID from session name
 ```
+
+## Activity Monitoring
+
+`monitor.go` detects whether a tmux session is idle or actively working by combining content hash stability with idle pattern matching.
+
+### Types
+
+```go
+type Activity string
+
+const (
+    ActivityIdle    Activity = "idle"
+    ActivityWIP     Activity = "wip"
+    ActivityUnknown Activity = "unknown"
+)
+```
+
+### Configuration
+
+```go
+type MonitorConfig struct {
+    PollInterval      time.Duration    // how often to check sessions (default: 2s)
+    StableThreshold   int              // consecutive identical hashes needed when pattern matches (default: 3)
+    FallbackThreshold int              // hash-only threshold when no pattern configured (default: 6)
+    IdlePatterns      []*regexp.Regexp // patterns to match against tail lines
+    PatternScanLines  int              // number of lines from bottom to scan (default: 5)
+}
+
+DefaultMonitorConfig() MonitorConfig  // sensible defaults for Claude Code sessions
+```
+
+Default idle patterns match: `╰─>` (Claude Code prompt), `$\s*$` (shell prompt), `>\s*$` (generic prompt).
+
+### Monitor
+
+```go
+type Monitor struct { ... }
+
+NewMonitor(cfg MonitorConfig) *Monitor
+
+// Check captures pane content and determines activity state.
+// Returns the activity and whether it changed from the previous check.
+(m *Monitor) Check(session *Session) (Activity, bool)
+
+// Remove cleans up tracking state for a session that has ended.
+(m *Monitor) Remove(sessionName string)
+
+// Sessions returns the set of tracked session names (for cleanup).
+(m *Monitor) Sessions() map[string]*sessionState
+```
+
+Detection logic: hash all captured lines, track consecutive identical hashes per session. If idle patterns are configured and match the tail lines, use `StableThreshold`; otherwise fall back to `FallbackThreshold` (hash-only stability).
 
 ## Patterns
 
@@ -72,3 +151,4 @@ ExtractTaskID(sessionName string) string        // Parse task ID from session na
 - `NestedAttachCommand` used when `TmuxNestedAttachBehavior == "nest"`
 - Session working directory set via `-c` flag on creation
 - `PipePane` enables log capture for non-interactive monitoring
+- Use `SetupCommandControlsAgent()` to check if the user's setup command manages agent startup

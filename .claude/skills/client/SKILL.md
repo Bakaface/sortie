@@ -17,10 +17,12 @@ description: >
 type Client struct {
     cfg       *config.Config
     conn      net.Conn
+    mu        sync.Mutex
     respChan  chan *daemon.Message  // Request-response messages
     subChan   chan *daemon.Message  // Subscription broadcast messages
     errChan   chan error
     done      chan struct{}
+    closeOnce sync.Once
 }
 
 New(cfg *config.Config) *Client
@@ -30,11 +32,11 @@ Close() error
 
 ## Connection Lifecycle
 
-1. `New(cfg)` — creates client with config (socket path from `cfg.SocketPath`)
-2. `Connect()` — dials Unix socket, starts background reader goroutine that routes messages to `respChan` or `subChan`
+1. `New(cfg)` -- creates client with config (socket path from `cfg.Daemon.SocketPath`)
+2. `Connect()` -- dials Unix socket, starts background reader goroutine that routes messages to `respChan` or `subChan`
 3. Use RPC methods for request-response
 4. `Subscribe()` / `Unsubscribe()` to receive broadcast events via `Messages()`
-5. `Close()` — shuts down connection and channels
+5. `Close()` -- shuts down connection and channels
 
 ## RPC Methods
 
@@ -56,13 +58,23 @@ GetTask(id int64) (*daemon.TaskInfo, error)
 CreateTask(description, workflow, branchName, projectPath string, worktree bool, images []string) (*daemon.TaskInfo, error)
 CreateTaskWithOptions(req daemon.CreateTaskRequest) (*daemon.TaskInfo, error)
 RetryTask(id int64) error
+RevertTask(id int64) error
 ContinueTask(id int64, workflow, prompt string) error
 FinalizeTask(id int64) error
 UpdateTaskPriority(id int64, priority string) error
 UpdateTaskField(id int64, field, value string) error
 DeleteTask(id int64) error
 StopTask(id int64) error
-GetLogs(id int64, step string, tail int) ([]string, error)
+GetLogs(id int64, step string, tail int, offset int) ([]string, int, error)
+GetStepContexts(taskID int64) (map[string]string, error)
+```
+
+### Dependency & Branch Operations
+```go
+AddTaskDependency(taskID, blockedByID int64) error
+RemoveTaskDependency(taskID, blockedByID int64) error
+DetachBranch(id int64) error
+AttachBranch(id int64) error
 ```
 
 ### System
@@ -75,7 +87,7 @@ Unsubscribe() error
 ## Event Streaming
 
 ```go
-Messages() <-chan *daemon.Message   // Broadcast events (agent_update, task_update, output_chunk)
+Messages() <-chan *daemon.Message   // Broadcast events (agent_update, task_update, tmux_activity)
 Errors() <-chan error               // Connection errors
 ```
 
@@ -88,8 +100,9 @@ ParseAgentUpdate(msg *daemon.Message) (*daemon.AgentInfo, error)
 
 ## Patterns
 
-- All RPC methods are synchronous: send request, wait on `respChan` for response
+- RPC methods are synchronous (send request, wait on `respChan`), except `Unsubscribe` which is fire-and-forget (uses `send` not `sendAndWait`)
 - Subscription events arrive on `subChan`, consumed via `Messages()`
 - Background reader goroutine routes messages by type (broadcast types -> `subChan`, others -> `respChan`)
 - `Close()` uses `sync.Once` to prevent double-close panics
 - Error channel signals connection failures to consumer
+- Internal helpers: `request()` sends and checks for error response, `requestOK()` wraps `request()` for void RPCs, `send()` is fire-and-forget without waiting for a response

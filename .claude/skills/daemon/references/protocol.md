@@ -17,7 +17,7 @@ type Message struct {
 | `list_tasks` | `ListTasksRequest{ProjectID, ProjectName}` | List tasks (optionally filtered) |
 | `start_agent` | `StartAgentRequest{TaskID}` | Start agent for task |
 | `stop_agent` | `StopAgentRequest{AgentID}` | Stop running agent |
-| `create_task` | `CreateTaskRequest{Description, Workflow, Priority, BranchName, ProjectPath, Worktree, Images}` | Create new task |
+| `create_task` | `CreateTaskRequest{Title, Description, Workflow, Priority, BranchName, TargetBranch, CheckoutBranch, ProjectPath, Worktree, TmuxDirect, Images, BlockedBy}` | Create new task |
 | `get_task` | `GetTaskRequest{TaskID}` | Get single task |
 | `delete_task` | `DeleteTaskRequest{TaskID}` | Delete task + cleanup |
 | `retry_task` | `RetryTaskRequest{TaskID}` | Reset task to pending |
@@ -31,6 +31,11 @@ type Message struct {
 | `subscribe` | — | Subscribe to events |
 | `unsubscribe` | — | Unsubscribe |
 | `ping` | — | Health check |
+| `revert_task` | `RevertTaskRequest{TaskID}` | Revert task changes |
+| `detach_branch` | `DetachBranchRequest{TaskID}` | Detach worktree HEAD from branch |
+| `attach_branch` | `AttachBranchRequest{TaskID}` | Reattach branch to worktree |
+| `update_dependency` | `UpdateDependencyRequest{TaskID, BlockedBy, Action}` | Add/remove task dependency |
+| `get_step_contexts` | `GetStepContextsRequest{TaskID}` | Get step context map |
 | `shutdown` | — | Graceful shutdown |
 
 ## Server -> Client Events
@@ -44,6 +49,7 @@ type Message struct {
 | `output_chunk` | `OutputChunk` | Agent output lines |
 | `ok` | — | Success acknowledgment |
 | `error` | `ErrorResponse{Message}` | Error response |
+| `tmux_activity` | `TmuxActivityResponse{TaskID, Activity}` | Tmux activity change |
 | `pong` | — | Health check response |
 
 ## Key Types
@@ -73,17 +79,22 @@ type TaskInfo struct {
     StepIndex     int        `json:"step_index"`
     CurrentStep   string     `json:"current_step"`
     LoopIteration int        `json:"loop_iteration,omitempty"`
-    BranchName    string     `json:"branch_name,omitempty"`
-    Branch        string     `json:"branch"`
-    Worktree      bool       `json:"worktree"`
-    WorktreePath  string     `json:"worktree_path,omitempty"`
-    ErrorMessage  string     `json:"error_message,omitempty"`
-    Context       string     `json:"context,omitempty"`
-    Images        []string   `json:"images,omitempty"`
-    BlockedBy     []int64    `json:"blocked_by,omitempty"`
-    CreatedAt     time.Time  `json:"created_at"`
-    StartedAt     *time.Time `json:"started_at,omitempty"`
-    CompletedAt   *time.Time `json:"completed_at,omitempty"`
+    BranchName       string     `json:"branch_name,omitempty"`
+    Branch           string     `json:"branch"`
+    TargetBranch     string     `json:"target_branch,omitempty"`
+    CheckoutBranch   string     `json:"checkout_branch,omitempty"`
+    Worktree         bool       `json:"worktree"`
+    WorktreePath     string     `json:"worktree_path,omitempty"`
+    WorktreeDetached bool       `json:"worktree_detached,omitempty"`
+    ErrorMessage     string     `json:"error_message,omitempty"`
+    Context          string     `json:"context,omitempty"`
+    Images           []string   `json:"images,omitempty"`
+    Commits          []string   `json:"commits,omitempty"`
+    BlockedBy        []int64    `json:"blocked_by,omitempty"`
+    CreatedAt        time.Time  `json:"created_at"`
+    StartedAt        *time.Time `json:"started_at,omitempty"`
+    CompletedAt      *time.Time `json:"completed_at,omitempty"`
+    TmuxActivity     string     `json:"tmux_activity,omitempty"`
 }
 ```
 

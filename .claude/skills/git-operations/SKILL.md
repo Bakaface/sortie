@@ -17,35 +17,48 @@ Two files: `operations.go` (core git commands) and `worktree.go` (worktree lifec
 const WorktreePrefix = "sortie-task-"
 
 type Worktree struct {
-    Path        string
-    Branch      string
-    RepoRoot    string
-    WorktreeDir string
+    Path     string
+    Branch   string
+    RepoRoot string
 }
 
 CreateWorktree(repoRoot string, taskID int64, baseBranch, branchName string) (*Worktree, error)
+CheckoutWorktree(repoRoot string, taskID int64, branchName string) (*Worktree, error)
 RemoveWorktree(repoRoot, worktreePath string) error
-ListWorktrees(repoRoot string) ([]string, error)   // Filters "sortie-*" prefix paths
+ListWorktrees(repoRoot string) ([]string, error)   // Filters WorktreePrefix ("sortie-task-") and "sortie-" paths
 CleanupWorktrees(repoRoot string) error             // git worktree prune
 IsGitRepo(path string) bool
 GetRepoRoot(path string) (string, error)
+GetDefaultBranch(repoRoot string) string            // symbolic-ref -> main/master -> HEAD
+BranchExists(repoRoot, branchName string) bool
+FetchAndTrackBranch(repoRoot, branchName string) error
+DetachWorktreeHead(worktreePath string) error
+ReattachWorktreeBranch(worktreePath, branch string) error
+CheckoutBranch(repoPath, branch string) error
+IsWorktreeDetached(worktreePath string) bool
 ```
 
 Worktree path convention: `<repoRoot>/.sortie/worktrees/<branchName-with-slashes-as-dashes>`
 
 `CreateWorktree` handles "already exists" by falling back to plain checkout.
 
+`CheckoutWorktree` checks out an existing branch into a worktree, fetching from remote if not found locally.
+
 ## Core Operations
 
 | Function | What it does |
 |----------|-------------|
 | `Commit(dir, msg)` | `add -A` -> status check -> `commit -m` (no-op if clean) |
-| `HasMeaningfulChanges(dir, excludeFiles)` | Uncommitted + committed changes excluding noise |
-| `MergeBranch(repoRoot, base, branch, msg)` | Checkout base -> `merge --squash` -> commit |
+| `HasMeaningfulChanges(dir, excludeFiles)` | Uncommitted + committed changes excluding caller-specified files |
+| `MergeBranch(repoRoot, branch, baseBranch, commitMsg)` | Checkout baseBranch -> `merge --squash` branch -> commit. Includes deferred `CleanRepoState()` safety net on failure. |
 | `RebaseBranch(dir, baseBranch)` | Rebase with auto-abort on failure |
 | `DiffStat(dir, baseBranch)` | merge-base -> `diff --stat` |
 | `GetCurrentBranch(dir)` | Current branch name |
 | `HasChanges(dir)` | Whether working tree has uncommitted changes |
+| `CleanRepoState(repoRoot)` | Abort in-progress merge + hard reset to HEAD, verify clean |
+| `ListLocalBranches(repoRoot)` | Sorted local branches excluding current branch |
+| `GetLastCommitHash(dir)` | SHA of most recent commit on current branch |
+| `RevertCommits(dir, commits)` | Revert each commit hash in reverse order (newest first) |
 
 ## Conflict Resolution
 
@@ -82,5 +95,5 @@ When `task.Worktree == false`, git worktree/branch operations are skipped entire
 ## Patterns
 
 - All git commands via `exec.Command("git", ...)` with `Dir` set
-- `HasMeaningfulChanges()` excludes `.claude-output.log` and `CLAUDE.md`
-- `getDefaultBranch()`: tries `symbolic-ref`, falls back to main/master/HEAD
+- `HasMeaningfulChanges()` takes `excludeFiles []string` — the caller decides what to exclude
+- `GetDefaultBranch()`: tries `symbolic-ref`, falls back to main/master/HEAD

@@ -12,10 +12,11 @@ description: >
 ## Execution Flow (RunTask)
 
 1. Create/reuse git worktree (skip if `task.Worktree == false`)
-2. **Sync configured paths** via `SyncPathsToWorktree(srcRoot, dstRoot, paths)` — copies `worktree-sync-paths` from project root
-3. `EnsureWorkDirs(worktreePath)` — create `.sortie/images/`, `.sortie/logs/`
-4. Copy attached images to `.sortie/images/`
-5. For each step (from `task.StepIndex`):
+2. **Sync configured paths** via `SyncPathsToWorktree(srcRoot, dstRoot string, paths config.WorktreeSyncPathsConfig)` — copies/links `worktree-sync-paths` from project root
+3. Run `RunWorktreeSetupCommand()` if configured (worktree-only)
+4. `EnsureWorkDirs(worktreePath)` — create `.sortie/logs/`
+5. Copy attached images to `.sortie/images/`
+6. For each step (from `task.StepIndex`):
    - Collect step contexts from prior steps (fetched from `task_steps` DB table)
    - Build `TemplateContext`, resolve prompt via `ResolveTemplate()`
    - `BuildSystemPrompt()` constructs system prompt string (passed via `--system-prompt` flag)
@@ -24,7 +25,7 @@ description: >
    - Store step context in `task_steps` DB table
    - Validate meaningful code changes (skip for human/tmux)
    - Evaluate loop conditions, check approval gates
-6. Execute `on_complete` (commit/merge/none), run summarizer, clean up worktree (if merge)
+7. Execute `on_complete` (commit/merge/none), run summarizer, clean up worktree (if merge)
 
 ## File Map
 
@@ -37,7 +38,7 @@ description: >
 | `template.go` | `{{placeholder}}` interpolation via `ResolveTemplate()` |
 | `system-prompt.go` | `BuildSystemPrompt()` — builds system prompt string for spawned Claude agents |
 | `artifact.go` | Directory management, image copying |
-| `sync.go` | `SyncPathsToWorktree(srcRoot, dstRoot string, paths []string) error` — copies configured paths |
+| `sync.go` | `SyncPathsToWorktree(srcRoot, dstRoot string, paths config.WorktreeSyncPathsConfig) error` — copies/links configured paths |
 
 ## Template System
 
