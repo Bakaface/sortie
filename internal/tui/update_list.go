@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -178,21 +177,16 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if task.Status == "completed" || task.Status == "failed" {
 				workflows := m.cfg.ListWorkflowNames()
 				m.continueTaskID = task.ID
-				// If only one workflow (default), skip selection and go to prompt
-				if len(workflows) == 1 && workflows[0] == "default" {
-					m.continueSelectedWorkflow = "default"
-					m.view = viewPrompt
-					m.prompt.Reset()
-					m.prompt.workflowName = "default"
-					m.prompt.workflows = workflows
-					m.prompt.Focus()
-					return m, nil
+				m.continueSelectedWorkflow = ""
+				if len(workflows) > 0 {
+					m.continueSelectedWorkflow = workflows[0]
 				}
-				m.selector = selector{
-					kind:  selectorContinueWorkflow,
-					title: fmt.Sprintf("Continue Task #%d - Select Workflow", task.ID),
-					items: workflows,
-				}
+				m.view = viewPrompt
+				m.prompt.Reset()
+				m.prompt.workflowName = m.continueSelectedWorkflow
+				m.prompt.workflows = workflows
+				m.prompt.workflowCursor = 0
+				m.prompt.Focus()
 				return m, nil
 			}
 			if task.Status == "tmux" {
@@ -252,20 +246,15 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		workflows := m.cfg.ListWorkflowNames()
-		if len(workflows) > 1 {
-			m.selector = selector{
-				kind:  selectorWorkflow,
-				title: "Select Workflow",
-				items: workflows,
-			}
-			return m, nil
-		}
-		// Single workflow (or default) — skip selection and open prompt view
 		m.selectedWorkflow = ""
+		if len(workflows) > 0 {
+			m.selectedWorkflow = workflows[0]
+		}
 		m.view = viewPrompt
 		m.prompt.Reset()
-		m.prompt.workflowName = ""
+		m.prompt.workflowName = m.selectedWorkflow
 		m.prompt.workflows = workflows
+		m.prompt.workflowCursor = 0
 		m.prompt.Focus()
 		return m, nil
 
@@ -285,19 +274,15 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.blockingTaskID = task.ID
 		workflows := m.cfg.ListWorkflowNames()
-		if len(workflows) > 1 {
-			m.selector = selector{
-				kind:  selectorWorkflow,
-				title: "Select Workflow",
-				items: workflows,
-			}
-			return m, nil
-		}
 		m.selectedWorkflow = ""
+		if len(workflows) > 0 {
+			m.selectedWorkflow = workflows[0]
+		}
 		m.view = viewPrompt
 		m.prompt.Reset()
-		m.prompt.workflowName = ""
+		m.prompt.workflowName = m.selectedWorkflow
 		m.prompt.workflows = workflows
+		m.prompt.workflowCursor = 0
 		m.prompt.blockingTaskID = m.blockingTaskID
 		m.prompt.blockingTaskTitle = m.blockingTaskTitleFromList(m.blockingTaskID)
 		m.prompt.Focus()
@@ -495,28 +480,6 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 	m.selector.Reset()
 
 	switch kind {
-	case selectorWorkflow:
-		m.selectedWorkflow = item
-		m.view = viewPrompt
-		m.prompt.Reset()
-		m.prompt.workflowName = item
-		m.prompt.workflows = m.cfg.ListWorkflowNames()
-		if m.blockingTaskID != 0 {
-			m.prompt.blockingTaskID = m.blockingTaskID
-			m.prompt.blockingTaskTitle = m.blockingTaskTitleFromList(m.blockingTaskID)
-		}
-		m.prompt.Focus()
-		return m, nil
-
-	case selectorContinueWorkflow:
-		m.continueSelectedWorkflow = item
-		m.view = viewPrompt
-		m.prompt.Reset()
-		m.prompt.workflowName = item
-		m.prompt.workflows = m.cfg.ListWorkflowNames()
-		m.prompt.Focus()
-		return m, nil
-
 	case selectorTask:
 		taskCfg := m.cfg.GetPredefinedTask(item)
 		if taskCfg == nil {
@@ -553,12 +516,7 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 
 // handleSelectorCancel handles cleanup when a selection is cancelled.
 func (m Model) handleSelectorCancel() (tea.Model, tea.Cmd) {
-	kind := m.selector.kind
 	m.selector.Reset()
-
-	if kind == selectorContinueWorkflow {
-		m.continueTaskID = 0
-	}
 	return m, nil
 }
 

@@ -39,6 +39,13 @@ const (
 	branchModeExisting                    // checkout existing branch
 )
 
+type promptPane int
+
+const (
+	paneTask     promptPane = iota // left pane: title, description, git fields
+	paneWorkflow                   // right pane: workflow list
+)
+
 type promptView struct {
 	textarea          textarea.Model
 	titleInput        textinput.Model
@@ -58,6 +65,9 @@ type promptView struct {
 	height            int
 	showHelp          bool
 	validationError   string // shown after failed submit attempt
+	activePane        promptPane
+	workflowCursor    int
+	pendingPaneSwitch bool // true after ctrl+w, awaiting h/j/k/l
 }
 
 func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
@@ -111,7 +121,11 @@ func (p *promptView) SetSize(width, height int) {
 	prefix := 2
 	p.titleInput.Width = width - 4 - prefix - lipgloss.Width("Title: ")
 	// Git inputs are inside a frame (│ + space on left, │ on right = 3 chars overhead)
-	gitInner := width - 4 - 3
+	gitFrameWidth := width - 4
+	if len(p.workflows) > 1 && width >= 60 {
+		gitFrameWidth = (width - 4) * 2 / 3
+	}
+	gitInner := gitFrameWidth - 3
 	p.branchInput.Width = gitInner - prefix - lipgloss.Width("Branch: ")
 	p.checkoutInput.Width = gitInner - prefix - lipgloss.Width("Checkout: ")
 	p.targetBranchInput.Width = gitInner - prefix - lipgloss.Width("Target: ")
@@ -128,6 +142,9 @@ func (p *promptView) maxHeight() int {
 	reserved := 13
 	if !p.worktree {
 		reserved -= 4 // no mode/blank/branch/target lines
+	}
+	if len(p.workflows) > 1 && p.width > 0 && p.width < 60 {
+		reserved += len(p.workflows) + 2 // workflow frame top + items + bottom
 	}
 	h := p.height - reserved
 	if h < 1 {
@@ -189,6 +206,9 @@ func (p *promptView) Reset() {
 	p.blockingTaskID = 0
 	p.blockingTaskTitle = ""
 	p.validationError = ""
+	p.activePane = paneTask
+	p.workflowCursor = 0
+	p.pendingPaneSwitch = false
 	p.focusField = promptFieldDescription
 	p.textarea.Focus()
 	p.branchInput.Blur()
@@ -480,20 +500,20 @@ func isImagePath(s string) bool {
 	return imageExtensions[ext]
 }
 
-// CycleWorkflow advances to the next workflow in the available list.
-func (p *promptView) CycleWorkflow() {
-	if len(p.workflows) <= 1 {
-		return
-	}
-	current := p.workflowName
+// renderWorkflowList renders the workflow selector list for the right pane.
+func (p *promptView) renderWorkflowList() string {
+	var wf strings.Builder
 	for i, name := range p.workflows {
-		if name == current {
-			p.workflowName = p.workflows[(i+1)%len(p.workflows)]
-			return
+		if i == p.workflowCursor {
+			wf.WriteString(selectedStyle.Render("> " + name))
+		} else {
+			wf.WriteString("  " + name)
+		}
+		if i < len(p.workflows)-1 {
+			wf.WriteString("\n")
 		}
 	}
-	// Current not found — pick first
-	p.workflowName = p.workflows[0]
+	return wf.String()
 }
 
 func (p *promptView) View() string {
@@ -510,7 +530,7 @@ func (p *promptView) View() string {
 	}
 
 	// Git section frame — border brightens when it contains the focused field
-	gitHasFocus := p.focusField == promptFieldBranch || p.focusField == promptFieldCheckout || p.focusField == promptFieldTargetBranch
+	gitHasFocus := p.activePane == paneTask && (p.focusField == promptFieldBranch || p.focusField == promptFieldCheckout || p.focusField == promptFieldTargetBranch)
 
 	activeBorder := lipgloss.Color("#5F8AB3")
 	inactiveBorder := lipgloss.Color("#3A3A3A")
@@ -537,11 +557,7 @@ func (p *promptView) View() string {
 	}
 	title := titleStyle.Render(titleText)
 	if p.workflowName != "" && p.width > 0 {
-		workflowLabel := p.workflowName
-		if len(p.workflows) > 1 {
-			workflowLabel += " (alt+f)"
-		}
-		workflowWidget := projectIndicatorStyle.Render("[" + workflowLabel + "]")
+		workflowWidget := projectIndicatorStyle.Render("[" + p.workflowName + "]")
 		gap := p.width - lipgloss.Width(title) - lipgloss.Width(workflowWidget)
 		if gap < 0 {
 			gap = 0
@@ -625,7 +641,28 @@ func (p *promptView) View() string {
 		gitContent.WriteString(p.targetBranchInput.View())
 	}
 
-	b.WriteString(p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth))
+	if len(p.workflows) > 1 {
+		workflowContent := p.renderWorkflowList()
+		workflowBorderColor := inactiveBorder
+		if p.activePane == paneWorkflow {
+			workflowBorderColor = activeBorder
+		}
+
+		const minSideBySide = 60
+		if p.width >= minSideBySide {
+			leftWidth := innerWidth * 2 / 3
+			rightWidth := innerWidth - leftWidth - 1 // -1 for gap
+			gitFrame := p.renderFramedSection("Git", gitBorderColor, gitContent.String(), leftWidth)
+			wfFrame := p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, rightWidth)
+			b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, gitFrame, " ", wfFrame))
+		} else {
+			b.WriteString(p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth))
+			b.WriteString("\n")
+			b.WriteString(p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, innerWidth))
+		}
+	} else {
+		b.WriteString(p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth))
+	}
 	b.WriteString("\n")
 
 	// Attached images

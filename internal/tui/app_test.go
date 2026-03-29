@@ -406,25 +406,23 @@ func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
 		client: &client.Client{},
 		list:   newListView(false, ""),
 		detail: newDetailView(),
+		prompt: newPromptView(true, ""),
 		view:   viewList,
 	}
 	m.list.SetTasks([]daemon.TaskInfo{
 		{ID: 10, Title: "Completed task", Status: "completed"},
 	})
 
-	// Single "c" now triggers workflow selection for completed tasks
+	// Single "c" now goes straight to prompt for completed tasks
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
-	result, cmd := m.handleListKey(msg)
+	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.selector.kind != selectorContinueWorkflow {
-		t.Error("expected selector kind to be selectorContinueWorkflow")
+	if updated.view != viewPrompt {
+		t.Errorf("expected view to be viewPrompt, got %d", updated.view)
 	}
 	if updated.continueTaskID != 10 {
 		t.Errorf("expected continueTaskID to be 10, got %d", updated.continueTaskID)
-	}
-	if cmd != nil {
-		t.Error("expected no command (workflow selection pending), got non-nil")
 	}
 }
 
@@ -442,25 +440,23 @@ func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
 		client: &client.Client{},
 		list:   newListView(false, ""),
 		detail: newDetailView(),
+		prompt: newPromptView(true, ""),
 		view:   viewList,
 	}
 	m.list.SetTasks([]daemon.TaskInfo{
 		{ID: 11, Title: "Failed task", Status: "failed"},
 	})
 
-	// Single "c" now triggers workflow selection for failed tasks
+	// Single "c" now goes straight to prompt for failed tasks
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}}
-	result, cmd := m.handleListKey(msg)
+	result, _ := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.selector.kind != selectorContinueWorkflow {
-		t.Error("expected selector kind to be selectorContinueWorkflow")
+	if updated.view != viewPrompt {
+		t.Errorf("expected view to be viewPrompt, got %d", updated.view)
 	}
 	if updated.continueTaskID != 11 {
 		t.Errorf("expected continueTaskID to be 11, got %d", updated.continueTaskID)
-	}
-	if cmd != nil {
-		t.Error("expected no command (workflow selection pending), got non-nil")
 	}
 }
 

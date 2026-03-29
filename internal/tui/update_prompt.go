@@ -11,6 +11,28 @@ import (
 func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	pk := cachedPromptKeyMap
 
+	// Handle pending ctrl+w pane switch chord
+	if m.prompt.pendingPaneSwitch {
+		m.prompt.pendingPaneSwitch = false
+		switch msg.String() {
+		case "h":
+			m.prompt.activePane = paneTask
+			m.prompt.Focus()
+		case "l":
+			if len(m.prompt.workflows) > 1 {
+				m.prompt.activePane = paneWorkflow
+				m.prompt.Blur()
+			}
+		}
+		// Any other key: chord cancelled, do nothing
+		return m, nil
+	}
+
+	// When workflow pane is focused, handle its keys
+	if m.prompt.activePane == paneWorkflow {
+		return m.handleWorkflowPaneKey(msg)
+	}
+
 	// When help overlay is showing, only allow closing it
 	if m.prompt.showHelp {
 		if key.Matches(msg, pk.Help) || key.Matches(msg, pk.Cancel) {
@@ -105,10 +127,8 @@ func (m Model) handlePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case key.Matches(msg, pk.CycleWorkflow): // "alt+f"
-		m.prompt.CycleWorkflow()
-		// Update selectedWorkflow to match
-		m.selectedWorkflow = m.prompt.workflowName
+	case key.Matches(msg, pk.PaneSwitch): // "ctrl+w"
+		m.prompt.pendingPaneSwitch = true
 		return m, nil
 
 	case key.Matches(msg, pk.RemoveImage): // "ctrl+x"
@@ -195,4 +215,59 @@ func (m Model) planePositions(description string) [][2]int {
 		positions = append(positions, [2]int{planeCol, textareaStartRow})
 	}
 	return positions
+}
+
+func (m Model) handleWorkflowPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	pk := cachedPromptKeyMap
+
+	switch {
+	case key.Matches(msg, pk.PaneSwitch):
+		m.prompt.pendingPaneSwitch = true
+		return m, nil
+
+	case key.Matches(msg, pk.Cancel):
+		// Esc cancels prompt entirely (same as task pane)
+		m.continueTaskID = 0
+		m.continueSelectedWorkflow = ""
+		m.blockingTaskID = 0
+		m.view = viewList
+		return m, nil
+
+	case key.Matches(msg, pk.Submit):
+		// Enter from workflow pane: switch back to task pane (selection is implicit)
+		m.prompt.activePane = paneTask
+		m.prompt.Focus()
+		return m, nil
+
+	case key.Matches(msg, pk.SwitchField), key.Matches(msg, pk.SwitchFieldPrev):
+		// Tab/shift-tab: switch back to task pane
+		m.prompt.activePane = paneTask
+		m.prompt.Focus()
+		return m, nil
+
+	case key.Matches(msg, pk.Help):
+		m.prompt.showHelp = true
+		return m, nil
+	}
+
+	switch msg.String() {
+	case "j", "down":
+		if m.prompt.workflowCursor < len(m.prompt.workflows)-1 {
+			m.prompt.workflowCursor++
+			m.prompt.workflowName = m.prompt.workflows[m.prompt.workflowCursor]
+			m.selectedWorkflow = m.prompt.workflowName
+		}
+	case "k", "up":
+		if m.prompt.workflowCursor > 0 {
+			m.prompt.workflowCursor--
+			m.prompt.workflowName = m.prompt.workflows[m.prompt.workflowCursor]
+			m.selectedWorkflow = m.prompt.workflowName
+		}
+	case "G":
+		m.prompt.workflowCursor = max(0, len(m.prompt.workflows)-1)
+		m.prompt.workflowName = m.prompt.workflows[m.prompt.workflowCursor]
+		m.selectedWorkflow = m.prompt.workflowName
+	}
+
+	return m, nil
 }

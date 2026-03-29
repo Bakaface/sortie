@@ -12,8 +12,6 @@ type selectorKind int
 
 const (
 	selectorNone selectorKind = iota
-	selectorWorkflow
-	selectorContinueWorkflow
 	selectorTask
 	selectorInit
 	selectorPriority

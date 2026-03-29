@@ -457,7 +457,7 @@ type promptKeyMap struct {
 	RemoveImage     key.Binding
 	Worktree        key.Binding
 	BranchMode      key.Binding
-	CycleWorkflow   key.Binding
+	PaneSwitch      key.Binding
 	Editor          key.Binding
 	Help            key.Binding
 }
@@ -496,9 +496,9 @@ func newPromptKeyMap() promptKeyMap {
 			key.WithKeys("alt+m"),
 			key.WithHelp("alt+m", "branch mode"),
 		),
-		CycleWorkflow: key.NewBinding(
-			key.WithKeys("alt+f"),
-			key.WithHelp("alt+f", "workflow"),
+		PaneSwitch: key.NewBinding(
+			key.WithKeys("ctrl+w"),
+			key.WithHelp("ctrl+w", "switch pane"),
 		),
 		Editor: key.NewBinding(
 			key.WithKeys("ctrl+g"),
@@ -518,7 +518,7 @@ func (k promptKeyMap) ShortHelp() []key.Binding {
 func (k promptKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Submit, k.Cancel, k.SwitchField, k.Newline},
-		{k.Worktree, k.BranchMode, k.CycleWorkflow, k.Editor, k.RemoveImage},
+		{k.Worktree, k.BranchMode, k.PaneSwitch, k.Editor, k.RemoveImage},
 		{k.Help},
 	}
 }
