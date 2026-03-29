@@ -1,0 +1,196 @@
+package daemon
+
+import (
+	"bufio"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"github.com/aface/sortie/internal/task"
+	"github.com/aface/sortie/internal/workflow"
+)
+
+func (s *Server) handleListAgents(conn net.Conn) {
+	agents := s.manager.ListAgents()
+	infos := make([]AgentInfo, len(agents))
+
+	for i, a := range agents {
+		infos[i] = agentToInfo(a)
+	}
+
+	s.sendMessage(conn, MsgAgentList, AgentListResponse{Agents: infos})
+}
+
+func (s *Server) handleStartAgent(conn net.Conn, req StartAgentRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	if t.Status != task.StatusPending && t.Status != task.StatusAwaitingApproval && t.Status != task.StatusTmux {
+		s.sendError(conn, fmt.Sprintf("task is not startable (status: %s)", t.Status))
+		return
+	}
+
+	if err := s.startTaskAgent(t); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
+		return
+	}
+
+	s.sendMessage(conn, MsgOK, OKResponse{Message: "agent started"})
+}
+
+func (s *Server) handleStopAgent(conn net.Conn, req StopAgentRequest) {
+	if err := s.manager.StopAgent(req.AgentID); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to stop agent: %v", err))
+		return
+	}
+
+	s.sendMessage(conn, MsgOK, OKResponse{Message: "agent stopped"})
+}
+
+func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
+	lines, total, err := s.manager.GetOutput(req.AgentID, req.FromLine)
+	if err != nil {
+		taskID, parseErr := strconv.ParseInt(req.AgentID, 10, 64)
+		if parseErr == nil {
+			t, getErr := s.database.GetTask(taskID)
+			if getErr == nil {
+				dataDir := s.getProjectDataDir(t)
+				logsDir := workflow.ProjectLogsDir(dataDir, taskID)
+				entries, readErr := os.ReadDir(logsDir)
+				if readErr == nil {
+					var allLines []string
+					for _, entry := range entries {
+						if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
+							continue
+						}
+						allLines = append(allLines, readLogFile(filepath.Join(logsDir, entry.Name()))...)
+					}
+					total = len(allLines)
+					if req.FromLine < total {
+						lines = allLines[req.FromLine:]
+					}
+				}
+			}
+		}
+	}
+
+	s.sendMessage(conn, MsgOutputChunk, OutputChunkResponse{
+		AgentID:    req.AgentID,
+		Lines:      lines,
+		TotalLines: total,
+	})
+}
+
+func (s *Server) handleSubscribe(conn net.Conn) {
+	s.mu.Lock()
+	s.subscribers[conn] = true
+	s.mu.Unlock()
+
+	s.sendMessage(conn, MsgOK, OKResponse{Message: "subscribed"})
+}
+
+func (s *Server) handleUnsubscribe(conn net.Conn) {
+	s.mu.Lock()
+	delete(s.subscribers, conn)
+	s.mu.Unlock()
+
+	s.sendMessage(conn, MsgOK, OKResponse{Message: "unsubscribed"})
+}
+
+func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
+			TaskID: req.TaskID,
+			Lines:  []string{},
+		})
+		return
+	}
+
+	dataDir := s.getProjectDataDir(t)
+
+	if req.Step != "" {
+		logPath := workflow.ProjectLogPath(dataDir, req.TaskID, req.Step)
+		lines := readLogFile(logPath)
+		totalLines := len(lines)
+
+		if req.Offset > 0 {
+			if req.Offset >= len(lines) {
+				lines = nil
+			} else {
+				lines = lines[req.Offset:]
+			}
+		}
+
+		if req.Tail > 0 && len(lines) > req.Tail {
+			lines = lines[len(lines)-req.Tail:]
+		}
+
+		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
+			TaskID:     req.TaskID,
+			Step:       req.Step,
+			Lines:      lines,
+			TotalLines: totalLines,
+		})
+		return
+	}
+
+	logsDir := workflow.ProjectLogsDir(dataDir, req.TaskID)
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
+			TaskID: req.TaskID,
+			Lines:  []string{},
+		})
+		return
+	}
+
+	var allLines []string
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
+			continue
+		}
+		lines := readLogFile(filepath.Join(logsDir, entry.Name()))
+		allLines = append(allLines, lines...)
+	}
+	totalLines := len(allLines)
+
+	if req.Offset > 0 {
+		if req.Offset >= len(allLines) {
+			allLines = nil
+		} else {
+			allLines = allLines[req.Offset:]
+		}
+	}
+
+	if req.Tail > 0 && len(allLines) > req.Tail {
+		allLines = allLines[len(allLines)-req.Tail:]
+	}
+
+	s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
+		TaskID:     req.TaskID,
+		Lines:      allLines,
+		TotalLines: totalLines,
+	})
+}
+
+func readLogFile(path string) []string {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines
+}
