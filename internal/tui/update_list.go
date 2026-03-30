@@ -307,6 +307,14 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case key.Matches(msg, m.keys.ToggleBranchView):
+		m.list.branchView = !m.list.branchView
+		if m.list.branchView {
+			m.list.showBranch = true
+		}
+		m.list.applyFilter()
+		return m, nil
+
 	case key.Matches(msg, m.keys.BranchTask):
 		if m.client != nil && m.projectPath != "" {
 			return m, m.loadLocalBranches()

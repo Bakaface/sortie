@@ -214,16 +214,16 @@ func TestBranchViewIntegration(t *testing.T) {
 		}
 	}
 
-	// Check that TREE header appears instead of BRANCH
-	foundTree := false
+	// Check that BRANCH header still appears (column name stays "BRANCH")
+	foundBranch := false
 	for _, line := range lines {
-		if strings.Contains(line, "TREE") {
-			foundTree = true
+		if strings.Contains(line, "BRANCH") {
+			foundBranch = true
 			break
 		}
 	}
-	if !foundTree {
-		t.Error("expected TREE header in branch view mode")
+	if !foundBranch {
+		t.Error("expected BRANCH header in branch view mode")
 	}
 
 	// Verify tree structure: root at depth 0, children at depth 1

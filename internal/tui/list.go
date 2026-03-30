@@ -470,11 +470,7 @@ func (l *listView) renderHeader() string {
 	// Build the middle columns (branch/target) string for insertion between STATUS and TITLE
 	var midCols string
 	if l.showBranch {
-		label := "BRANCH"
-		if l.branchView {
-			label = "TREE"
-		}
-		midCols += fmt.Sprintf(" %-20s", label)
+		midCols += fmt.Sprintf(" %-20s", "BRANCH")
 	}
 	if l.showTarget {
 		midCols += fmt.Sprintf(" %-14s", "TARGET")
