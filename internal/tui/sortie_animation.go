@@ -97,9 +97,9 @@ func (a sortieAnimation) View() string {
 		return ""
 	}
 
-	planeStyle := lipgloss.NewStyle().Foreground(highlight)
-	trailSolidStyle := lipgloss.NewStyle().Foreground(highlight)
-	trailFadeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B"))
+	planeStyle := lipgloss.NewStyle().Foreground(promptColor)
+	trailSolidStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	trailFadeStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#555555"))
 
 	// Build a map of row -> plane index for quick lookup
 	// All planes are always visible; startDelay only gates movement

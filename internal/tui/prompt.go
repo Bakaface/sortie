@@ -72,6 +72,8 @@ type promptView struct {
 func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
 	ta := textarea.New()
 	ta.Prompt = PromptPrefix
+	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(promptColor)
+	ta.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(promptColor)
 	ta.Placeholder = "Describe the task..."
 	ta.Focus()
 	ta.CharLimit = 0 // unlimited

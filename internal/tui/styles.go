@@ -12,6 +12,10 @@ const AppTitle = "✈ Sortie"
 // similar to Claude Code's ❯ character.
 const PromptPrefix = "✈ "
 
+// promptColor is the foreground color for the ✈ prompt prefix in the textarea.
+// Animation planes must use the same color for visual continuity.
+var promptColor = lipgloss.Color("#E8E8E8")
+
 var (
 	subtle    = lipgloss.AdaptiveColor{Light: "#D9DCCF", Dark: "#3A3A3A"}
 	highlight = lipgloss.AdaptiveColor{Light: "#3D6E99", Dark: "#5F8AB3"}
