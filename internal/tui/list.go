@@ -27,6 +27,8 @@ type listView struct {
 	globalMode      bool
 	projectName     string
 	tmuxSessions    map[int64]bool
+	branchView     bool
+	treeEntries    []treeEntry
 	matchedIndices  []int // indices of tasks matching current search
 	currentMatchIdx int   // index within matchedIndices
 	scrollOffset       int  // index of first visible task row
@@ -159,6 +161,7 @@ func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
 
 	l.allTasks = tasks
 	l.tasks = l.filterTasks(tasks)
+	l.rebuildTree()
 	l.table.SetRows(l.toRows())
 	if l.table.Cursor() >= len(l.tasks) && len(l.tasks) > 0 {
 		l.table.SetCursor(len(l.tasks) - 1)
@@ -218,8 +221,20 @@ func (l *listView) filterTasks(tasks []daemon.TaskInfo) []daemon.TaskInfo {
 }
 
 // applyFilter re-filters allTasks into tasks and adjusts cursor.
+// rebuildTree reorders tasks into branch tree order when branchView is active.
+func (l *listView) rebuildTree() {
+	if !l.branchView {
+		l.treeEntries = nil
+		return
+	}
+	reordered, entries := buildBranchTree(l.tasks)
+	l.tasks = reordered
+	l.treeEntries = entries
+}
+
 func (l *listView) applyFilter() {
 	l.tasks = l.filterTasks(l.allTasks)
+	l.rebuildTree()
 	l.table.SetRows(l.toRows())
 	if l.table.Cursor() >= len(l.tasks) && len(l.tasks) > 0 {
 		l.table.SetCursor(len(l.tasks) - 1)
@@ -455,7 +470,11 @@ func (l *listView) renderHeader() string {
 	// Build the middle columns (branch/target) string for insertion between STATUS and TITLE
 	var midCols string
 	if l.showBranch {
-		midCols += fmt.Sprintf(" %-20s", "BRANCH")
+		label := "BRANCH"
+		if l.branchView {
+			label = "TREE"
+		}
+		midCols += fmt.Sprintf(" %-20s", label)
 	}
 	if l.showTarget {
 		midCols += fmt.Sprintf(" %-14s", "TARGET")
@@ -540,7 +559,11 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 
 		branchCol := ""
 		if l.showBranch {
-			branchCol = " " + truncateOrPad(task.Branch, 20)
+			if l.branchView && index < len(l.treeEntries) {
+				branchCol = " " + l.treeEntries[index].renderBranchColumn(task.Branch, 20)
+			} else {
+				branchCol = " " + truncateOrPad(task.Branch, 20)
+			}
 		}
 		targetCol := ""
 		if l.showTarget {
@@ -584,7 +607,11 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 
 	branchCol := ""
 	if l.showBranch {
-		branchCol = " " + dimStyle.Copy().Width(20).Render(truncateOrPad(task.Branch, 20))
+		branchText := truncateOrPad(task.Branch, 20)
+		if l.branchView && index < len(l.treeEntries) {
+			branchText = l.treeEntries[index].renderBranchColumn(task.Branch, 20)
+		}
+		branchCol = " " + dimStyle.Copy().Width(20).Render(branchText)
 	}
 	targetCol := ""
 	if l.showTarget {

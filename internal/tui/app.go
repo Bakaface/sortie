@@ -142,6 +142,12 @@ func NewModel(cfg *config.Config, projectID int64, projectPath, projectName stri
 		if cfg.Options.Target != nil {
 			list.showTarget = *cfg.Options.Target
 		}
+		if cfg.Options.BranchView != nil {
+			list.branchView = *cfg.Options.BranchView
+			if *cfg.Options.BranchView {
+				list.showBranch = true
+			}
+		}
 	}
 
 	return Model{

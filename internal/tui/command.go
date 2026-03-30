@@ -69,6 +69,17 @@ var boolOptions = []boolOption{
 		set:  func(m *Model, v bool) { m.list.showTarget = v },
 	},
 	{
+		name: "branchview",
+		get:  func(m *Model) bool { return m.list.branchView },
+		set: func(m *Model, v bool) {
+			m.list.branchView = v
+			if v {
+				m.list.showBranch = true
+			}
+		},
+		afterSet: func(m *Model) { m.list.applyFilter() },
+	},
+	{
 		name: "animation",
 		get:  func(m *Model) bool { return m.animationEnabled() },
 		set: func(m *Model, v bool) {

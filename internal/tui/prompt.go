@@ -199,7 +199,6 @@ func (p *promptView) visualLineCount() int {
 func (p *promptView) Reset() {
 	p.textarea.Reset()
 	p.titleInput.Reset()
-	p.titleInput.Blur()
 	p.branchInput.Reset()
 	p.checkoutInput.Reset()
 	p.targetBranchInput.Reset()
@@ -208,13 +207,8 @@ func (p *promptView) Reset() {
 	p.blockingTaskID = 0
 	p.blockingTaskTitle = ""
 	p.validationError = ""
-	p.activePane = paneTask
 	p.workflowCursor = 0
-	p.focusField = promptFieldDescription
-	p.textarea.Focus()
-	p.branchInput.Blur()
-	p.checkoutInput.Blur()
-	p.targetBranchInput.Blur()
+	p.focusInput(promptFieldDescription)
 	p.recalcHeight()
 }
 
@@ -246,15 +240,53 @@ func (p *promptView) Worktree() bool {
 	return p.worktree
 }
 
+// blurAll unfocuses every input widget.
+func (p *promptView) blurAll() {
+	p.textarea.Blur()
+	p.titleInput.Blur()
+	p.branchInput.Blur()
+	p.checkoutInput.Blur()
+	p.targetBranchInput.Blur()
+}
+
+// focusInput blurs all inputs, then focuses the one matching field.
+func (p *promptView) focusInput(field promptField) {
+	p.blurAll()
+	p.activePane = paneTask
+	p.focusField = field
+	switch field {
+	case promptFieldTitle:
+		p.titleInput.Focus()
+	case promptFieldDescription:
+		p.textarea.Focus()
+	case promptFieldBranch:
+		p.branchInput.Focus()
+	case promptFieldCheckout:
+		p.checkoutInput.Focus()
+	case promptFieldTargetBranch:
+		p.targetBranchInput.Focus()
+	}
+}
+
+// visibleFields returns the ordered list of tab-cyclable fields
+// based on the current worktree and branch mode state.
+func (p *promptView) visibleFields() []promptField {
+	fields := []promptField{promptFieldTitle, promptFieldDescription}
+	if p.worktree {
+		if p.branchMode == branchModeNew {
+			fields = append(fields, promptFieldBranch)
+		} else {
+			fields = append(fields, promptFieldCheckout)
+		}
+		fields = append(fields, promptFieldTargetBranch)
+	}
+	return fields
+}
+
 func (p *promptView) ToggleWorktree() {
 	p.worktree = !p.worktree
 	if !p.worktree && p.focusField != promptFieldDescription && p.focusField != promptFieldTitle {
-		p.focusField = promptFieldDescription
-		p.titleInput.Blur()
-		p.branchInput.Blur()
-		p.checkoutInput.Blur()
-		p.targetBranchInput.Blur()
-		p.textarea.Focus()
+		p.focusInput(promptFieldDescription)
 	}
 }
 
@@ -264,13 +296,7 @@ func (p *promptView) ToggleBranchMode() {
 	} else {
 		p.branchMode = branchModeNew
 	}
-	// Reset focus to description when switching modes
-	p.focusField = promptFieldDescription
-	p.textarea.Focus()
-	p.titleInput.Blur()
-	p.branchInput.Blur()
-	p.checkoutInput.Blur()
-	p.targetBranchInput.Blur()
+	p.focusInput(promptFieldDescription)
 }
 
 // Update passes the message to the active input and checks for image paths.
@@ -299,169 +325,65 @@ func (p *promptView) Update(msg tea.Msg) tea.Cmd {
 
 // SwitchFocus cycles through the visible fields based on current branch mode.
 // forward=true moves to the next field (Tab), forward=false moves to the previous (Shift+Tab).
+// The cycle order includes the workflow pane (if multiple workflows exist) as a
+// virtual stop after the last field and before the first.
 func (p *promptView) SwitchFocus(forward bool) {
-	// Blur all
-	p.textarea.Blur()
-	p.titleInput.Blur()
-	p.branchInput.Blur()
-	p.checkoutInput.Blur()
-	p.targetBranchInput.Blur()
-
+	fields := p.visibleFields()
 	hasWorkflows := len(p.workflows) > 1
 
-	if !p.worktree {
-		// title ↔ description ↔ [workflow] when worktree is off
+	// Workflow pane sits between the last and first field in the cycle.
+	if p.activePane == paneWorkflow {
 		if forward {
-			switch {
-			case p.activePane == paneWorkflow:
-				p.activePane = paneTask
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
-			case p.focusField == promptFieldTitle:
-				p.focusField = promptFieldDescription
-				p.textarea.Focus()
-			case hasWorkflows:
-				p.activePane = paneWorkflow
-			default:
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
-			}
+			p.focusInput(fields[0])
 		} else {
-			switch {
-			case p.activePane == paneWorkflow:
-				p.activePane = paneTask
-				p.focusField = promptFieldDescription
-				p.textarea.Focus()
-			case p.focusField == promptFieldTitle && hasWorkflows:
-				p.activePane = paneWorkflow
-			case p.focusField == promptFieldDescription:
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
-			default:
-				p.focusField = promptFieldDescription
-				p.textarea.Focus()
-			}
+			p.focusInput(fields[len(fields)-1])
 		}
 		return
 	}
 
-	if p.branchMode == branchModeNew {
-		// Forward: title → description → branch → targetBranch → [workflow] → title
-		// Backward: title → [workflow] → targetBranch → branch → description → title
-		if forward {
-			switch {
-			case p.activePane == paneWorkflow:
-				p.activePane = paneTask
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
-			case p.focusField == promptFieldTitle:
-				p.focusField = promptFieldDescription
-				p.textarea.Focus()
-			case p.focusField == promptFieldDescription:
-				p.focusField = promptFieldBranch
-				p.branchInput.Focus()
-			case p.focusField == promptFieldBranch:
-				p.focusField = promptFieldTargetBranch
-				p.targetBranchInput.Focus()
-			case hasWorkflows:
+	// Find current field index.
+	idx := -1
+	for i, f := range fields {
+		if f == p.focusField {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		p.focusInput(fields[0])
+		return
+	}
+
+	if forward {
+		next := idx + 1
+		if next >= len(fields) {
+			if hasWorkflows {
+				p.blurAll()
 				p.activePane = paneWorkflow
-			default:
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
+			} else {
+				p.focusInput(fields[0])
 			}
 		} else {
-			switch {
-			case p.activePane == paneWorkflow:
-				p.activePane = paneTask
-				p.focusField = promptFieldTargetBranch
-				p.targetBranchInput.Focus()
-			case p.focusField == promptFieldTitle && hasWorkflows:
-				p.activePane = paneWorkflow
-			case p.focusField == promptFieldTitle:
-				p.focusField = promptFieldTargetBranch
-				p.targetBranchInput.Focus()
-			case p.focusField == promptFieldTargetBranch:
-				p.focusField = promptFieldBranch
-				p.branchInput.Focus()
-			case p.focusField == promptFieldBranch:
-				p.focusField = promptFieldDescription
-				p.textarea.Focus()
-			default:
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
-			}
+			p.focusInput(fields[next])
 		}
 	} else {
-		// Forward: title → description → checkout → targetBranch → [workflow] → title
-		// Backward: title → [workflow] → targetBranch → checkout → description → title
-		if forward {
-			switch {
-			case p.activePane == paneWorkflow:
-				p.activePane = paneTask
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
-			case p.focusField == promptFieldTitle:
-				p.focusField = promptFieldDescription
-				p.textarea.Focus()
-			case p.focusField == promptFieldDescription:
-				p.focusField = promptFieldCheckout
-				p.checkoutInput.Focus()
-			case p.focusField == promptFieldCheckout:
-				p.focusField = promptFieldTargetBranch
-				p.targetBranchInput.Focus()
-			case hasWorkflows:
+		prev := idx - 1
+		if prev < 0 {
+			if hasWorkflows {
+				p.blurAll()
 				p.activePane = paneWorkflow
-			default:
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
+			} else {
+				p.focusInput(fields[len(fields)-1])
 			}
 		} else {
-			switch {
-			case p.activePane == paneWorkflow:
-				p.activePane = paneTask
-				p.focusField = promptFieldTargetBranch
-				p.targetBranchInput.Focus()
-			case p.focusField == promptFieldTitle && hasWorkflows:
-				p.activePane = paneWorkflow
-			case p.focusField == promptFieldTitle:
-				p.focusField = promptFieldTargetBranch
-				p.targetBranchInput.Focus()
-			case p.focusField == promptFieldTargetBranch:
-				p.focusField = promptFieldCheckout
-				p.checkoutInput.Focus()
-			case p.focusField == promptFieldCheckout:
-				p.focusField = promptFieldDescription
-				p.textarea.Focus()
-			default:
-				p.focusField = promptFieldTitle
-				p.titleInput.Focus()
-			}
+			p.focusInput(fields[prev])
 		}
 	}
 }
 
 // FocusOn jumps directly to the given field, switching panes if necessary.
 func (p *promptView) FocusOn(field promptField) {
-	p.textarea.Blur()
-	p.titleInput.Blur()
-	p.branchInput.Blur()
-	p.checkoutInput.Blur()
-	p.targetBranchInput.Blur()
-	p.activePane = paneTask
-	p.focusField = field
-
-	switch field {
-	case promptFieldTitle:
-		p.titleInput.Focus()
-	case promptFieldDescription:
-		p.textarea.Focus()
-	case promptFieldBranch:
-		p.branchInput.Focus()
-	case promptFieldCheckout:
-		p.checkoutInput.Focus()
-	case promptFieldTargetBranch:
-		p.targetBranchInput.Focus()
-	}
+	p.focusInput(field)
 }
 
 // FocusWorkflowPane jumps directly to the workflow pane.
@@ -469,11 +391,7 @@ func (p *promptView) FocusWorkflowPane() {
 	if len(p.workflows) <= 1 {
 		return
 	}
-	p.textarea.Blur()
-	p.titleInput.Blur()
-	p.branchInput.Blur()
-	p.checkoutInput.Blur()
-	p.targetBranchInput.Blur()
+	p.blurAll()
 	p.activePane = paneWorkflow
 }
 
@@ -541,29 +459,14 @@ func (p *promptView) CyclePane(forward bool) {
 	}
 }
 
-// Focus focuses the currently active input
+// Focus focuses the currently active input.
 func (p *promptView) Focus() {
-	switch p.focusField {
-	case promptFieldTitle:
-		p.titleInput.Focus()
-	case promptFieldDescription:
-		p.textarea.Focus()
-	case promptFieldBranch:
-		p.branchInput.Focus()
-	case promptFieldCheckout:
-		p.checkoutInput.Focus()
-	case promptFieldTargetBranch:
-		p.targetBranchInput.Focus()
-	}
+	p.focusInput(p.focusField)
 }
 
-// Blur unfocuses all inputs
+// Blur unfocuses all inputs.
 func (p *promptView) Blur() {
-	p.textarea.Blur()
-	p.titleInput.Blur()
-	p.branchInput.Blur()
-	p.checkoutInput.Blur()
-	p.targetBranchInput.Blur()
+	p.blurAll()
 }
 
 // RemoveLastImage removes the most recently attached image

@@ -15,10 +15,11 @@ type AnimationConfig struct {
 
 // OptionsConfig holds TUI display options configurable via .sortie.yml
 type OptionsConfig struct {
-	Number    *bool            `yaml:"number,omitempty"`
-	Branch    *bool            `yaml:"branch,omitempty"`
-	Target    *bool            `yaml:"target,omitempty"`
-	Animation *AnimationConfig `yaml:"animation,omitempty"`
+	Number     *bool            `yaml:"number,omitempty"`
+	Branch     *bool            `yaml:"branch,omitempty"`
+	Target     *bool            `yaml:"target,omitempty"`
+	BranchView *bool            `yaml:"branchview,omitempty"`
+	Animation  *AnimationConfig `yaml:"animation,omitempty"`
 }
 
 // WorktreeSyncPathsConfig specifies paths to sync into worktrees via copy or symlink.
