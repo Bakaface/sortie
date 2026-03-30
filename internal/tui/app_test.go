@@ -325,8 +325,8 @@ func TestListView_GlobalModeShowsProjectColumn(t *testing.T) {
 	l.SetSize(120, 24)
 	output := l.View()
 
-	if !strings.Contains(output, "PROJECT") {
-		t.Error("expected global mode to show PROJECT header column")
+	if !strings.Contains(output, "Project") {
+		t.Error("expected global mode to show Project header column")
 	}
 	if !strings.Contains(output, "myproject") {
 		t.Error("expected global mode to show project name 'myproject'")
@@ -387,8 +387,8 @@ func TestListView_NonGlobalModeHidesProjectColumn(t *testing.T) {
 	l.SetSize(100, 24)
 	output := l.View()
 
-	if strings.Contains(output, "PROJECT") {
-		t.Error("expected non-global mode to NOT show PROJECT header column")
+	if strings.Contains(output, "Project") {
+		t.Error("expected non-global mode to NOT show Project header column")
 	}
 }
 
@@ -1368,7 +1368,7 @@ func TestListView_ShowsAscendingIndexColumn(t *testing.T) {
 	// Header should NOT contain "#" column (vim-style has no header)
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "ID") && strings.Contains(line, "STATUS") {
+		if strings.Contains(line, "ID") && strings.Contains(line, "Status") {
 			if strings.Contains(line, "#") {
 				t.Error("expected header line to NOT contain '#' (vim-style has no header for line numbers)")
 			}
@@ -1808,7 +1808,7 @@ func TestListView_HeaderHasIndexColumn(t *testing.T) {
 	lines := strings.Split(output, "\n")
 	headerFound := false
 	for _, line := range lines {
-		if strings.Contains(line, "ID") && strings.Contains(line, "STATUS") {
+		if strings.Contains(line, "ID") && strings.Contains(line, "Status") {
 			if strings.Contains(line, "#") {
 				t.Error("expected header line to NOT contain '#' (vim-style)")
 			}
@@ -2246,7 +2246,7 @@ func TestSetNumber_HidesLineNumbersInView(t *testing.T) {
 	// Header should not have the gutter space
 	lines = strings.Split(output, "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "ID") && strings.Contains(line, "STATUS") {
+		if strings.Contains(line, "ID") && strings.Contains(line, "Status") {
 			// With line numbers off, the header should start closer to the left
 			// (no gutter space padding)
 			if strings.HasPrefix(line, "    ") {
@@ -2480,7 +2480,7 @@ func TestListView_GlobalModeHasIndexColumn(t *testing.T) {
 	lines := strings.Split(output, "\n")
 	headerFound := false
 	for _, line := range lines {
-		if strings.Contains(line, "ID") && strings.Contains(line, "PROJECT") {
+		if strings.Contains(line, "ID") && strings.Contains(line, "Project") {
 			if strings.Contains(line, "#") {
 				t.Error("expected global mode header to NOT contain '#' (vim-style)")
 			}

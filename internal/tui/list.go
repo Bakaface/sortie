@@ -74,10 +74,10 @@ func newListView(globalMode bool, projectName string) listView {
 		{Title: "P", Width: 2},
 	}
 	if globalMode {
-		initialCols = append(initialCols, table.Column{Title: "PROJECT", Width: 14})
+		initialCols = append(initialCols, table.Column{Title: "Project", Width: 14})
 	}
-	initialCols = append(initialCols, table.Column{Title: "STATUS", Width: 18})
-	initialCols = append(initialCols, table.Column{Title: "TITLE", Width: 40})
+	initialCols = append(initialCols, table.Column{Title: "Status", Width: 18})
+	initialCols = append(initialCols, table.Column{Title: "Title", Width: 40})
 
 	t := table.New(
 		table.WithColumns(initialCols),
@@ -451,16 +451,16 @@ func (l *listView) recomputeColumns() {
 		{Title: "P", Width: l.cw.pri},
 	}
 	if l.globalMode {
-		cols = append(cols, table.Column{Title: "PROJECT", Width: l.cw.project})
+		cols = append(cols, table.Column{Title: "Project", Width: l.cw.project})
 	}
-	cols = append(cols, table.Column{Title: "STATUS", Width: l.cw.status})
+	cols = append(cols, table.Column{Title: "Status", Width: l.cw.status})
 	if l.showBranch {
-		cols = append(cols, table.Column{Title: "BRANCH", Width: l.cw.branch})
+		cols = append(cols, table.Column{Title: "Branch", Width: l.cw.branch})
 	}
 	if l.showTarget {
-		cols = append(cols, table.Column{Title: "TARGET", Width: l.cw.target})
+		cols = append(cols, table.Column{Title: "Target", Width: l.cw.target})
 	}
-	cols = append(cols, table.Column{Title: "TITLE", Width: l.cw.title})
+	cols = append(cols, table.Column{Title: "Title", Width: l.cw.title})
 	l.table.SetColumns(cols)
 }
 
@@ -554,19 +554,19 @@ func (l *listView) renderHeader() string {
 
 	var midCols string
 	if l.showBranch {
-		midCols += fmt.Sprintf(" %-*s", l.cw.branch, "BRANCH")
+		midCols += fmt.Sprintf(" %-*s", l.cw.branch, "Branch")
 	}
 	if l.showTarget {
-		midCols += fmt.Sprintf(" %-*s", l.cw.target, "TARGET")
+		midCols += fmt.Sprintf(" %-*s", l.cw.target, "Target")
 	}
 
 	var header string
 	if l.globalMode {
 		header = fmt.Sprintf("%s %-*s %-*s %-*s %-*s%s %-*s",
-			gutter, l.cw.id, "ID", l.cw.pri, "P", l.cw.project, "PROJECT", l.cw.status, "STATUS", midCols, tw, "TITLE")
+			gutter, l.cw.id, "ID", l.cw.pri, "P", l.cw.project, "Project", l.cw.status, "Status", midCols, tw, "Title")
 	} else {
 		header = fmt.Sprintf("%s %-*s %-*s %-*s%s %-*s",
-			gutter, l.cw.id, "ID", l.cw.pri, "P", l.cw.status, "STATUS", midCols, tw, "TITLE")
+			gutter, l.cw.id, "ID", l.cw.pri, "P", l.cw.status, "Status", midCols, tw, "Title")
 	}
 	return headerStyle.Render(header)
 }
