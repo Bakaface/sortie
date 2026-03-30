@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/aface/sortie/internal/claude"
 	gitpkg "github.com/aface/sortie/internal/git"
 	"github.com/aface/sortie/internal/task"
 	"github.com/aface/sortie/internal/tmux"
@@ -171,6 +173,16 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 			log.Printf("%sWarning: tmux setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}
+
+	// Async: discover Claude session ID and record it
+	go func() {
+		sid, _ := claude.FindSessionByWorkdir(t.WorktreePath, 15*time.Second)
+		if sid != "" {
+			if err := s.database.UpsertChat(t.ID, "continue", sid, session.Name); err != nil {
+				log.Printf("%sWarning: failed to upsert chat for continue task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			}
+		}
+	}()
 
 	if err := s.database.UpdateTaskStatus(t.ID, task.StatusTmux); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
@@ -428,6 +440,18 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 			log.Printf("%sWarning: tmux setup command failed for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
 		}
 	}
+
+	// Async: discover Claude session ID and record it
+	worktreePath := t.WorktreePath
+	sessionName := session.Name
+	go func() {
+		sid, _ := claude.FindSessionByWorkdir(worktreePath, 15*time.Second)
+		if sid != "" {
+			if err := s.database.UpsertChat(taskID, "tmux-direct", sid, sessionName); err != nil {
+				log.Printf("%sWarning: failed to upsert chat for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
+			}
+		}
+	}()
 
 	if err := s.database.UpdateTaskStatus(taskID, task.StatusTmux); err != nil {
 		log.Printf("%sFailed to update status for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)

@@ -205,6 +205,12 @@ type AgentInfo struct {
 	Error       string     `json:"error,omitempty"`
 }
 
+type ChatInfo struct {
+	SessionID       string `json:"session_id"`
+	TmuxSessionName string `json:"tmux_session_name,omitempty"`
+	StepName        string `json:"step_name,omitempty"`
+}
+
 type TaskInfo struct {
 	ID           int64      `json:"id"`
 	ProjectID    int64      `json:"project_id"`
@@ -235,6 +241,7 @@ type TaskInfo struct {
 	StartedAt    *time.Time `json:"started_at,omitempty"`
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
 	TmuxActivity string     `json:"tmux_activity,omitempty"`
+	LatestChat   *ChatInfo  `json:"latest_chat,omitempty"`
 }
 
 type TaskListResponse struct {

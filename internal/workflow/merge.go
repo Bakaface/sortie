@@ -210,7 +210,7 @@ func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFil
 		"SORTIE_WORKTREE": t.WorktreePath,
 	}
 
-	exitCode, _, outputTail, err := e.runClaudeStep(ctx, t, step, prompt, env, outputFn, conflictSysPrompt)
+	exitCode, _, _, outputTail, err := e.runClaudeStep(ctx, t, step, prompt, env, outputFn, conflictSysPrompt)
 	if err != nil {
 		return fmt.Errorf("conflict resolution claude process failed: %w", err)
 	}

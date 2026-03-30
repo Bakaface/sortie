@@ -242,5 +242,14 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 	}
 	s.mu.RUnlock()
 
+	// Populate latest chat info
+	if chat, err := s.database.GetLatestChat(t.ID); err == nil && chat != nil {
+		info.LatestChat = &ChatInfo{
+			SessionID:       chat.SessionID,
+			TmuxSessionName: chat.TmuxSessionName,
+			StepName:        chat.StepName,
+		}
+	}
+
 	return info
 }

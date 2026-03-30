@@ -18,15 +18,17 @@ import (
 type StreamParser struct {
 	lastMsgID  string // track message ID to detect new turns
 	resultText string // final result text from the last result event
+	sessionID  string // session ID from the first system init event
 }
 
 // streamEvent represents a top-level NDJSON event from Claude's verbose stream-json output.
 // Note: the "result" JSON key has different types per event (string for result events,
 // absent for others), so we decode result events separately to avoid type conflicts.
 type streamEvent struct {
-	Type    string     `json:"type"`    // "system", "assistant", "user", "result"
-	Subtype string     `json:"subtype"` // for system events: "init"
-	Message *streamMsg `json:"message,omitempty"`
+	Type      string     `json:"type"`       // "system", "assistant", "user", "result"
+	Subtype   string     `json:"subtype"`    // for system events: "init"
+	Message   *streamMsg `json:"message,omitempty"`
+	SessionID string     `json:"session_id"` // session ID present on system init events
 }
 
 // resultEvent is decoded separately for "result" type events because the top-level
@@ -69,6 +71,10 @@ func (p *StreamParser) ParseLine(line []byte) []string {
 		return nil
 	}
 
+	if p.sessionID == "" && ev.SessionID != "" {
+		p.sessionID = ev.SessionID
+	}
+
 	ts := timestamp()
 
 	switch ev.Type {
@@ -91,6 +97,11 @@ func (p *StreamParser) ParseLine(line []byte) []string {
 // ResultText returns the final result text from the last result event.
 func (p *StreamParser) ResultText() string {
 	return p.resultText
+}
+
+// SessionID returns the session ID extracted from the first system init event.
+func (p *StreamParser) SessionID() string {
+	return p.sessionID
 }
 
 // parseAssistant extracts human-readable lines from an assistant event.

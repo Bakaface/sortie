@@ -59,3 +59,14 @@ CREATE TABLE IF NOT EXISTS task_steps (
     completed_at DATETIME,
     UNIQUE(task_id, step_name)
 );
+
+CREATE TABLE IF NOT EXISTS chats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    tmux_session_name TEXT,
+    step_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_chats_task_id ON chats(task_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chats_task_step ON chats(task_id, step_name);

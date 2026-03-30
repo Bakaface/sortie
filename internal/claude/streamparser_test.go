@@ -130,6 +130,37 @@ func TestStreamParser_ResultTextEmpty(t *testing.T) {
 	}
 }
 
+func TestStreamParserSessionID(t *testing.T) {
+	p := NewStreamParser()
+
+	line := []byte(`{"type":"system","subtype":"init","session_id":"test-session-123"}`)
+	p.ParseLine(line)
+
+	got := p.SessionID()
+	want := "test-session-123"
+	if got != want {
+		t.Errorf("SessionID() = %q, want %q", got, want)
+	}
+}
+
+func TestStreamParserSessionID_FirstOnly(t *testing.T) {
+	p := NewStreamParser()
+
+	// Feed two system init lines with different session IDs
+	first := []byte(`{"type":"system","subtype":"init","session_id":"first-session-id"}`)
+	second := []byte(`{"type":"system","subtype":"init","session_id":"second-session-id"}`)
+
+	p.ParseLine(first)
+	p.ParseLine(second)
+
+	// Only the first session ID should be captured
+	got := p.SessionID()
+	want := "first-session-id"
+	if got != want {
+		t.Errorf("SessionID() = %q, want %q (should capture first only)", got, want)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

@@ -274,6 +274,14 @@ func (p *Process) ResultText() string {
 	return p.parser.ResultText()
 }
 
+// SessionID returns the Claude session ID extracted from the NDJSON stream.
+// Available as soon as the first system init event is parsed.
+func (p *Process) SessionID() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.parser.SessionID()
+}
+
 // PID returns the process ID, or 0 if not running
 func (p *Process) PID() int {
 	p.mu.RLock()

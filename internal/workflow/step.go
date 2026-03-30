@@ -17,7 +17,7 @@ import (
 	"github.com/aface/sortie/internal/tmux"
 )
 
-func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, string, error) {
+func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, string, string, error) {
 	proc := claude.NewProcess(fmt.Sprintf("%d", t.ID), t.WorktreePath, &e.cfg.Claude)
 
 	// Apply step timeout
@@ -28,11 +28,11 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	// Open per-step log file in project data dir
 	logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
 	if err := os.MkdirAll(ProjectLogsDir(e.dataDir, t.ID), 0755); err != nil {
-		return 1, "", "", fmt.Errorf("failed to create log dir: %w", err)
+		return 1, "", "", "", fmt.Errorf("failed to create log dir: %w", err)
 	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return 1, "", "", fmt.Errorf("failed to open step log: %w", err)
+		return 1, "", "", "", fmt.Errorf("failed to open step log: %w", err)
 	}
 	defer logFile.Close()
 
@@ -77,7 +77,7 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	proc.SetEnv(envVars)
 
 	if err := proc.StartWithPrompt(prompt, systemPrompt...); err != nil {
-		return 1, "", "", fmt.Errorf("failed to start claude: %w", err)
+		return 1, "", "", "", fmt.Errorf("failed to start claude: %w", err)
 	}
 
 	// Wait for process to exit
@@ -88,7 +88,7 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 		select {
 		case <-ctx.Done():
 			proc.Stop()
-			return 1, "", "", ctx.Err()
+			return 1, "", "", "", ctx.Err()
 		case <-ticker.C:
 			if proc.HasExited() {
 				exitCode := proc.ExitCode()
@@ -111,7 +111,8 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 						outputTail = strings.Join(lines, "\n")
 					}
 				}
-				return exitCode, resultText, outputTail, nil
+				sessionID := proc.SessionID()
+				return exitCode, resultText, sessionID, outputTail, nil
 			}
 		}
 	}
@@ -252,6 +253,16 @@ exec bash
 
 	log.Printf("Tmux session %q started for task #%d step %q (attach with: sortie attach %s)",
 		session.Name, t.ID, step.Name, taskID)
+
+	// Async: discover Claude session ID from session files and record it
+	go func() {
+		sid, _ := claude.FindSessionByWorkdir(t.WorktreePath, 15*time.Second)
+		if sid != "" {
+			if err := e.database.UpsertChat(t.ID, step.Name, sid, session.Name); err != nil {
+				log.Printf("Warning: failed to upsert chat for tmux task #%d step %q: %v", t.ID, step.Name, err)
+			}
+		}
+	}()
 
 	// Fire-and-forget: return immediately, workflow will pause at approval gate
 	return 0, "", nil

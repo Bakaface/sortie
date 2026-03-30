@@ -347,7 +347,10 @@ func (db *DB) ResetTaskForRetry(id int64) error {
 	if err != nil {
 		return err
 	}
-	return db.DeleteTaskSteps(id)
+	if err := db.DeleteTaskSteps(id); err != nil {
+		return err
+	}
+	return db.DeleteChatsForTask(id)
 }
 
 func (db *DB) ResetTaskForRetryFromStep(id int64) error {
@@ -361,7 +364,10 @@ func (db *DB) ResetTaskForRetryFromStep(id int64) error {
 		return err
 	}
 	// Delete all step records since re-running from a step may re-execute prior steps in loops.
-	return db.DeleteTaskSteps(id)
+	if err := db.DeleteTaskSteps(id); err != nil {
+		return err
+	}
+	return db.DeleteChatsForTask(id)
 }
 
 func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
@@ -375,7 +381,10 @@ func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
 		if err != nil {
 			return err
 		}
-		return db.DeleteTaskSteps(id)
+		if err := db.DeleteTaskSteps(id); err != nil {
+			return err
+		}
+		return db.DeleteChatsForTask(id)
 	}
 	_, err := db.Exec(
 		`UPDATE tasks SET status = ?, workflow = ?, step_index = 0, current_step = NULL, loop_iteration = 0,
@@ -386,7 +395,10 @@ func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
 	if err != nil {
 		return err
 	}
-	return db.DeleteTaskSteps(id)
+	if err := db.DeleteTaskSteps(id); err != nil {
+		return err
+	}
+	return db.DeleteChatsForTask(id)
 }
 
 func (db *DB) AppendTaskCommit(id int64, commitHash string) error {
@@ -504,7 +516,11 @@ func (db *DB) HasCircularDependency(taskID, newBlockedByID int64) (bool, error) 
 }
 
 func (db *DB) DeleteTask(id int64) error {
-	_, err := db.Exec("DELETE FROM task_dependencies WHERE task_id = ? OR blocked_by = ?", id, id)
+	_, err := db.Exec("DELETE FROM chats WHERE task_id = ?", id)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec("DELETE FROM task_dependencies WHERE task_id = ? OR blocked_by = ?", id, id)
 	if err != nil {
 		return err
 	}

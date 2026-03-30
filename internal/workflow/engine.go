@@ -252,10 +252,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		var exitCode int
 		var resultText string
 		var outputTail string
+		var sessionID string
 		if useTmux {
 			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
 		} else {
-			exitCode, resultText, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
+			exitCode, resultText, sessionID, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
 		}
 		if err != nil {
 			e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
@@ -269,6 +270,13 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 			e.database.UpdateTaskExitCode(t.ID, exitCode, errMsg)
 			return errors.New(errMsg)
+		}
+
+		// Record Claude session for this step
+		if sessionID != "" {
+			if chatErr := e.database.UpsertChat(t.ID, step.Name, sessionID, ""); chatErr != nil {
+				log.Printf("Warning: failed to upsert chat for task #%d step %q: %v", t.ID, step.Name, chatErr)
+			}
 		}
 
 		// Validate that the step produced meaningful changes

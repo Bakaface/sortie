@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (17)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (18)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -311,6 +311,33 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to add default_workflow column to projects: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 17`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 18: Add chats table
+	if version < 18 {
+		_, err := db.Exec(`CREATE TABLE IF NOT EXISTS chats (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			session_id TEXT NOT NULL,
+			tmux_session_name TEXT,
+			step_name TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`)
+		if err != nil {
+			return fmt.Errorf("failed to create chats table: %w", err)
+		}
+		_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_chats_task_id ON chats(task_id)`)
+		if err != nil {
+			return fmt.Errorf("failed to create idx_chats_task_id index: %w", err)
+		}
+		_, err = db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_chats_task_step ON chats(task_id, step_name)`)
+		if err != nil {
+			return fmt.Errorf("failed to create idx_chats_task_step index: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 18`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
