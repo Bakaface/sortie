@@ -222,6 +222,7 @@ func (m Model) createTaskWithPrompt(title, description, branchName string, workt
 			return nil
 		}
 
+		bm := int(m.prompt.branchMode)
 		req := daemon.CreateTaskRequest{
 			Title:          title,
 			Description:    description,
@@ -231,6 +232,7 @@ func (m Model) createTaskWithPrompt(title, description, branchName string, workt
 			CheckoutBranch: checkoutBranch,
 			ProjectPath:    m.projectPath,
 			Worktree:       &worktree,
+			BranchMode:     &bm,
 			Images:         images,
 		}
 		if m.blockingTaskID != 0 {

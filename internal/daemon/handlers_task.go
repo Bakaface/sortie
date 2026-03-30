@@ -108,9 +108,13 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		worktree = *req.Worktree
 	}
 
-	// Persist worktree preference for this project
-	if err := s.database.UpdateProjectDefaultWorktree(proj.ID, worktree); err != nil {
-		log.Printf("%sFailed to update default worktree for project %d: %v", s.projectLogPrefix(proj.ID), proj.ID, err)
+	// Persist form preferences for this project
+	branchMode := 0
+	if req.BranchMode != nil {
+		branchMode = *req.BranchMode
+	}
+	if err := s.database.UpdateProjectDefaults(proj.ID, worktree, branchMode, req.Workflow); err != nil {
+		log.Printf("%sFailed to update project defaults for project %d: %v", s.projectLogPrefix(proj.ID), proj.ID, err)
 	}
 
 	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", req.TargetBranch, req.CheckoutBranch, task.StatusInit, priority, worktree, req.Images)

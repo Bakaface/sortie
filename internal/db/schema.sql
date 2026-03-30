@@ -4,7 +4,9 @@ CREATE TABLE IF NOT EXISTS projects (
     name TEXT NOT NULL DEFAULT '',
     default_priority TEXT NOT NULL DEFAULT 'medium',
     default_worktree INTEGER NOT NULL DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    default_branch_mode INTEGER NOT NULL DEFAULT 0,
+    default_workflow TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS tasks (

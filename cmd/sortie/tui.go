@@ -16,47 +16,47 @@ var tuiCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		globalFlag, _ := cmd.Flags().GetBool("global")
 
-		projectID, projectPath, projectName, globalMode, defaultWorktree := resolveProjectMode(globalFlag)
-		return tui.Run(cfg, projectID, projectPath, projectName, globalMode, defaultWorktree)
+		projectID, projectPath, projectName, globalMode, defaultWorktree, defaultBranchMode, defaultWorkflow := resolveProjectMode(globalFlag)
+		return tui.Run(cfg, projectID, projectPath, projectName, globalMode, defaultWorktree, defaultBranchMode, defaultWorkflow)
 	},
 }
 
-func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, projectName string, globalMode bool, defaultWorktree bool) {
+func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, projectName string, globalMode bool, defaultWorktree bool, defaultBranchMode int, defaultWorkflow string) {
 	if globalFlag {
-		return 0, "", "", true, true
+		return 0, "", "", true, true, 0, ""
 	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		return 0, "", "", true, true
+		return 0, "", "", true, true, 0, ""
 	}
 
 	if _, err := os.Stat(filepath.Join(cwd, ".sortie.yml")); err != nil {
 		// No .sortie.yml — check if we're in a git repo to filter by repo name
 		repoRoot, err := gitpkg.GetRepoRoot(cwd)
 		if err != nil {
-			return 0, "", "", true, true
+			return 0, "", "", true, true, 0, ""
 		}
 		repoName := filepath.Base(repoRoot)
-		return 0, repoRoot, repoName, false, true
+		return 0, repoRoot, repoName, false, true, 0, ""
 	}
 
 	repoRoot, err := gitpkg.GetRepoRoot(cwd)
 	if err != nil {
-		return 0, cwd, "", false, true
+		return 0, cwd, "", false, true, 0, ""
 	}
 
 	dbPath := cfg.GetDatabasePath("")
 	database, err := db.Open(dbPath)
 	if err != nil {
-		return 0, repoRoot, "", false, true
+		return 0, repoRoot, "", false, true, 0, ""
 	}
 	defer database.Close()
 
 	proj, err := database.GetOrCreateProject(repoRoot)
 	if err != nil {
-		return 0, repoRoot, "", false, true
+		return 0, repoRoot, "", false, true, 0, ""
 	}
 
-	return proj.ID, repoRoot, filepath.Base(repoRoot), false, proj.DefaultWorktree
+	return proj.ID, repoRoot, filepath.Base(repoRoot), false, proj.DefaultWorktree, proj.DefaultBranchMode, proj.DefaultWorkflow
 }

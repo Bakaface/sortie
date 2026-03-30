@@ -142,6 +142,13 @@ func (m Model) handlePromptSubmit() (tea.Model, tea.Cmd) {
 	branchName := m.prompt.BranchName()
 	targetBranch := m.prompt.TargetBranch()
 	worktree := m.prompt.Worktree()
+
+	// Persist the current form selections as the new defaults for this session
+	m.defaultWorktree = worktree
+	m.defaultBranchMode = int(m.prompt.branchMode)
+	m.defaultWorkflow = m.selectedWorkflow
+	m.prompt.defaultWorkflow = m.defaultWorkflow
+
 	deferred := m.createTaskWithPrompt(title, description, branchName, worktree, images, targetBranch, checkoutBranch)
 	if m.animationEnabled() {
 		positions := m.planePositions(description)

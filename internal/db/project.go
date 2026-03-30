@@ -11,12 +11,14 @@ import (
 )
 
 type Project struct {
-	ID              int64
-	Path            string
-	Name            string
-	DefaultPriority task.Priority
-	DefaultWorktree bool
-	CreatedAt       time.Time
+	ID                int64
+	Path              string
+	Name              string
+	DefaultPriority   task.Priority
+	DefaultWorktree   bool
+	CreatedAt         time.Time
+	DefaultBranchMode int
+	DefaultWorkflow   string
 }
 
 // GetOrCreateProject returns the project for the given path, creating it if needed.
@@ -76,7 +78,7 @@ type projectScanner interface {
 func scanProject(s projectScanner) (*Project, error) {
 	var p Project
 	var defaultPriority sql.NullString
-	if err := s.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt); err != nil {
+	if err := s.Scan(&p.ID, &p.Path, &p.Name, &defaultPriority, &p.DefaultWorktree, &p.CreatedAt, &p.DefaultBranchMode, &p.DefaultWorkflow); err != nil {
 		return nil, err
 	}
 	if defaultPriority.Valid {
@@ -103,20 +105,20 @@ func scanProjects(rows *sql.Rows) ([]*Project, error) {
 // GetProjectByPath finds a project by its filesystem path.
 func (db *DB) GetProjectByPath(path string) (*Project, error) {
 	return scanProject(db.QueryRow(
-		`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE path = ?`, path,
+		`SELECT id, path, name, default_priority, default_worktree, created_at, default_branch_mode, default_workflow FROM projects WHERE path = ?`, path,
 	))
 }
 
 // GetProject returns a project by ID.
 func (db *DB) GetProject(id int64) (*Project, error) {
 	return scanProject(db.QueryRow(
-		`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE id = ?`, id,
+		`SELECT id, path, name, default_priority, default_worktree, created_at, default_branch_mode, default_workflow FROM projects WHERE id = ?`, id,
 	))
 }
 
 // GetProjectsByName returns all projects matching the given name (basename).
 func (db *DB) GetProjectsByName(name string) ([]*Project, error) {
-	rows, err := db.Query(`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects WHERE name = ? ORDER BY id ASC`, name)
+	rows, err := db.Query(`SELECT id, path, name, default_priority, default_worktree, created_at, default_branch_mode, default_workflow FROM projects WHERE name = ? ORDER BY id ASC`, name)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +128,7 @@ func (db *DB) GetProjectsByName(name string) ([]*Project, error) {
 
 // ListProjects returns all registered projects.
 func (db *DB) ListProjects() ([]*Project, error) {
-	rows, err := db.Query(`SELECT id, path, name, default_priority, default_worktree, created_at FROM projects ORDER BY id ASC`)
+	rows, err := db.Query(`SELECT id, path, name, default_priority, default_worktree, created_at, default_branch_mode, default_workflow FROM projects ORDER BY id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -137,5 +139,23 @@ func (db *DB) ListProjects() ([]*Project, error) {
 // UpdateProjectDefaultWorktree updates the default worktree preference for a project.
 func (db *DB) UpdateProjectDefaultWorktree(id int64, worktree bool) error {
 	_, err := db.Exec(`UPDATE projects SET default_worktree = ? WHERE id = ?`, worktree, id)
+	return err
+}
+
+// UpdateProjectDefaultBranchMode updates the default branch mode for a project.
+func (db *DB) UpdateProjectDefaultBranchMode(id int64, mode int) error {
+	_, err := db.Exec(`UPDATE projects SET default_branch_mode = ? WHERE id = ?`, mode, id)
+	return err
+}
+
+// UpdateProjectDefaultWorkflow updates the default workflow for a project.
+func (db *DB) UpdateProjectDefaultWorkflow(id int64, workflow string) error {
+	_, err := db.Exec(`UPDATE projects SET default_workflow = ? WHERE id = ?`, workflow, id)
+	return err
+}
+
+// UpdateProjectDefaults updates worktree, branch mode, and workflow defaults for a project in one operation.
+func (db *DB) UpdateProjectDefaults(id int64, worktree bool, branchMode int, workflow string) error {
+	_, err := db.Exec(`UPDATE projects SET default_worktree = ?, default_branch_mode = ?, default_workflow = ? WHERE id = ?`, worktree, branchMode, workflow, id)
 	return err
 }

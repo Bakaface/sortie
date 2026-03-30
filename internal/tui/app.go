@@ -43,7 +43,9 @@ type Model struct {
 	projectPath     string // project directory path, empty in global mode
 	projectName     string // repo basename for filtering in global mode
 	globalMode      bool
-	defaultWorktree bool   // per-project worktree preference
+	defaultWorktree   bool   // per-project worktree preference
+	defaultBranchMode int    // per-project branch mode preference (0=new, 1=existing)
+	defaultWorkflow   string // per-project default workflow name
 
 	// Blocking task creation state
 	blockingTaskID int64 // when non-zero, the newly created task will block this task
@@ -128,7 +130,7 @@ type editorFieldFinishedMsg struct {
 	path   string
 }
 
-func NewModel(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool) Model {
+func NewModel(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool, defaultBranchMode int, defaultWorkflow string) Model {
 	list := newListView(globalMode, projectName)
 
 	// Apply config-driven display options
@@ -151,20 +153,22 @@ func NewModel(cfg *config.Config, projectID int64, projectPath, projectName stri
 	}
 
 	return Model{
-		cfg:             cfg,
-		keys:            newKeyMap(),
-		list:            list,
-		detail:          newDetailView(),
-		taskInfo:        newTaskInfoView(),
-		prompt:          newPromptView(defaultWorktree, cfgBaseBranch(cfg)),
-		view:            viewList,
-		projectID:       projectID,
-		projectPath:     projectPath,
-		projectName:     projectName,
-		globalMode:      globalMode,
-		defaultWorktree: defaultWorktree,
-		commandHistory:  newInputHistory(50),
-		searchHistory:   newInputHistory(50),
+		cfg:               cfg,
+		keys:              newKeyMap(),
+		list:              list,
+		detail:            newDetailView(),
+		taskInfo:          newTaskInfoView(),
+		prompt:            newPromptView(defaultWorktree, branchMode(defaultBranchMode), cfgBaseBranch(cfg)),
+		view:              viewList,
+		projectID:         projectID,
+		projectPath:       projectPath,
+		projectName:       projectName,
+		globalMode:        globalMode,
+		defaultWorktree:   defaultWorktree,
+		defaultBranchMode: defaultBranchMode,
+		defaultWorkflow:   defaultWorkflow,
+		commandHistory:    newInputHistory(50),
+		searchHistory:     newInputHistory(50),
 	}
 }
 
@@ -573,9 +577,9 @@ func (m Model) renderPromptHelpOverlay() string {
 	return b.String()
 }
 
-func Run(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool) error {
+func Run(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool, defaultBranchMode int, defaultWorkflow string) error {
 	p := tea.NewProgram(
-		NewModel(cfg, projectID, projectPath, projectName, globalMode, defaultWorktree),
+		NewModel(cfg, projectID, projectPath, projectName, globalMode, defaultWorktree, defaultBranchMode, defaultWorkflow),
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

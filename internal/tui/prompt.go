@@ -56,6 +56,7 @@ type promptView struct {
 	worktree          bool
 	branchMode        branchMode
 	defaultBaseBranch string
+	defaultWorkflow   string // saved default workflow name (persists across Reset)
 	images            []string
 	workflowName      string
 	workflows         []string // available workflow names for cycling
@@ -69,7 +70,7 @@ type promptView struct {
 	workflowCursor    int
 }
 
-func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
+func newPromptView(defaultWorktree bool, defaultBranchMode branchMode, defaultBaseBranch string) promptView {
 	ta := textarea.New()
 	ta.Prompt = PromptPrefix
 	ta.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(promptColor)
@@ -109,6 +110,7 @@ func newPromptView(defaultWorktree bool, defaultBaseBranch string) promptView {
 		targetBranchInput: ti,
 		focusField:        promptFieldDescription,
 		worktree:          defaultWorktree,
+		branchMode:        defaultBranchMode,
 		defaultBaseBranch: defaultBaseBranch,
 		images:            make([]string, 0),
 	}
@@ -209,9 +211,24 @@ func (p *promptView) Reset() {
 	p.blockingTaskID = 0
 	p.blockingTaskTitle = ""
 	p.validationError = ""
-	p.workflowCursor = 0
+	// Restore workflowCursor to the saved default workflow position
+	p.workflowCursor = p.defaultWorkflowCursor()
 	p.focusInput(promptFieldDescription)
 	p.recalcHeight()
+}
+
+// defaultWorkflowCursor returns the index of the defaultWorkflow in p.workflows,
+// falling back to 0 if not found or no default is set.
+func (p *promptView) defaultWorkflowCursor() int {
+	if p.defaultWorkflow == "" {
+		return 0
+	}
+	for i, name := range p.workflows {
+		if name == p.defaultWorkflow {
+			return i
+		}
+	}
+	return 0
 }
 
 func (p *promptView) Value() string {

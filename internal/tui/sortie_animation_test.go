@@ -116,7 +116,7 @@ func TestSortieAnimationPlaneMatchesPromptColor(t *testing.T) {
 	a := newSortieAnimation(positions, 30, 1, 1500)
 	view := a.View()
 
-	p := newPromptView(true, "")
+	p := newPromptView(true, branchModeNew, "")
 	promptStyled := p.textarea.FocusedStyle.Prompt.Render("✈")
 	planeStyled := lipgloss.NewStyle().Foreground(promptColor).Render("✈")
 
@@ -130,7 +130,7 @@ func TestSortieAnimationPlaneMatchesPromptColor(t *testing.T) {
 }
 
 func TestPromptViewUsesPromptColor(t *testing.T) {
-	p := newPromptView(true, "")
+	p := newPromptView(true, branchModeNew, "")
 
 	// Verify that the prompt style renders with the same color as promptColor.
 	expectedStyle := lipgloss.NewStyle().Foreground(promptColor)

@@ -426,3 +426,143 @@ func TestMigration_FreshDBHasProjectsTable(t *testing.T) {
 		t.Error("expected non-zero project ID")
 	}
 }
+
+func TestProjectDefaultBranchMode(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// New project should default to branch mode 0
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj.DefaultBranchMode != 0 {
+		t.Errorf("expected default branch mode 0, got %d", proj.DefaultBranchMode)
+	}
+
+	// Update to 1
+	if err := database.UpdateProjectDefaultBranchMode(proj.ID, 1); err != nil {
+		t.Fatalf("failed to update default branch mode: %v", err)
+	}
+
+	// Re-fetch and verify
+	proj2, err := database.GetProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj2.DefaultBranchMode != 1 {
+		t.Errorf("expected default branch mode 1, got %d", proj2.DefaultBranchMode)
+	}
+
+	// Update back to 0
+	if err := database.UpdateProjectDefaultBranchMode(proj.ID, 0); err != nil {
+		t.Fatalf("failed to update default branch mode: %v", err)
+	}
+	proj3, err := database.GetProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj3.DefaultBranchMode != 0 {
+		t.Errorf("expected default branch mode 0 after reset, got %d", proj3.DefaultBranchMode)
+	}
+}
+
+func TestProjectDefaultWorkflow(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	// New project should default to empty workflow
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj.DefaultWorkflow != "" {
+		t.Errorf("expected empty default workflow, got %q", proj.DefaultWorkflow)
+	}
+
+	// Update to a workflow name
+	if err := database.UpdateProjectDefaultWorkflow(proj.ID, "feature"); err != nil {
+		t.Fatalf("failed to update default workflow: %v", err)
+	}
+
+	// Re-fetch and verify
+	proj2, err := database.GetProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj2.DefaultWorkflow != "feature" {
+		t.Errorf("expected default workflow 'feature', got %q", proj2.DefaultWorkflow)
+	}
+
+	// Update to empty
+	if err := database.UpdateProjectDefaultWorkflow(proj.ID, ""); err != nil {
+		t.Fatalf("failed to clear default workflow: %v", err)
+	}
+	proj3, err := database.GetProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj3.DefaultWorkflow != "" {
+		t.Errorf("expected empty default workflow after clear, got %q", proj3.DefaultWorkflow)
+	}
+}
+
+func TestProjectDefaults_UpdateAll(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Update all defaults at once
+	if err := database.UpdateProjectDefaults(proj.ID, false, 1, "bugfix"); err != nil {
+		t.Fatalf("failed to update project defaults: %v", err)
+	}
+
+	// Re-fetch and verify all fields
+	proj2, err := database.GetProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proj2.DefaultWorktree {
+		t.Error("expected default_worktree=false")
+	}
+	if proj2.DefaultBranchMode != 1 {
+		t.Errorf("expected default_branch_mode=1, got %d", proj2.DefaultBranchMode)
+	}
+	if proj2.DefaultWorkflow != "bugfix" {
+		t.Errorf("expected default_workflow='bugfix', got %q", proj2.DefaultWorkflow)
+	}
+
+	// Update again with different values
+	if err := database.UpdateProjectDefaults(proj.ID, true, 0, ""); err != nil {
+		t.Fatalf("failed to update project defaults: %v", err)
+	}
+	proj3, err := database.GetProject(proj.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proj3.DefaultWorktree {
+		t.Error("expected default_worktree=true after second update")
+	}
+	if proj3.DefaultBranchMode != 0 {
+		t.Errorf("expected default_branch_mode=0, got %d", proj3.DefaultBranchMode)
+	}
+	if proj3.DefaultWorkflow != "" {
+		t.Errorf("expected empty default_workflow, got %q", proj3.DefaultWorkflow)
+	}
+}

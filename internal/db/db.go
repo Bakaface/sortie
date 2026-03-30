@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (16)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (17)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -295,6 +295,22 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to create task_steps table: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 16`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 17: Add default_branch_mode and default_workflow to projects
+	if version < 17 {
+		_, err := db.Exec(`ALTER TABLE projects ADD COLUMN default_branch_mode INTEGER NOT NULL DEFAULT 0`)
+		if err != nil {
+			return fmt.Errorf("failed to add default_branch_mode column to projects: %w", err)
+		}
+		_, err = db.Exec(`ALTER TABLE projects ADD COLUMN default_workflow TEXT NOT NULL DEFAULT ''`)
+		if err != nil {
+			return fmt.Errorf("failed to add default_workflow column to projects: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 17`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}

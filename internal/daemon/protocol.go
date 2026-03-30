@@ -122,6 +122,7 @@ type CreateTaskRequest struct {
 	CheckoutBranch string   `json:"checkout_branch,omitempty"`
 	ProjectPath    string   `json:"project_path,omitempty"` // resolved to project_id by daemon
 	Worktree       *bool    `json:"worktree,omitempty"`     // nil means default (true)
+	BranchMode     *int     `json:"branch_mode,omitempty"`  // nil means default (0 = new branch)
 	TmuxDirect     bool     `json:"tmux_direct,omitempty"`  // when true, skip workflow and go straight to tmux
 	Images      []string `json:"images,omitempty"`
 	BlockedBy   []int64  `json:"blocked_by,omitempty"`   // task IDs that block this task

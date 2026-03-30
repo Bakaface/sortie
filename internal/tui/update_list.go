@@ -247,15 +247,13 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		workflows := m.cfg.ListWorkflowNames()
-		m.selectedWorkflow = ""
-		if len(workflows) > 0 {
-			m.selectedWorkflow = workflows[0]
-		}
+		m.selectedWorkflow = m.resolveDefaultWorkflow(workflows)
 		m.view = viewPrompt
+		m.prompt.defaultWorkflow = m.defaultWorkflow
 		m.prompt.Reset()
 		m.prompt.workflowName = m.selectedWorkflow
 		m.prompt.workflows = workflows
-		m.prompt.workflowCursor = 0
+		m.prompt.workflowCursor = m.prompt.defaultWorkflowCursor()
 		m.prompt.SetSize(m.width, m.height) // recalc widths for split layout
 		m.prompt.Focus()
 		return m, nil
@@ -276,15 +274,13 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.blockingTaskID = task.ID
 		workflows := m.cfg.ListWorkflowNames()
-		m.selectedWorkflow = ""
-		if len(workflows) > 0 {
-			m.selectedWorkflow = workflows[0]
-		}
+		m.selectedWorkflow = m.resolveDefaultWorkflow(workflows)
 		m.view = viewPrompt
+		m.prompt.defaultWorkflow = m.defaultWorkflow
 		m.prompt.Reset()
 		m.prompt.workflowName = m.selectedWorkflow
 		m.prompt.workflows = workflows
-		m.prompt.workflowCursor = 0
+		m.prompt.workflowCursor = m.prompt.defaultWorkflowCursor()
 		m.prompt.blockingTaskID = m.blockingTaskID
 		m.prompt.blockingTaskTitle = m.blockingTaskTitleFromList(m.blockingTaskID)
 		m.prompt.SetSize(m.width, m.height)
@@ -630,3 +626,20 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 }
+
+// resolveDefaultWorkflow returns the saved default workflow if it exists in the
+// provided list, otherwise falls back to the first available workflow.
+func (m Model) resolveDefaultWorkflow(workflows []string) string {
+	if m.defaultWorkflow != "" {
+		for _, name := range workflows {
+			if name == m.defaultWorkflow {
+				return name
+			}
+		}
+	}
+	if len(workflows) > 0 {
+		return workflows[0]
+	}
+	return ""
+}
+
