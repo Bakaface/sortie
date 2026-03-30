@@ -139,9 +139,9 @@ func (p *promptView) maxHeight() int {
 	// Reserve lines for non-textarea content:
 	// title bar(1) + blank(1) + titleInput(1) + blank(1) +
 	// [textarea goes here] + blank(1) +
-	// git frame top(1) + worktree(1) + mode(1) + blank(1) + branch(1) + target(1) + git frame bottom(1) +
+	// git frame top(1) + padding(1) + worktree(1) + mode(1) + blank(1) + branch(1) + target(1) + git frame bottom(1) +
 	// blank(1) + help(1)
-	reserved := 13
+	reserved := 14
 	if !p.worktree {
 		reserved -= 4 // no mode/blank/branch/target lines
 	}
@@ -673,9 +673,21 @@ func (p *promptView) View() string {
 	focusedLabel := lipgloss.NewStyle().Bold(true).Foreground(highlight)
 	unfocusedLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B"))
 
-	fieldLabel := func(label string, field promptField) string {
+	// underlineMnemonic renders a label with its first character underlined as a keyboard hint.
+	underlineMnemonic := func(label string, base lipgloss.Style) string {
+		ul := base.Underline(true)
+		return ul.Render(string(label[0])) + base.Render(label[1:])
+	}
+
+	fieldLabel := func(label string, field promptField, mnemonic bool) string {
 		if p.focusField == field {
+			if mnemonic {
+				return focusedLabel.Render("▸ ") + underlineMnemonic(label, focusedLabel)
+			}
 			return focusedLabel.Render("▸ " + label)
+		}
+		if mnemonic {
+			return unfocusedLabel.Render("  ") + underlineMnemonic(label, unfocusedLabel)
 		}
 		return unfocusedLabel.Render("  " + label)
 	}
@@ -711,7 +723,7 @@ func (p *promptView) View() string {
 	b.WriteString("\n\n")
 
 	// Title input
-	b.WriteString(fieldLabel("Title: ", promptFieldTitle))
+	b.WriteString(fieldLabel("Title: ", promptFieldTitle, true))
 	b.WriteString(p.titleInput.View())
 	b.WriteString("\n\n")
 
@@ -771,15 +783,15 @@ func (p *promptView) View() string {
 		gitContent.WriteString("\n\n")
 
 		if p.branchMode == branchModeNew {
-			gitContent.WriteString(fieldLabel("Branch: ", promptFieldBranch))
+			gitContent.WriteString(fieldLabel("Branch: ", promptFieldBranch, false))
 			gitContent.WriteString(p.branchInput.View())
 		} else {
-			gitContent.WriteString(fieldLabel("Checkout: ", promptFieldCheckout))
+			gitContent.WriteString(fieldLabel("Checkout: ", promptFieldCheckout, false))
 			gitContent.WriteString(p.checkoutInput.View())
 		}
 
 		gitContent.WriteString("\n")
-		gitContent.WriteString(fieldLabel("Target: ", promptFieldTargetBranch))
+		gitContent.WriteString(fieldLabel("Target: ", promptFieldTargetBranch, false))
 		gitContent.WriteString(p.targetBranchInput.View())
 	}
 
@@ -794,16 +806,16 @@ func (p *promptView) View() string {
 		if p.width >= minSideBySide {
 			leftWidth := innerWidth * 2 / 3
 			rightWidth := innerWidth - leftWidth // no gap — frames share the border
-			gitFrame := p.renderFramedSection("Git", gitBorderColor, gitContent.String(), leftWidth)
-			wfFrame := p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, rightWidth)
+			gitFrame := p.renderFramedSection("Git", gitBorderColor, gitContent.String(), leftWidth, true)
+			wfFrame := p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, rightWidth, true)
 			b.WriteString(indentBlock(" ", joinFramesHorizontal(gitFrame, wfFrame, leftWidth, rightWidth)))
 		} else {
-			b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth)))
+			b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth, true)))
 			b.WriteString("\n")
-			b.WriteString(indentBlock(" ", p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, innerWidth)))
+			b.WriteString(indentBlock(" ", p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, innerWidth, true)))
 		}
 	} else {
-		b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth)))
+		b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth, true)))
 	}
 	b.WriteString("\n")
 
@@ -833,7 +845,8 @@ func (p *promptView) View() string {
 // renderFramedSection renders content inside a rounded border with a label
 // embedded in the top border line: ╭─ Label ────────────╮
 // Width is the total outer width including border characters.
-func (p *promptView) renderFramedSection(label string, borderColor lipgloss.Color, content string, width int) string {
+// When mnemonic is true, the first character of the label is underlined as a keyboard hint.
+func (p *promptView) renderFramedSection(label string, borderColor lipgloss.Color, content string, width int, mnemonic bool) string {
 	bs := lipgloss.NewStyle().Foreground(borderColor)
 	ls := lipgloss.NewStyle().Bold(true).Foreground(borderColor)
 
@@ -844,7 +857,13 @@ func (p *promptView) renderFramedSection(label string, borderColor lipgloss.Colo
 	}
 
 	// ── Top border: ╭─ Label ─────╮ ──
-	labelText := ls.Render(" " + label + " ")
+	var labelText string
+	if mnemonic && len(label) > 0 {
+		ul := ls.Underline(true)
+		labelText = ls.Render(" ") + ul.Render(string(label[0])) + ls.Render(label[1:]+" ")
+	} else {
+		labelText = ls.Render(" " + label + " ")
+	}
 	labelW := lipgloss.Width(labelText)
 	topFill := width - 2 - labelW - 1 // 2 for "╭─", 1 for "╮"
 	if topFill < 0 {
@@ -855,6 +874,10 @@ func (p *promptView) renderFramedSection(label string, borderColor lipgloss.Colo
 	// ── Content lines with side borders: │ content  │ ──
 	var out strings.Builder
 	out.WriteString(top)
+	out.WriteByte('\n')
+
+	// Top padding inside the frame
+	out.WriteString(bs.Render("│") + " " + strings.Repeat(" ", contentWidth) + bs.Render("│"))
 	out.WriteByte('\n')
 
 	truncStyle := lipgloss.NewStyle().MaxWidth(contentWidth)
