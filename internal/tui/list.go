@@ -38,6 +38,18 @@ type listView struct {
 	loading            bool           // true before the first successful task load
 	refreshing         bool           // true while a background refresh is in-flight
 	spinner            spinner.Model  // loading spinner for initial load
+	cw                 colWidths      // computed column widths
+}
+
+type colWidths struct {
+	lineNum int
+	id      int
+	pri     int
+	status  int
+	project int
+	branch  int
+	target  int
+	title   int
 }
 
 // safeKeyMap returns a table.KeyMap that only handles basic navigation.
@@ -56,8 +68,19 @@ func safeKeyMap() table.KeyMap {
 }
 
 func newListView(globalMode bool, projectName string) listView {
+	// Default columns (recomputed when tasks arrive)
+	initialCols := []table.Column{
+		{Title: "ID", Width: 5},
+		{Title: "P", Width: 2},
+	}
+	if globalMode {
+		initialCols = append(initialCols, table.Column{Title: "PROJECT", Width: 14})
+	}
+	initialCols = append(initialCols, table.Column{Title: "STATUS", Width: 18})
+	initialCols = append(initialCols, table.Column{Title: "TITLE", Width: 40})
+
 	t := table.New(
-		table.WithColumns(computeColumns(80, globalMode, true, 0, false, false)),
+		table.WithColumns(initialCols),
 		table.WithFocused(true),
 		table.WithHeight(20),
 		table.WithKeyMap(safeKeyMap()),
@@ -81,59 +104,10 @@ func newListView(globalMode bool, projectName string) listView {
 		projectName:     projectName,
 		loading:         true,
 		spinner:         sp,
+		cw:              colWidths{id: 5, pri: 2, status: 18, project: 14, branch: 20, target: 14, title: 40},
 	}
 }
 
-// computeColumns calculates column widths with the title column filling remaining space.
-func computeColumns(width int, globalMode, lineNumbers bool, taskCount int, showBranch, showTarget bool) []table.Column {
-	const (
-		idWidth       = 5
-		priWidth      = 2
-		statusWidth   = 18
-		projWidth     = 14
-		branchWidth   = 20
-		targetWidth   = 14
-		spacing       = 5 // gaps between columns
-		minTitleWidth = 15
-	)
-
-	fixed := idWidth + priWidth + statusWidth + spacing
-	if globalMode {
-		fixed += projWidth
-	}
-	if lineNumbers {
-		fixed += lineNumWidthForCount(taskCount)
-	}
-	if showBranch {
-		fixed += branchWidth
-	}
-	if showTarget {
-		fixed += targetWidth
-	}
-
-	titleWidth := width - fixed
-	if titleWidth < minTitleWidth {
-		titleWidth = minTitleWidth
-	}
-
-	// Columns are used for width tracking only; we render rows ourselves
-	cols := []table.Column{
-		{Title: "ID", Width: idWidth},
-		{Title: "P", Width: priWidth},
-	}
-	if globalMode {
-		cols = append(cols, table.Column{Title: "PROJECT", Width: projWidth})
-	}
-	cols = append(cols, table.Column{Title: "STATUS", Width: statusWidth})
-	if showBranch {
-		cols = append(cols, table.Column{Title: "BRANCH", Width: branchWidth})
-	}
-	if showTarget {
-		cols = append(cols, table.Column{Title: "TARGET", Width: targetWidth})
-	}
-	cols = append(cols, table.Column{Title: "TITLE", Width: titleWidth})
-	return cols
-}
 
 // lineNumWidthForCount returns the gutter width for a given task count.
 func lineNumWidthForCount(n int) int {
@@ -143,6 +117,105 @@ func lineNumWidthForCount(n int) int {
 		n /= 10
 	}
 	return max(2, width)
+}
+
+// computeWidths measures the actual content widths across all tasks and returns
+// computed column widths, with TITLE getting whatever space remains.
+func (l *listView) computeWidths() colWidths {
+	const (
+		minID      = 2
+		maxID      = 8
+		minStatus  = 10
+		maxStatus  = 30
+		minProject = 5
+		maxProject = 20
+		minBranch  = 8
+		maxBranch  = 35
+		minTarget  = 6
+		maxTarget  = 20
+		minTitle   = 15
+	)
+
+	cw := colWidths{pri: 2}
+
+	if l.showLineNumbers {
+		cw.lineNum = lineNumWidthForCount(len(l.tasks))
+	}
+
+	// Measure max content width for each column
+	maxIDW := minID
+	maxStatusW := minStatus
+	maxProjectW := minProject
+	maxBranchW := minBranch
+	maxTargetW := minTarget
+
+	for _, task := range l.tasks {
+		if w := len(fmt.Sprintf("%d", task.ID)); w > maxIDW {
+			maxIDW = w
+		}
+		if w := len([]rune(l.statusText(task))); w > maxStatusW {
+			maxStatusW = w
+		}
+		if l.globalMode {
+			if w := len([]rune(l.projectNameFor(task))); w > maxProjectW {
+				maxProjectW = w
+			}
+		}
+		if l.showBranch {
+			if w := len([]rune(task.Branch)); w > maxBranchW {
+				maxBranchW = w
+			}
+		}
+		if l.showTarget {
+			if w := len([]rune(task.TargetBranch)); w > maxTargetW {
+				maxTargetW = w
+			}
+		}
+	}
+
+	// Apply caps and add 1 char padding for breathing room
+	cw.id = min(maxIDW+1, maxID)
+	cw.status = min(maxStatusW+1, maxStatus)
+	cw.project = min(maxProjectW+1, maxProject)
+	cw.branch = min(maxBranchW+1, maxBranch)
+	cw.target = min(maxTargetW+1, maxTarget)
+
+	// Compute title width from remaining space.
+	// Format strings use these separators:
+	//   non-global with lineNumbers: " %s %s %s %s%s%s %s" = 5 spaces (leading + 4 between)
+	//   global with lineNumbers:     " %s %s %s %s %s%s%s %s" = 6 spaces
+	// branch and target are prefixed with " " when included (already in midCols)
+	spacing := 5
+	if l.globalMode {
+		spacing = 6
+	}
+	if l.showBranch {
+		spacing++
+	}
+	if l.showTarget {
+		spacing++
+	}
+
+	fixed := cw.id + cw.pri + cw.status + spacing
+	if l.showLineNumbers {
+		fixed += cw.lineNum
+	}
+	if l.globalMode {
+		fixed += cw.project
+	}
+	if l.showBranch {
+		fixed += cw.branch
+	}
+	if l.showTarget {
+		fixed += cw.target
+	}
+
+	cw.title = l.width - fixed
+	if cw.title < minTitle {
+		cw.title = minTitle
+	}
+
+	return cw
 }
 
 func (l *listView) SetTasks(tasks []daemon.TaskInfo) {
@@ -371,7 +444,23 @@ func (l *listView) SetSize(width, height int) {
 }
 
 func (l *listView) recomputeColumns() {
-	cols := computeColumns(l.width, l.globalMode, l.showLineNumbers, len(l.tasks), l.showBranch, l.showTarget)
+	l.cw = l.computeWidths()
+
+	cols := []table.Column{
+		{Title: "ID", Width: l.cw.id},
+		{Title: "P", Width: l.cw.pri},
+	}
+	if l.globalMode {
+		cols = append(cols, table.Column{Title: "PROJECT", Width: l.cw.project})
+	}
+	cols = append(cols, table.Column{Title: "STATUS", Width: l.cw.status})
+	if l.showBranch {
+		cols = append(cols, table.Column{Title: "BRANCH", Width: l.cw.branch})
+	}
+	if l.showTarget {
+		cols = append(cols, table.Column{Title: "TARGET", Width: l.cw.target})
+	}
+	cols = append(cols, table.Column{Title: "TITLE", Width: l.cw.title})
 	l.table.SetColumns(cols)
 }
 
@@ -389,11 +478,8 @@ func (l *listView) Update(msg tea.Msg) tea.Cmd {
 
 // titleWidth returns the width available for the title column.
 func (l *listView) titleWidth() int {
-	cols := l.table.Columns()
-	for _, c := range cols {
-		if c.Title == "TITLE" {
-			return c.Width
-		}
+	if l.cw.title > 0 {
+		return l.cw.title
 	}
 	return 60
 }
@@ -462,41 +548,32 @@ func (l *listView) View() string {
 func (l *listView) renderHeader() string {
 	gutter := " "
 	if l.showLineNumbers {
-		gutterWidth := l.lineNumWidth()
-		gutter = strings.Repeat(" ", gutterWidth+1)
+		gutter = strings.Repeat(" ", l.cw.lineNum+1)
 	}
-	tw := l.titleWidth()
+	tw := l.cw.title
 
-	// Build the middle columns (branch/target) string for insertion between STATUS and TITLE
 	var midCols string
 	if l.showBranch {
-		midCols += fmt.Sprintf(" %-20s", "BRANCH")
+		midCols += fmt.Sprintf(" %-*s", l.cw.branch, "BRANCH")
 	}
 	if l.showTarget {
-		midCols += fmt.Sprintf(" %-14s", "TARGET")
+		midCols += fmt.Sprintf(" %-*s", l.cw.target, "TARGET")
 	}
 
 	var header string
 	if l.globalMode {
-		header = fmt.Sprintf("%s %-5s %-2s %-14s %-18s%s %-*s",
-			gutter, "ID", "P", "PROJECT", "STATUS", midCols, tw, "TITLE")
+		header = fmt.Sprintf("%s %-*s %-*s %-*s %-*s%s %-*s",
+			gutter, l.cw.id, "ID", l.cw.pri, "P", l.cw.project, "PROJECT", l.cw.status, "STATUS", midCols, tw, "TITLE")
 	} else {
-		header = fmt.Sprintf("%s %-5s %-2s %-18s%s %-*s",
-			gutter, "ID", "P", "STATUS", midCols, tw, "TITLE")
+		header = fmt.Sprintf("%s %-*s %-*s %-*s%s %-*s",
+			gutter, l.cw.id, "ID", l.cw.pri, "P", l.cw.status, "STATUS", midCols, tw, "TITLE")
 	}
 	return headerStyle.Render(header)
 }
 
-func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) string {
-	// Check if this task is a search match
-	isMatch := l.isSearchMatch(index)
-
-	// Status icons
+// statusText returns the formatted status string for a task (icon + label with annotations).
+func (l *listView) statusText(task daemon.TaskInfo) string {
 	statusIcon := statusIconFor(task.Status)
-
-	taskID := fmt.Sprintf("%-2d", task.ID)
-
-	// Merge step info into status: show step name for active states
 	statusLabel := task.Status
 	switch task.Status {
 	case "running", "awaiting-approval", "tmux", "failed", "stopped":
@@ -529,7 +606,15 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 			statusLabel += " [T]"
 		}
 	}
-	status := fmt.Sprintf("%s %s", statusIcon, statusLabel)
+	return fmt.Sprintf("%s %s", statusIcon, statusLabel)
+}
+
+func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) string {
+	// Check if this task is a search match
+	isMatch := l.isSearchMatch(index)
+
+	taskID := fmt.Sprintf("%-2d", task.ID)
+	status := l.statusText(task)
 
 	// Use title or truncated description
 	title := task.Title
@@ -549,37 +634,37 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		if selected {
 			outerStyle = selectedStyle
 		}
-		idCol := truncateOrPad(taskID, 5)
+		idCol := truncateOrPad(taskID, l.cw.id)
 		priCol := truncateOrPad(priBadge, 2)
-		statusCol := truncateOrPad(status, 18)
+		statusCol := truncateOrPad(status, l.cw.status)
 
 		branchCol := ""
 		if l.showBranch {
 			if l.branchView && index < len(l.treeEntries) {
-				branchCol = " " + l.treeEntries[index].renderBranchColumn(task.Branch, 20)
+				branchCol = " " + l.treeEntries[index].renderBranchColumn(task.Branch, l.cw.branch)
 			} else {
-				branchCol = " " + truncateOrPad(task.Branch, 20)
+				branchCol = " " + truncateOrPad(task.Branch, l.cw.branch)
 			}
 		}
 		targetCol := ""
 		if l.showTarget {
-			targetCol = " " + truncateOrPad(task.TargetBranch, 14)
+			targetCol = " " + truncateOrPad(task.TargetBranch, l.cw.target)
 		}
 
 		var line string
 		if l.showLineNumbers {
-			gutterWidth := l.lineNumWidth()
+			gutterWidth := l.cw.lineNum
 			idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
 			idxCol := truncateOrPad(idxStr, gutterWidth)
 			if l.globalMode {
-				projCol := truncateOrPad(l.projectNameFor(task), 14)
+				projCol := truncateOrPad(l.projectNameFor(task), l.cw.project)
 				line = fmt.Sprintf(" %s %s %s %s %s%s%s %s", idxCol, idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 			} else {
 				line = fmt.Sprintf(" %s %s %s %s%s%s %s", idxCol, idCol, priCol, statusCol, branchCol, targetCol, title)
 			}
 		} else {
 			if l.globalMode {
-				projCol := truncateOrPad(l.projectNameFor(task), 14)
+				projCol := truncateOrPad(l.projectNameFor(task), l.cw.project)
 				line = fmt.Sprintf("  %s %s %s %s%s%s %s", idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 			} else {
 				line = fmt.Sprintf("  %s %s %s%s%s %s", idCol, priCol, statusCol, branchCol, targetCol, title)
@@ -593,41 +678,41 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	}
 
 	// Apply priority/status colors for non-selected, non-matched rows
-	idCol := lipgloss.NewStyle().Width(5).Render(taskID)
+	idCol := lipgloss.NewStyle().Width(l.cw.id).Render(taskID)
 	priCol := priorityStyle(task.Priority).Width(2).Render(priBadge)
 	statusSt := stateStyle(task.Status)
 	if strings.Contains(status, "(deadlocked)") {
 		statusSt = stateStyle("failed")
 	}
-	statusCol := statusSt.Width(18).Render(status)
+	statusCol := statusSt.Width(l.cw.status).Render(status)
 
 	branchCol := ""
 	if l.showBranch {
-		branchText := truncateOrPad(task.Branch, 20)
+		branchText := truncateOrPad(task.Branch, l.cw.branch)
 		if l.branchView && index < len(l.treeEntries) {
-			branchText = l.treeEntries[index].renderBranchColumn(task.Branch, 20)
+			branchText = l.treeEntries[index].renderBranchColumn(task.Branch, l.cw.branch)
 		}
-		branchCol = " " + dimStyle.Copy().Width(20).Render(branchText)
+		branchCol = " " + dimStyle.Copy().Width(l.cw.branch).Render(branchText)
 	}
 	targetCol := ""
 	if l.showTarget {
-		targetCol = " " + dimStyle.Copy().Width(14).Render(truncateOrPad(task.TargetBranch, 14))
+		targetCol = " " + dimStyle.Copy().Width(l.cw.target).Render(truncateOrPad(task.TargetBranch, l.cw.target))
 	}
 
 	var line string
 	if l.showLineNumbers {
-		gutterWidth := l.lineNumWidth()
+		gutterWidth := l.cw.lineNum
 		idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
 		idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
 		if l.globalMode {
-			projCol := lipgloss.NewStyle().Width(14).Render(l.projectNameFor(task))
+			projCol := lipgloss.NewStyle().Width(l.cw.project).Render(l.projectNameFor(task))
 			line = fmt.Sprintf(" %s %s %s %s %s%s%s %s", idxCol, idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 		} else {
 			line = fmt.Sprintf(" %s %s %s %s%s%s %s", idxCol, idCol, priCol, statusCol, branchCol, targetCol, title)
 		}
 	} else {
 		if l.globalMode {
-			projCol := lipgloss.NewStyle().Width(14).Render(l.projectNameFor(task))
+			projCol := lipgloss.NewStyle().Width(l.cw.project).Render(l.projectNameFor(task))
 			line = fmt.Sprintf("  %s %s %s %s%s%s %s", idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 		} else {
 			line = fmt.Sprintf("  %s %s %s%s%s %s", idCol, priCol, statusCol, branchCol, targetCol, title)
