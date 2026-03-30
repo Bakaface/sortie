@@ -3939,8 +3939,11 @@ func TestViewRendersPromptHelpOverlay(t *testing.T) {
 	if !strings.Contains(output, "Input") {
 		t.Error("expected help overlay to contain 'Input' group")
 	}
-	if !strings.Contains(output, "Actions") {
-		t.Error("expected help overlay to contain 'Actions' group")
+	if !strings.Contains(output, "Focus") {
+		t.Error("expected help overlay to contain 'Focus' group")
+	}
+	if !strings.Contains(output, "Toggles") {
+		t.Error("expected help overlay to contain 'Toggles' group")
 	}
 
 	// Should contain prompt-specific bindings
@@ -3988,9 +3991,9 @@ func TestPromptShortHelpShowsOnlyEssentialBindings(t *testing.T) {
 	keys := newPromptKeyMap()
 	bindings := keys.ShortHelp()
 
-	// ShortHelp should only show a few essential bindings (submit, cancel, newline, help)
-	if len(bindings) > 5 {
-		t.Errorf("expected ShortHelp to show at most 5 bindings, got %d", len(bindings))
+	// ShortHelp should only show essential bindings (submit, cancel, field/pane switch, newline, help)
+	if len(bindings) > 7 {
+		t.Errorf("expected ShortHelp to show at most 7 bindings, got %d", len(bindings))
 	}
 
 	// Should contain the essential bindings

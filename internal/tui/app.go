@@ -546,7 +546,7 @@ func (m Model) renderPromptHelpOverlay() string {
 	keys := newPromptKeyMap()
 	groups := keys.FullHelp()
 
-	groupNames := []string{"Input", "Actions", "General"}
+	groupNames := []string{"Input", "Focus", "Toggles"}
 
 	headingStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
 

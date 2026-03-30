@@ -537,15 +537,14 @@ func newPromptKeyMap() promptKeyMap {
 }
 
 func (k promptKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Submit, k.Cancel, k.Newline, k.Help}
+	return []key.Binding{k.Submit, k.Cancel, k.SwitchField, k.SwitchPane, k.Newline, k.Help}
 }
 
 func (k promptKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Submit, k.Cancel, k.SwitchField, k.Newline},
 		{k.FocusTitle, k.FocusDescription, k.FocusGit, k.FocusWorkflow},
-		{k.SwitchPane, k.Worktree, k.BranchMode, k.Editor, k.RemoveImage},
-		{k.Help},
+		{k.SwitchPane, k.Worktree, k.BranchMode, k.Editor, k.RemoveImage, k.Help},
 	}
 }
 
