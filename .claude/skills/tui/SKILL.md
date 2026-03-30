@@ -37,7 +37,7 @@ Model (app.go)
 |------|----------------|
 | `list.go` | Task table with custom row rendering, scroll offset, search matching |
 | `detail.go` | Viewport-based log viewer with follow mode, ANSI stripping |
-| `prompt.go` | Dual-field form (textarea + textinput), worktree toggle (`alt+w`), image detection |
+| `prompt.go` | Dual-field form (textarea + textinput), worktree toggle (`alt+W`), pane cycling (`CyclePane`), image detection |
 | `task_info.go` | Metadata display + workflow step progress (icons: `○`/`●`/`✓`/`✗`) |
 | `artifact_view.go` | Step context viewer (fetches from daemon RPC, not disk) |
 
@@ -48,7 +48,7 @@ Model (app.go)
 | `update_list.go` | List view: navigation, task actions, selections, search, commands |
 | `update_detail.go` | Detail view: scroll, follow toggle, back |
 | `update_task_info.go` | Task info: scroll, copy-to-clipboard (yd/yc), edit fields, artifact selection |
-| `update_prompt.go` | Prompt view: submit, tab switching, editor open, worktree toggle |
+| `update_prompt.go` | Prompt view: three-layer dispatch (shared keys in `handlePromptKey` → `handleTaskPaneKey` / `handleWorkflowPaneKey`), submit via `handlePromptSubmit` |
 | `update_artifact.go` | Artifact selection/viewing: list navigation, open/edit |
 
 ### Actions & Utilities
@@ -98,11 +98,22 @@ Generic `selector` struct (`selector.go`) handles all list-pick dialogs (workflo
 
 ## Non-Worktree Mode
 
-The `promptView` includes a worktree toggle (`alt+w`):
+The `promptView` includes a worktree toggle (`alt+W`):
 - When **on** (default): task runs in an isolated git worktree with its own branch
 - When **off**: task runs directly in the project root directory; branch input is hidden
 - The toggle state persists per-project (stored in DB via `default_worktree`) and within a TUI session (survives `Reset()`)
 - When worktree is toggled off while branch field is focused, focus auto-switches to description
+
+### Prompt Keybinding Scheme
+
+Three-layer key dispatch in `update_prompt.go`: `handlePromptKey` (shared) → `handleTaskPaneKey` / `handleWorkflowPaneKey` (pane-specific).
+
+| Category | Keys | Notes |
+|----------|------|-------|
+| **Section focus** | `alt+t` title, `alt+d`/`alt+enter` description, `alt+g` git, `alt+w` workflow | Navigate directly to a section |
+| **Pane cycling** | `alt+]`/`alt+[` (or `alt+tab`/`alt+shift+tab`) | Cycles main→git→workflow; `CyclePane(forward bool)` on promptView |
+| **Input cycling** | `tab`/`shift+tab` | Cycles through individual inputs within current pane context |
+| **Toggles** | `alt+W` worktree, `alt+M` branch mode | Alt+Shift = toggle action (heavier modifier) |
 
 ## Verifying Layout & Rendering
 
