@@ -139,10 +139,15 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 	}
 
-	// Run worktree setup command if configured
+	// Run worktree setup command(s) if configured
 	if t.Worktree {
 		if setupCmd := e.cfg.GetWorktreeSetupCommand(wf); setupCmd != "" {
 			if err := RunWorktreeSetupCommand(ctx, e.repoRoot, t.WorktreePath, setupCmd); err != nil {
+				return fmt.Errorf("worktree setup failed: %w", err)
+			}
+		}
+		if setupCmds := e.cfg.GetWorktreeSetupCommands(wf); len(setupCmds) > 0 {
+			if err := RunWorktreeSetupCommands(ctx, e.repoRoot, t.WorktreePath, setupCmds); err != nil {
 				return fmt.Errorf("worktree setup failed: %w", err)
 			}
 		}

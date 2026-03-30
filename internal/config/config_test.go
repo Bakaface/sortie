@@ -1618,6 +1618,135 @@ func TestWorktreeSetupCommandDefaultEmpty(t *testing.T) {
 	}
 }
 
+func TestWorktreeSetupCommandsParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+worktree-setup-commands:
+  - "npm install"
+  - "./scripts/bootstrap.sh {{worktree_path}}"
+  - "make setup"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{"npm install", "./scripts/bootstrap.sh {{worktree_path}}", "make setup"}
+	if len(cfg.WorktreeSetupCommands) != len(expected) {
+		t.Fatalf("expected %d commands, got %d", len(expected), len(cfg.WorktreeSetupCommands))
+	}
+	for i, cmd := range cfg.WorktreeSetupCommands {
+		if cmd != expected[i] {
+			t.Errorf("command[%d]: expected %q, got %q", i, expected[i], cmd)
+		}
+	}
+}
+
+func TestWorktreeSetupCommandsProjectOverridesGlobal(t *testing.T) {
+	globalDir := t.TempDir()
+	globalPath := filepath.Join(globalDir, ".sortie.yml")
+	os.WriteFile(globalPath, []byte(`
+worktree-setup-commands:
+  - "global-cmd-1"
+  - "global-cmd-2"
+`), 0644)
+
+	projectDir := t.TempDir()
+	projectPath := filepath.Join(projectDir, ".sortie.yml")
+	os.WriteFile(projectPath, []byte(`
+worktree-setup-commands:
+  - "project-cmd-1"
+`), 0644)
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(globalPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WorktreeSetupCommands) != 2 {
+		t.Errorf("expected 2 global commands, got %d", len(cfg.WorktreeSetupCommands))
+	}
+
+	if err := loadProjectConfig(projectPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.WorktreeSetupCommands) != 1 || cfg.WorktreeSetupCommands[0] != "project-cmd-1" {
+		t.Errorf("expected project commands to override, got %v", cfg.WorktreeSetupCommands)
+	}
+}
+
+func TestWorktreeSetupCommandsPerWorkflow(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+worktree-setup-commands:
+  - "global-cmd"
+workflows:
+  tasks:
+    - name: custom
+      worktree-setup-commands:
+        - "wf-cmd-1"
+        - "wf-cmd-2"
+      steps:
+        - name: implement
+          prompt: "do it"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cfg.WorktreeSetupCommands) != 1 || cfg.WorktreeSetupCommands[0] != "global-cmd" {
+		t.Fatalf("expected global commands, got %v", cfg.WorktreeSetupCommands)
+	}
+
+	wf := cfg.GetWorkflow("custom")
+	if wf == nil {
+		t.Fatal("expected to find 'custom' workflow")
+	}
+
+	cmds := cfg.GetWorktreeSetupCommands(wf)
+	if len(cmds) != 2 || cmds[0] != "wf-cmd-1" || cmds[1] != "wf-cmd-2" {
+		t.Errorf("expected workflow-level commands, got %v", cmds)
+	}
+}
+
+func TestGetWorktreeSetupCommandsFallsBackToGlobal(t *testing.T) {
+	cfg := &Config{
+		WorktreeSetupCommands: []string{"global-cmd-1", "global-cmd-2"},
+	}
+
+	// Workflow without override — should fall back
+	wf := &WorkflowConfig{Name: "test"}
+	cmds := cfg.GetWorktreeSetupCommands(wf)
+	if len(cmds) != 2 || cmds[0] != "global-cmd-1" {
+		t.Errorf("expected global fallback, got %v", cmds)
+	}
+
+	// Nil workflow — should fall back
+	cmds = cfg.GetWorktreeSetupCommands(nil)
+	if len(cmds) != 2 {
+		t.Errorf("expected global fallback for nil workflow, got %v", cmds)
+	}
+}
+
+func TestWorktreeSetupCommandsDefaultEmpty(t *testing.T) {
+	cfg := defaultConfig()
+	if len(cfg.WorktreeSetupCommands) != 0 {
+		t.Errorf("expected empty setup commands by default, got %v", cfg.WorktreeSetupCommands)
+	}
+}
+
 func TestTmuxSetupCommandParsing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sortie.yml")

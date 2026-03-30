@@ -83,6 +83,7 @@ type ProjectConfig struct {
 	SystemPrompt             string                  `yaml:"system_prompt"`
 	WorktreeSyncPaths        WorktreeSyncPathsConfig `yaml:"worktree-sync-paths"`
 	WorktreeSetupCommand     string                  `yaml:"worktree-setup-command"`
+	WorktreeSetupCommands    []string                `yaml:"worktree-setup-commands"`
 	TmuxSetupCommand         string                  `yaml:"tmux-setup-command"`
 	Options                  *OptionsConfig          `yaml:"options,omitempty"`
 }
@@ -141,7 +142,8 @@ type WorkflowConfig struct {
 	Steps                []StepConfig            `yaml:"steps"`
 	SummarizerPrompt     string                  `yaml:"summarizer_prompt"`
 	WorktreeSyncPaths    WorktreeSyncPathsConfig `yaml:"worktree-sync-paths,omitempty"`
-	WorktreeSetupCommand string                  `yaml:"worktree-setup-command,omitempty"`
+	WorktreeSetupCommand  string                  `yaml:"worktree-setup-command,omitempty"`
+	WorktreeSetupCommands []string               `yaml:"worktree-setup-commands,omitempty"`
 	TmuxSetupCommand     string                  `yaml:"tmux-setup-command,omitempty"`
 }
 
@@ -341,6 +343,9 @@ type Config struct {
 
 	// Command to run after creating a worktree (e.g. dependency installation)
 	WorktreeSetupCommand string
+
+	// Commands to run sequentially after creating a worktree
+	WorktreeSetupCommands []string
 
 	// Command to run after creating a tmux session (e.g. layout setup)
 	TmuxSetupCommand string

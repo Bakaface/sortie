@@ -232,6 +232,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if proj.WorktreeSetupCommand != "" {
 		cfg.WorktreeSetupCommand = proj.WorktreeSetupCommand
 	}
+	if len(proj.WorktreeSetupCommands) > 0 {
+		cfg.WorktreeSetupCommands = proj.WorktreeSetupCommands
+	}
 	if proj.TmuxSetupCommand != "" {
 		cfg.TmuxSetupCommand = proj.TmuxSetupCommand
 	}

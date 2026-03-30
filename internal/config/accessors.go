@@ -107,6 +107,14 @@ func (c *Config) GetWorktreeSetupCommand(wf *WorkflowConfig) string {
 	return c.WorktreeSetupCommand
 }
 
+// GetWorktreeSetupCommands returns the setup commands for a workflow, falling back to the global config.
+func (c *Config) GetWorktreeSetupCommands(wf *WorkflowConfig) []string {
+	if wf != nil && len(wf.WorktreeSetupCommands) > 0 {
+		return wf.WorktreeSetupCommands
+	}
+	return c.WorktreeSetupCommands
+}
+
 // GetTmuxSetupCommand returns the tmux setup command for a workflow, falling back to the global config.
 func (c *Config) GetTmuxSetupCommand(wf *WorkflowConfig) string {
 	if wf != nil && wf.TmuxSetupCommand != "" {

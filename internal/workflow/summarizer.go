@@ -280,6 +280,23 @@ func RunWorktreeSetupCommand(ctx context.Context, projectRoot, worktreePath, com
 	return nil
 }
 
+// RunWorktreeSetupCommands runs multiple worktree setup commands sequentially.
+// Each command is executed with the project root as the working directory.
+// {{worktree_path}} in command strings is replaced with the actual worktree path.
+// Execution stops at the first failure.
+func RunWorktreeSetupCommands(ctx context.Context, projectRoot, worktreePath string, commands []string) error {
+	for i, command := range commands {
+		if command == "" {
+			continue
+		}
+		log.Printf("Running worktree setup command [%d/%d]: %s", i+1, len(commands), command)
+		if err := RunWorktreeSetupCommand(ctx, projectRoot, worktreePath, command); err != nil {
+			return fmt.Errorf("worktree setup command [%d/%d] failed: %w", i+1, len(commands), err)
+		}
+	}
+	return nil
+}
+
 // runClaudeSync runs Claude Code synchronously and captures its stdout output.
 // workDir sets the working directory for the Claude process so it can access
 // the task's worktree files.

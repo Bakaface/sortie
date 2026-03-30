@@ -311,6 +311,11 @@ func (s *Server) ensureWorktree(t *task.Task, pc *projectContext) error {
 			log.Printf("%sWarning: worktree setup command failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
 	}
+	if setupCmds := pc.cfg.GetWorktreeSetupCommands(nil); len(setupCmds) > 0 {
+		if err := workflow.RunWorktreeSetupCommands(context.Background(), pc.repoRoot, t.WorktreePath, setupCmds); err != nil {
+			log.Printf("%sWarning: worktree setup commands failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
+	}
 
 	return nil
 }
