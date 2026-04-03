@@ -82,6 +82,101 @@ func TestBuildBranchTree_FanOut(t *testing.T) {
 	}
 }
 
+func TestBuildBranchTree_AncestorTracking(t *testing.T) {
+	// Verify that ancestor continuation lines are correct.
+	// Tree structure:
+	//   ├─feat-a (root, not last)
+	//   │ ├─feat-c (child, not last)
+	//   │ └─feat-b (child, last)
+	//   └─feat-d (root, last)
+	tasks := []daemon.TaskInfo{
+		{ID: 4, Branch: "feat-d", TargetBranch: "main"},
+		{ID: 3, Branch: "feat-c", TargetBranch: "feat-a"},
+		{ID: 2, Branch: "feat-b", TargetBranch: "feat-a"},
+		{ID: 1, Branch: "feat-a", TargetBranch: "main"},
+	}
+	ordered, entries := buildBranchTree(tasks)
+
+	if len(ordered) != 4 {
+		t.Fatalf("expected 4 tasks, got %d", len(ordered))
+	}
+
+	// Expected order: feat-d (root), feat-a (root), feat-c, feat-b
+	// Wait — roots sorted by ID desc: [4, 1], so feat-d first, feat-a second.
+	// But feat-a has children, so: feat-d, feat-a, feat-c, feat-b
+	wantIDs := []int64{4, 1, 3, 2}
+	for i, want := range wantIDs {
+		if ordered[i].ID != want {
+			t.Errorf("ordered[%d].ID = %d, want %d", i, ordered[i].ID, want)
+		}
+	}
+
+	// feat-d (depth 0, not last=false) — first root of 2
+	if entries[0].IsLast {
+		t.Error("feat-d should NOT be IsLast (first root)")
+	}
+
+	// feat-a (depth 0, isLast=true) — second (last) root
+	if !entries[1].IsLast {
+		t.Error("feat-a should be IsLast (last root)")
+	}
+
+	// feat-c (depth 1, ancestors should reflect feat-a isLast=true → [false])
+	// Since feat-a IS last, descendants should NOT draw "│" at root level.
+	if len(entries[2].Ancestors) != 1 {
+		t.Fatalf("feat-c ancestors length = %d, want 1", len(entries[2].Ancestors))
+	}
+	if entries[2].Ancestors[0] != false {
+		t.Errorf("feat-c ancestors[0] = %v, want false (feat-a is last root)", entries[2].Ancestors[0])
+	}
+
+	// feat-b (depth 1, same ancestors as feat-c)
+	if len(entries[3].Ancestors) != 1 {
+		t.Fatalf("feat-b ancestors length = %d, want 1", len(entries[3].Ancestors))
+	}
+	if entries[3].Ancestors[0] != false {
+		t.Errorf("feat-b ancestors[0] = %v, want false", entries[3].Ancestors[0])
+	}
+}
+
+func TestBuildBranchTree_AncestorContinuationLines(t *testing.T) {
+	// Verify continuation lines when root is NOT last.
+	// Tree structure:
+	//   ├─feat-a (root, not last)
+	//   │ └─feat-b (child, last)
+	//   └─feat-c (root, last)
+	tasks := []daemon.TaskInfo{
+		{ID: 3, Branch: "feat-c", TargetBranch: "main"},
+		{ID: 2, Branch: "feat-b", TargetBranch: "feat-a"},
+		{ID: 1, Branch: "feat-a", TargetBranch: "main"},
+	}
+	ordered, entries := buildBranchTree(tasks)
+
+	// Order: feat-c (root, ID 3), feat-a (root, ID 1), feat-b (child of feat-a)
+	// Wait, roots sorted desc: [3, 1], children of 1: [2]
+	// DFS: feat-c, feat-a, feat-b
+	if len(ordered) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(ordered))
+	}
+
+	// feat-b (child of feat-a): ancestors should be [true] because feat-a is NOT last root
+	if len(entries[2].Ancestors) != 1 {
+		t.Fatalf("feat-b ancestors length = %d, want 1", len(entries[2].Ancestors))
+	}
+	// feat-a is the last root (second of two), so ancestors[0] should be false
+	// Wait: roots are [3, 1] (desc). feat-c is index 0 (not last), feat-a is index 1 (last).
+	if entries[2].Ancestors[0] != false {
+		t.Errorf("feat-b ancestors[0] = %v, want false (feat-a is last root)", entries[2].Ancestors[0])
+	}
+
+	// Verify rendered output of feat-b
+	rendered := entries[2].renderBranchColumn("feat-b", 20)
+	// feat-a is last root → "  " (no continuation) + "└─" (last child) + "feat-b"
+	if !strings.HasPrefix(rendered, "  └─feat-b") {
+		t.Errorf("expected '  └─feat-b' prefix, got %q", rendered)
+	}
+}
+
 func TestBuildBranchTree_OrphanedChildren(t *testing.T) {
 	// Child targets a branch that no task owns → child becomes root
 	tasks := []daemon.TaskInfo{
@@ -136,14 +231,25 @@ func TestBuildBranchTree_SingleTask(t *testing.T) {
 	}
 }
 
-func TestRenderBranchColumn_Depth0(t *testing.T) {
-	e := treeEntry{Depth: 0}
+func TestRenderBranchColumn_Depth0Last(t *testing.T) {
+	e := treeEntry{Depth: 0, IsLast: true}
 	result := e.renderBranchColumn("my-branch", 20)
 	if len([]rune(result)) != 20 {
 		t.Errorf("expected width 20, got %d: %q", len([]rune(result)), result)
 	}
-	if !strings.HasPrefix(result, "my-branch") {
-		t.Errorf("expected branch name at start, got %q", result)
+	if !strings.HasPrefix(result, "└─my-branch") {
+		t.Errorf("expected '└─my-branch' prefix, got %q", result)
+	}
+}
+
+func TestRenderBranchColumn_Depth0NotLast(t *testing.T) {
+	e := treeEntry{Depth: 0, IsLast: false}
+	result := e.renderBranchColumn("my-branch", 20)
+	if len([]rune(result)) != 20 {
+		t.Errorf("expected width 20, got %d: %q", len([]rune(result)), result)
+	}
+	if !strings.HasPrefix(result, "├─my-branch") {
+		t.Errorf("expected '├─my-branch' prefix, got %q", result)
 	}
 }
 

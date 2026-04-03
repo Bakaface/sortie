@@ -89,16 +89,20 @@ func buildBranchTree(tasks []daemon.TaskInfo) ([]daemon.TaskInfo, []treeEntry) {
 		entries = append(entries, entry)
 
 		kids := children[idx]
+		// Build ancestors for children: current node's isLast determines whether
+		// descendants draw a continuation line ("│") at this depth level.
+		// This is the same for ALL children — only their own isLast differs.
+		newAncestors := make([]bool, len(ancestors)+1)
+		copy(newAncestors, ancestors)
+		newAncestors[len(ancestors)] = !isLast
+
 		for ci, childIdx := range kids {
 			childIsLast := ci == len(kids)-1
-			childAncestors := append(ancestors, !childIsLast)
-			dfs(childIdx, depth+1, childIsLast, childAncestors)
+			dfs(childIdx, depth+1, childIsLast, newAncestors)
 		}
 	}
 
 	for ri, rootIdx := range roots {
-		rootIsLast := ri == len(roots)-1
-		_ = rootIsLast // roots don't draw connectors, but we track for children
 		dfs(rootIdx, 0, ri == len(roots)-1, nil)
 	}
 
@@ -124,10 +128,6 @@ func sortIndicesDesc(indices []int, tasks []daemon.TaskInfo) {
 
 // renderBranchColumn renders a branch name with tree connectors for the given width.
 func (e treeEntry) renderBranchColumn(branchName string, width int) string {
-	if e.Depth == 0 {
-		return truncateOrPad(branchName, width)
-	}
-
 	var b strings.Builder
 
 	// Draw ancestor continuation lines

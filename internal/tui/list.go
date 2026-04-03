@@ -149,7 +149,7 @@ func (l *listView) computeWidths() colWidths {
 	maxBranchW := minBranch
 	maxTargetW := minTarget
 
-	for _, task := range l.tasks {
+	for i, task := range l.tasks {
 		if w := len(fmt.Sprintf("%d", task.ID)); w > maxIDW {
 			maxIDW = w
 		}
@@ -162,7 +162,11 @@ func (l *listView) computeWidths() colWidths {
 			}
 		}
 		if l.showBranch {
-			if w := len([]rune(task.Branch)); w > maxBranchW {
+			w := len([]rune(task.Branch))
+			if l.branchView && i < len(l.treeEntries) {
+				w += (l.treeEntries[i].Depth + 1) * 2 // tree prefix: depth ancestors + connector
+			}
+			if w > maxBranchW {
 				maxBranchW = w
 			}
 		}
