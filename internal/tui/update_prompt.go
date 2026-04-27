@@ -168,7 +168,7 @@ func (m Model) animationEnabled() bool {
 		return false
 	}
 	if m.cfg == nil || m.cfg.Options.Animation == nil || m.cfg.Options.Animation.Enabled == nil {
-		return false
+		return true
 	}
 	return *m.cfg.Options.Animation.Enabled
 }
