@@ -1,5 +1,5 @@
 ---
-name: sortie-config
+name: sortie-configurer
 description: >
   Generate and edit .sortie.yml project configuration files for the Sortie daemon.
   Sortie orchestrates Claude Code agents working on tasks in parallel using isolated

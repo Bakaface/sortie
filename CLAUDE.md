@@ -20,7 +20,7 @@ internal/
   tmux/              Tmux session management for interactive tasks
   notify/            Notification support
   client/            Client for daemon communication
-claude-code-plugin/  Claude Code plugin with sortie-config skill
+claude-code-plugin/  Claude Code plugin with sortie-configurer skill
 ```
 
 ## Key Concepts

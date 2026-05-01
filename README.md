@@ -166,7 +166,7 @@ internal/
   tmux/             Tmux session lifecycle, capture, monitoring
   client/           IPC client (RPC + event subscription) for tui/cli
   notify/           Desktop notifications
-claude-code-plugin/ Companion Claude Code plugin (sortie-config skill)
+claude-code-plugin/ Companion Claude Code plugin (sortie-configurer skill)
 ```
 
 The daemon listens on a Unix socket at `~/.config/sortie/daemon.sock` (or `$XDG_CONFIG_HOME/sortie/`) and persists state to `tasks.db` next to it. Project-level data (logs, the `.worktrees/` directory) lives under `.sortie/` inside the repo.
