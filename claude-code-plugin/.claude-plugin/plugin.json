@@ -8,6 +8,5 @@
   "homepage": "https://github.com/Bakaface/sortie",
   "repository": "https://github.com/Bakaface/sortie",
   "license": "MIT",
-  "keywords": ["sortie", "claude-code", "orchestration", "worktree", "workflows"],
-  "skills": "./skills/"
+  "keywords": ["sortie", "claude-code", "orchestration", "worktree", "workflows"]
 }
