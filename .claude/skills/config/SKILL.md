@@ -198,7 +198,7 @@ SanitizeProjectName(name string) string             // Replaces dots with unders
 
 ## Project Detection (detect.go)
 
-`DetectProject()` probes for `package.json`, `go.mod`, `Gemfile`, Python markers, `Cargo.toml`. Returns `DetectedProject{Type, Name, Commands}`. Detects `bun.lockb` and swaps npm -> bun.
+`DetectProject()` probes for `package.json`, `go.mod`, `Gemfile`, Python markers, `Cargo.toml`. Returns `DetectedProject{Type, Commands}`. Detects `bun.lockb` and swaps npm -> bun. Project name always derives from `filepath.Base(dir)` in `ApplyDetectedProject` — manifest names are ignored to avoid scope/path characters that break tmux session lookup.
 
 ## Patterns
 
