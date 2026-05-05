@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aface/sortie/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -716,5 +717,51 @@ func TestPromptView_SwitchFocusBackwardWithWorktree(t *testing.T) {
 	p.SwitchFocus(false)
 	if p.focusField != promptFieldDescription {
 		t.Errorf("expected focus on description after wrapping backward, got %v", p.focusField)
+	}
+}
+
+// TestModel_SelectedWorkflowAllowsEmptyDescription verifies that the prompt
+// validation is bypassed when the chosen workflow's first step uses tmux.
+func TestModel_SelectedWorkflowAllowsEmptyDescription(t *testing.T) {
+	tr := true
+
+	tmuxFirst := config.WorkflowConfig{
+		Name: "interact",
+		Steps: []config.StepConfig{
+			{Name: "shell", Tmux: &tr},
+			{Name: "review"},
+		},
+	}
+	plain := config.WorkflowConfig{
+		Name: "default",
+		Steps: []config.StepConfig{
+			{Name: "implement"},
+		},
+	}
+
+	cfg := &config.Config{
+		Workflows:     []config.WorkflowConfig{plain, tmuxFirst},
+		TaskWorkflows: []config.WorkflowConfig{plain, tmuxFirst},
+	}
+
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		workflow string
+		want     bool
+	}{
+		{name: "nil cfg never allows empty", cfg: nil, workflow: "anything", want: false},
+		{name: "plain workflow rejects empty", cfg: cfg, workflow: "default", want: false},
+		{name: "tmux-first workflow allows empty", cfg: cfg, workflow: "interact", want: true},
+		{name: "empty workflow resolves to first (plain)", cfg: cfg, workflow: "", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{cfg: tt.cfg, selectedWorkflow: tt.workflow}
+			if got := m.selectedWorkflowAllowsEmptyDescription(); got != tt.want {
+				t.Errorf("selectedWorkflowAllowsEmptyDescription() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

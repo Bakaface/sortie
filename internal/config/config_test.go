@@ -1832,3 +1832,88 @@ func TestTmuxSetupCommandDefaultEmpty(t *testing.T) {
 		t.Errorf("expected empty tmux setup command by default, got %q", cfg.TmuxSetupCommand)
 	}
 }
+
+func TestWorkflowConfig_FirstStepIsTmux(t *testing.T) {
+	tr := true
+	fa := false
+
+	tests := []struct {
+		name string
+		wf   *WorkflowConfig
+		want bool
+	}{
+		{
+			name: "nil workflow returns false",
+			wf:   nil,
+			want: false,
+		},
+		{
+			name: "no steps returns false",
+			wf:   &WorkflowConfig{Name: "empty"},
+			want: false,
+		},
+		{
+			name: "step-level tmux true on first step",
+			wf: &WorkflowConfig{
+				Name: "tmux-first",
+				Steps: []StepConfig{
+					{Name: "interact", Tmux: &tr},
+					{Name: "review"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "workflow-level tmux default applies to first step",
+			wf: &WorkflowConfig{
+				Name: "wf-tmux",
+				Tmux: true,
+				Steps: []StepConfig{
+					{Name: "interact"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "step-level tmux false overrides workflow default",
+			wf: &WorkflowConfig{
+				Name: "override-off",
+				Tmux: true,
+				Steps: []StepConfig{
+					{Name: "implement", Tmux: &fa},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "first step non-tmux even when later step is tmux",
+			wf: &WorkflowConfig{
+				Name: "tmux-second",
+				Steps: []StepConfig{
+					{Name: "implement"},
+					{Name: "interact", Tmux: &tr},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "no tmux at all returns false",
+			wf: &WorkflowConfig{
+				Name: "plain",
+				Steps: []StepConfig{
+					{Name: "implement"},
+					{Name: "review"},
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.wf.FirstStepIsTmux(); got != tt.want {
+				t.Errorf("FirstStepIsTmux() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

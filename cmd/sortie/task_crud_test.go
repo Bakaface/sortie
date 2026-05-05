@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"testing"
+
+	"github.com/aface/sortie/internal/config"
 )
 
 func TestCreateCmd_MissingDescription(t *testing.T) {
@@ -92,5 +94,43 @@ func TestDeleteCmd_InvalidTaskID(t *testing.T) {
 	}
 	if got := err.Error(); got != "invalid task ID: notanumber" {
 		t.Errorf("unexpected error: %s", got)
+	}
+}
+
+func TestWorkflowAllowsEmptyDescription(t *testing.T) {
+	tr := true
+
+	tmuxFirst := config.WorkflowConfig{
+		Name: "interact",
+		Steps: []config.StepConfig{
+			{Name: "shell", Tmux: &tr},
+			{Name: "review"},
+		},
+	}
+	plain := config.WorkflowConfig{
+		Name: "default",
+		Steps: []config.StepConfig{
+			{Name: "implement"},
+		},
+	}
+
+	cfg := &config.Config{
+		Workflows:     []config.WorkflowConfig{plain, tmuxFirst},
+		TaskWorkflows: []config.WorkflowConfig{plain, tmuxFirst},
+	}
+
+	if workflowAllowsEmptyDescription(nil, "anything") {
+		t.Error("nil cfg should never allow empty descriptions")
+	}
+	if workflowAllowsEmptyDescription(cfg, "default") {
+		t.Error("plain workflow should not allow empty descriptions")
+	}
+	if !workflowAllowsEmptyDescription(cfg, "interact") {
+		t.Error("tmux-first workflow should allow empty descriptions")
+	}
+	// Empty workflow name resolves to the first registered workflow,
+	// which in this fixture is the plain (non-tmux) workflow.
+	if workflowAllowsEmptyDescription(cfg, "") {
+		t.Error("empty workflow name should resolve to first workflow (plain)")
 	}
 }

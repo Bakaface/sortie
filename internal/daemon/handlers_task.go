@@ -27,6 +27,16 @@ const (
 // whether a task produced real output (e.g. when fast-tracking to completed).
 var noiseFiles = []string{".claude-output.log", "CLAUDE.md"}
 
+// tmuxFirstTitle returns a placeholder title for a tmux-first workflow task that
+// was created without a description. Falls back to a generic label if the
+// workflow is unnamed.
+func tmuxFirstTitle(wf *config.WorkflowConfig) string {
+	if wf != nil && wf.Name != "" {
+		return "tmux: " + wf.Name
+	}
+	return "tmux session"
+}
+
 func (s *Server) handleListTasks(conn net.Conn, req ListTasksRequest) {
 	var tasks []*task.Task
 	var err error
@@ -64,10 +74,6 @@ func (s *Server) handleGetTask(conn net.Conn, req GetTaskRequest) {
 
 func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	description := strings.TrimSpace(req.Description)
-	if description == "" && req.CheckoutBranch == "" {
-		s.sendError(conn, "description cannot be empty")
-		return
-	}
 
 	projectPath := req.ProjectPath
 	if projectPath == "" {
@@ -81,11 +87,30 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		return
 	}
 
-	// When using existing branch with empty description, generate title from branch name
+	// Resolve workflow against the project config so we can decide whether
+	// empty descriptions are permitted (tmux-first workflows allow them).
+	projCfg := s.cfg
+	if pc, err := s.getProjectContext(proj.ID); err == nil {
+		projCfg = pc.cfg
+	}
+	wf := projCfg.GetWorkflow(req.Workflow)
+	tmuxFirst := wf != nil && wf.FirstStepIsTmux()
+
+	if description == "" && req.CheckoutBranch == "" && !tmuxFirst {
+		s.sendError(conn, "description cannot be empty")
+		return
+	}
+
+	// When using existing branch with empty description, generate title from branch name.
+	// When the first workflow step is tmux and the description is empty, fall back
+	// to a stable title derived from the workflow so the task list stays readable.
 	var title string
-	if description == "" && req.CheckoutBranch != "" {
+	switch {
+	case description == "" && req.CheckoutBranch != "":
 		title = "⎇ " + req.CheckoutBranch
-	} else {
+	case description == "" && tmuxFirst:
+		title = tmuxFirstTitle(wf)
+	default:
 		title = task.SanitizeTitle(description)
 	}
 

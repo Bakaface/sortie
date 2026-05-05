@@ -261,6 +261,17 @@ func (s *StepConfig) UseTmux(workflowDefault bool) bool {
 	return workflowDefault
 }
 
+// FirstStepIsTmux returns true when this workflow has at least one step and the
+// first step runs in tmux (either via step-level Tmux=true or the workflow-level
+// Tmux default). Tmux-first workflows may be started without a description since
+// the user drives the session interactively.
+func (wf *WorkflowConfig) FirstStepIsTmux() bool {
+	if wf == nil || len(wf.Steps) == 0 {
+		return false
+	}
+	return wf.Steps[0].UseTmux(wf.Tmux)
+}
+
 const (
 	// DefaultStepTimeout is the fallback step timeout when none is configured.
 	DefaultStepTimeout = 30 * time.Minute

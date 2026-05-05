@@ -213,3 +213,110 @@ func TestCreateTaskRequest_TitleField(t *testing.T) {
 		t.Errorf("expected empty Title, got %q", req2.Title)
 	}
 }
+
+func TestTmuxFirstTitle(t *testing.T) {
+	tests := []struct {
+		name string
+		wf   *config.WorkflowConfig
+		want string
+	}{
+		{name: "nil workflow falls back", wf: nil, want: "tmux session"},
+		{name: "unnamed workflow falls back", wf: &config.WorkflowConfig{}, want: "tmux session"},
+		{name: "named workflow prefixed", wf: &config.WorkflowConfig{Name: "interact"}, want: "tmux: interact"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tmuxFirstTitle(tt.wf); got != tt.want {
+				t.Errorf("tmuxFirstTitle() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCreateTaskRequest_EmptyDescriptionAllowedForTmuxFirstWorkflow(t *testing.T) {
+	tr := true
+	tmuxFirst := config.WorkflowConfig{
+		Name: "interact",
+		Steps: []config.StepConfig{
+			{Name: "shell", Tmux: &tr},
+		},
+	}
+	plain := config.WorkflowConfig{
+		Name: "default",
+		Steps: []config.StepConfig{
+			{Name: "implement"},
+		},
+	}
+	cfg := &config.Config{
+		Workflows:     []config.WorkflowConfig{plain, tmuxFirst},
+		TaskWorkflows: []config.WorkflowConfig{plain, tmuxFirst},
+	}
+
+	tests := []struct {
+		name           string
+		description    string
+		checkoutBranch string
+		workflow       string
+		wantReject     bool
+		wantTitle      string
+	}{
+		{
+			name:        "empty description with tmux-first workflow is allowed",
+			description: "",
+			workflow:    "interact",
+			wantReject:  false,
+			wantTitle:   "tmux: interact",
+		},
+		{
+			name:        "empty description with plain workflow is rejected",
+			description: "",
+			workflow:    "default",
+			wantReject:  true,
+		},
+		{
+			name:           "empty description with checkout branch wins regardless of workflow",
+			description:    "",
+			checkoutBranch: "feature/x",
+			workflow:       "default",
+			wantReject:     false,
+			wantTitle:      "⎇ feature/x",
+		},
+		{
+			name:        "non-empty description with tmux-first workflow uses sanitized description",
+			description: "Spike on caching",
+			workflow:    "interact",
+			wantReject:  false,
+			wantTitle:   "Spike on caching",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			description := strings.TrimSpace(tt.description)
+			wf := cfg.GetWorkflow(tt.workflow)
+			tmuxFirstStep := wf != nil && wf.FirstStepIsTmux()
+
+			rejected := description == "" && tt.checkoutBranch == "" && !tmuxFirstStep
+			if rejected != tt.wantReject {
+				t.Fatalf("rejection mismatch: got %v, want %v", rejected, tt.wantReject)
+			}
+			if rejected {
+				return
+			}
+
+			var title string
+			switch {
+			case description == "" && tt.checkoutBranch != "":
+				title = "⎇ " + tt.checkoutBranch
+			case description == "" && tmuxFirstStep:
+				title = tmuxFirstTitle(wf)
+			default:
+				title = task.SanitizeTitle(description)
+			}
+			if title != tt.wantTitle {
+				t.Errorf("got title %q, want %q", title, tt.wantTitle)
+			}
+		})
+	}
+}

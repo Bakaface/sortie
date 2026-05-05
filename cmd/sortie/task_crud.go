@@ -39,9 +39,6 @@ The daemon must be running.`,
 		}
 
 		description = strings.TrimSpace(description)
-		if description == "" {
-			return fmt.Errorf("description is required (provide as argument or via stdin)")
-		}
 
 		priority, _ := cmd.Flags().GetString("priority")
 		if priority != "" && !task.IsValidPriority(priority) {
@@ -56,6 +53,10 @@ The daemon must be running.`,
 
 		if checkout != "" && branch != "" {
 			return fmt.Errorf("cannot specify both --checkout and --branch flags")
+		}
+
+		if description == "" && checkout == "" && !workflowAllowsEmptyDescription(cfg, workflow) {
+			return fmt.Errorf("description is required (provide as argument or via stdin)")
 		}
 
 		c := client.New(cfg)

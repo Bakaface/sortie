@@ -133,7 +133,7 @@ func (m Model) handlePromptSubmit() (tea.Model, tea.Cmd) {
 
 	// New task mode
 	checkoutBranch := m.prompt.CheckoutBranch()
-	if description == "" && checkoutBranch == "" {
+	if description == "" && checkoutBranch == "" && !m.selectedWorkflowAllowsEmptyDescription() {
 		m.prompt.validationError = "description required"
 		return m, nil
 	}
@@ -159,6 +159,17 @@ func (m Model) handlePromptSubmit() (tea.Model, tea.Cmd) {
 	}
 	m.view = viewList
 	return m, deferred
+}
+
+// selectedWorkflowAllowsEmptyDescription returns true when the workflow currently
+// selected in the prompt has tmux as its first step. Tmux-first workflows let
+// the user create a task without a description and drive the session manually.
+func (m Model) selectedWorkflowAllowsEmptyDescription() bool {
+	if m.cfg == nil {
+		return false
+	}
+	wf := m.cfg.GetWorkflow(m.selectedWorkflow)
+	return wf.FirstStepIsTmux()
 }
 
 // animationEnabled returns true if the sortie animation is configured on.

@@ -5,10 +5,22 @@ import (
 	"os"
 	"text/tabwriter"
 
+	"github.com/aface/sortie/internal/config"
 	"github.com/aface/sortie/internal/db"
 	"github.com/aface/sortie/internal/task"
 	"github.com/spf13/cobra"
 )
+
+// workflowAllowsEmptyDescription returns true when the named workflow's first
+// step runs in tmux. Such workflows can be started without a description because
+// the user drives the tmux session interactively.
+func workflowAllowsEmptyDescription(cfg *config.Config, workflowName string) bool {
+	if cfg == nil {
+		return false
+	}
+	wf := cfg.GetWorkflow(workflowName)
+	return wf.FirstStepIsTmux()
+}
 
 // taskTableRow holds the display fields for a single row in the task list table.
 type taskTableRow struct {
