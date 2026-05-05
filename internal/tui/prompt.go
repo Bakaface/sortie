@@ -665,6 +665,13 @@ func (p *promptView) View() string {
 		lines = lines[:visLines]
 	}
 
+	// When the placeholder is showing, underline the first "D" in
+	// "Describe the task..." to indicate the alt+d shortcut, mirroring the
+	// underlined "G" in "Git" and "W" in "Workflow" labels.
+	if p.textarea.Value() == "" && p.focusField == promptFieldDescription && len(lines) > 0 {
+		lines[0] = underlineDInPlaceholder(lines[0])
+	}
+
 	taStyle := lipgloss.NewStyle().PaddingLeft(2)
 	b.WriteString(taStyle.Render(strings.Join(lines, "\n")))
 	b.WriteString("\n")
@@ -822,6 +829,20 @@ func (p *promptView) renderFramedSection(label string, borderColor lipgloss.Colo
 	out.WriteString(bs.Render("╰" + strings.Repeat("─", botFill) + "╯"))
 
 	return out.String()
+}
+
+// underlineDInPlaceholder injects ANSI underline codes around the first 'D'
+// byte in the textarea's rendered placeholder line. This indicates the alt+d
+// keyboard shortcut, matching the underlined "G" in "Git" and "W" in
+// "Workflow" labels. The injection works regardless of cursor blink state
+// because the underline codes (CSI 4m / CSI 24m) compose with whatever SGR
+// sequence the textarea wraps "D" with.
+func underlineDInPlaceholder(line string) string {
+	idx := strings.IndexByte(line, 'D')
+	if idx < 0 {
+		return line
+	}
+	return line[:idx] + "\x1b[4mD\x1b[24m" + line[idx+1:]
 }
 
 // indentBlock prepends prefix to every line of a multi-line string.

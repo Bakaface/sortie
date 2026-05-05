@@ -620,6 +620,89 @@ func TestPromptView_ResetClearsTitleInput(t *testing.T) {
 	}
 }
 
+func TestUnderlineDInPlaceholder(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "wraps the first D in CSI 4m / CSI 24m",
+			in:   "prompt Describe the task...",
+			want: "prompt \x1b[4mD\x1b[24mescribe the task...",
+		},
+		{
+			name: "preserves surrounding ANSI codes (cursor visible)",
+			in:   "\x1b[40m\x1b[7mD\x1b[0m\x1b[40m\x1b[90mescribe the task...\x1b[0m",
+			want: "\x1b[40m\x1b[7m\x1b[4mD\x1b[24m\x1b[0m\x1b[40m\x1b[90mescribe the task...\x1b[0m",
+		},
+		{
+			name: "preserves surrounding ANSI codes (cursor hidden)",
+			in:   "\x1b[40m\x1b[90mD\x1b[0m\x1b[40m\x1b[90mescribe the task...\x1b[0m",
+			want: "\x1b[40m\x1b[90m\x1b[4mD\x1b[24m\x1b[0m\x1b[40m\x1b[90mescribe the task...\x1b[0m",
+		},
+		{
+			name: "leaves the line untouched when no D is present",
+			in:   "no capital here",
+			want: "no capital here",
+		},
+		{
+			name: "wraps only the first D",
+			in:   "Done DD",
+			want: "\x1b[4mD\x1b[24mone DD",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := underlineDInPlaceholder(tc.in); got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPromptView_PlaceholderDIsUnderlined(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+
+	// Default focus is description, value is empty — placeholder is showing.
+	view := p.View()
+
+	// The view should embed the underline-on / underline-off ANSI sequence
+	// around the leading "D" of "Describe the task...".
+	if !strings.Contains(view, "\x1b[4mD\x1b[24m") {
+		t.Errorf("expected underline ANSI around D in placeholder, view:\n%q", view)
+	}
+}
+
+func TestPromptView_PlaceholderUnderlineOnlyWhenEmpty(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+
+	// Type a "D" — placeholder is hidden, no underline injection should happen.
+	p.textarea.SetValue("Done")
+	view := p.View()
+
+	if strings.Contains(view, "\x1b[4mD\x1b[24m") {
+		t.Errorf("expected no underline ANSI around D when value is non-empty, view:\n%q", view)
+	}
+}
+
+func TestPromptView_PlaceholderUnderlineOnlyWhenDescriptionFocused(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+
+	// Move focus to the title field — placeholder is still showing on the
+	// blurred textarea but shouldn't be decorated with the alt+d hint.
+	p.focusInput(promptFieldTitle)
+	view := p.View()
+
+	if strings.Contains(view, "\x1b[4mD\x1b[24m") {
+		t.Errorf("expected no underline ANSI around D when description is not focused, view:\n%q", view)
+	}
+}
+
 func TestPromptView_DefaultFocusIsDescription(t *testing.T) {
 	p := newPromptView(true, branchModeNew, "")
 
