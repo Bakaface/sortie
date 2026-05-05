@@ -169,8 +169,21 @@ When the user describes what they want, follow this:
 5. **"Iterative review loop"** → Use `loop` config on a fix step pointing back to review
 6. **"Predefined maintenance job"** → Use `workflows.one-off`
 7. **"Bootstrap from PRD"** → Use `workflows.init`
+8. **"Share files/dirs across worktrees"** ("symlink X into worktrees", ".env should be available", "docs/configs visible to agents") → Use `worktree-sync-paths` (`link:` for shared/synced files, `copy:` for per-worktree isolated copies). Note this is hard-link, not symlink.
+9. **"Run something after worktree creation"** (install deps, generate files, create symlinks) → Use `worktree-setup-command` (single) or `worktree-setup-commands` (multiple)
+10. **"Summarize a tmux/conversational step"** → Set `summarization_strategy: summarize_chat` and provide a `summarization_prompt` using `{{chat}}`
 
 For complete field reference with validation rules and examples, read `references/config-reference.md`.
+
+## Discovering undocumented fields
+
+If you encounter a field used in an existing config that this skill doesn't document, or if the user asks about a feature not covered here, the binary itself is the authoritative source. Run:
+
+```bash
+strings $(which sortie) | grep 'yaml:"' | sort -u
+```
+
+This lists every YAML field name the binary will accept. Cross-reference unknown fields against the function names exposed in the binary (`strings $(which sortie) | grep 'aface/sortie/internal'`) to infer behavior. Update this skill when you confirm new fields work.
 
 ## Important Rules
 

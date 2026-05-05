@@ -60,6 +60,102 @@ notifications:
 
 ---
 
+## Worktree Sync Paths
+
+```yaml
+worktree-sync-paths:
+  link:                      # Hard-linked into each worktree
+    - .docs
+    - .env.local
+    - config/secrets.yml
+  copy:                      # Copied into each worktree (independent files)
+    - templates/starter.tpl
+```
+
+Files and directories listed here are populated into each new worktree before any setup commands run. Paths are relative to the project root.
+
+### `link:` vs `copy:`
+
+| Mode | Mechanism | When edits sync | Cross-filesystem | Best for |
+|---|---|---|---|---|
+| `link` | hard-link (`hardLinkDir`) | Yes — shared inodes | Fails — both must be on same FS | Shared docs, configs, lockfiles agents read but rarely modify |
+| `copy` | file copy | No — independent | Works | Per-task `.env` overrides, scratch templates, files agents will mutate |
+
+### Symlinks are not supported
+
+`link:` performs **hard-links**, not symbolic links. The Sortie binary's code path is `linkPath` → `hardLinkDir`. If you need a true symlink (e.g., to a path outside the project root, or across filesystems), create it from a setup command:
+
+```yaml
+worktree-setup-commands:
+  - ln -s /shared/build-cache {{worktree_path}}/.cache
+```
+
+### Per-entry target override
+
+When the destination inside the worktree should differ from the source path, the entry can be an object with a `target` field:
+
+```yaml
+worktree-sync-paths:
+  link:
+    - path: ../shared-docs
+      target: .docs
+```
+
+If unspecified, `target` defaults to the source path.
+
+---
+
+## Worktree Setup Commands
+
+Run shell commands inside each worktree after creation (and after `worktree-sync-paths` is applied). Use for: installing dependencies, generating files, creating real symlinks, copying secrets from a vault, etc.
+
+Two forms:
+
+```yaml
+# Single command
+worktree-setup-command: |
+  pnpm install --frozen-lockfile
+
+# Multiple commands (run in order; preferred when more than one step is needed)
+worktree-setup-commands:
+  - pnpm install --frozen-lockfile
+  - cp ~/.config/myproject/.env.local {{worktree_path}}/.env.local
+  - mkdir -p {{worktree_path}}/.cache
+```
+
+If both are set, `worktree-setup-commands` takes precedence. Each command runs with the worktree as `cwd`.
+
+Available variables: `{{worktree_path}}`, `{{session_name}}` (tmux only), `{{run_agent}}` (tmux only).
+
+A non-zero exit from any command logs a warning but does not abort the task.
+
+---
+
+## Tmux Setup Command
+
+Run when a step uses tmux mode. Customizes the tmux session layout (windows, panes, initial commands) before the agent starts.
+
+```yaml
+tmux-setup-command: |-
+  tmux rename-window -t {{session_name}}:0 vim
+  tmux new-window -t {{session_name}}:1 -n agent -c {{worktree_path}}
+  tmux send-keys -t {{session_name}}:1 '{{run_agent}}' C-m
+  tmux new-window -t {{session_name}}:9 -n bash -c {{worktree_path}}
+  tmux select-window -t {{session_name}}:1
+```
+
+Variables:
+
+| Variable | Description |
+|---|---|
+| `{{session_name}}` | Tmux session created for the task |
+| `{{worktree_path}}` | Absolute path to the task's worktree |
+| `{{run_agent}}` | Pre-built command string that launches the Claude agent |
+
+If you do not set `tmux-setup-command`, Sortie uses a minimal default that just starts the agent.
+
+---
+
 ## Step Configuration Details
 
 ### Timeout Format
@@ -69,6 +165,36 @@ Go duration strings: `"30m"`, `"1h"`, `"1h30m"`, `"45m"`, `"2h"`. Default: `"30m
 ### Step Context Flow
 
 After each step completes, the result from Claude's output is captured as step context and stored in the `task_steps` database table. This context is available to subsequent steps via `{{steps.<step_name>.context}}` (or the backward-compat alias `{{artifacts.<step_name>}}`).
+
+### Step Summarization
+
+By default, the step's captured context is the agent's final output message. Two fields override this:
+
+```yaml
+- name: grilling
+  tmux: true
+  summarization_strategy: summarize_chat
+  summarization_prompt: |
+    Extract the durable design decisions reached in this Q&A.
+
+    Format:
+    - Numbered list, each item: question + paraphrased user answer.
+    - Skip small-talk and detours.
+
+    --- TRANSCRIPT ---
+    {{chat}}
+  prompt: |
+    Interview the user until shared understanding is reached...
+```
+
+| Strategy | What gets captured |
+|---|---|
+| (unset) | The agent's final output message |
+| `summarize_chat` | A second Claude call summarizes the full transcript using `summarization_prompt` |
+
+`summarize_chat` is essential for tmux/grilling steps where the meaningful output is the dialogue, not a final message. The summarizer step also unlocks the `step_context_empty` loop exit pattern: instruct the summarizer to emit empty output when "no issues found", and the loop will terminate.
+
+Inside `summarization_prompt`, the variable `{{chat}}` expands to the full transcript. All standard task variables (`{{task.id}}`, `{{steps.<name>.context}}`, etc.) are also available.
 
 Example multi-step with step context:
 
