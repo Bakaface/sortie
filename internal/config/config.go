@@ -455,11 +455,7 @@ func (c *Config) ApplyDetectedProject(dir string) {
 	detected := DetectProject(dir)
 
 	if c.Project.Name == "" {
-		if detected.Name != "" {
-			c.Project.Name = SanitizeProjectName(detected.Name)
-		} else {
-			c.Project.Name = SanitizeProjectName(filepath.Base(dir))
-		}
+		c.Project.Name = SanitizeProjectName(filepath.Base(dir))
 	}
 
 	if detected.Type == ProjectTypeUnknown {

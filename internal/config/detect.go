@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type ProjectType string
@@ -20,7 +19,6 @@ const (
 
 type DetectedProject struct {
 	Type     ProjectType
-	Name     string
 	Commands CommandsConfig
 }
 
@@ -54,7 +52,6 @@ func detectNode(dir string) *DetectedProject {
 	}
 
 	var pkg struct {
-		Name    string            `json:"name"`
 		Scripts map[string]string `json:"scripts"`
 	}
 	if err := json.Unmarshal(data, &pkg); err != nil {
@@ -63,7 +60,6 @@ func detectNode(dir string) *DetectedProject {
 
 	p := &DetectedProject{
 		Type: ProjectTypeNode,
-		Name: pkg.Name,
 	}
 
 	if _, ok := pkg.Scripts["test"]; ok {
@@ -95,36 +91,17 @@ func detectNode(dir string) *DetectedProject {
 
 func detectGo(dir string) *DetectedProject {
 	modPath := filepath.Join(dir, "go.mod")
-	data, err := os.ReadFile(modPath)
-	if err != nil {
+	if _, err := os.Stat(modPath); err != nil {
 		return nil
 	}
 
-	modName := ""
-	for _, line := range strings.Split(string(data), "\n") {
-		if len(line) > 7 && line[:7] == "module " {
-			modName = line[7:]
-			break
-		}
-	}
-
-	// Use base name of the module path (e.g. "sortie" from "github.com/Bakaface/sortie")
-	// to produce a clean, tmux-safe project name.
-	name := modName
-	if idx := strings.LastIndex(modName, "/"); idx >= 0 {
-		name = modName[idx+1:]
-	}
-
-	p := &DetectedProject{
-		Type:     ProjectTypeGo,
-		Name:     name,
+	return &DetectedProject{
+		Type: ProjectTypeGo,
 		Commands: CommandsConfig{
 			Test: "go test ./...",
 			Lint: "golangci-lint run --fix",
 		},
 	}
-
-	return p
 }
 
 func detectRuby(dir string) *DetectedProject {
@@ -135,7 +112,6 @@ func detectRuby(dir string) *DetectedProject {
 
 	p := &DetectedProject{
 		Type: ProjectTypeRuby,
-		Name: filepath.Base(dir),
 	}
 
 	if _, err := os.Stat(filepath.Join(dir, "bin", "rails")); err == nil {
@@ -157,7 +133,6 @@ func detectPython(dir string) *DetectedProject {
 		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
 			p := &DetectedProject{
 				Type: ProjectTypePython,
-				Name: filepath.Base(dir),
 				Commands: CommandsConfig{
 					Test: "pytest",
 					Lint: "ruff check --fix .",
@@ -177,7 +152,6 @@ func detectRust(dir string) *DetectedProject {
 
 	return &DetectedProject{
 		Type: ProjectTypeRust,
-		Name: filepath.Base(dir),
 		Commands: CommandsConfig{
 			Test:  "cargo test",
 			Lint:  "cargo clippy --fix --allow-dirty",
