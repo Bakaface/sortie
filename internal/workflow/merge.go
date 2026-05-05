@@ -28,14 +28,23 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 	case "", "none":
 		logf("No on_complete action configured, skipping")
 		return nil
+	}
 
+	// No-worktree mode shares the working tree with the user's environment, so
+	// auto-committing would scoop up unrelated changes. Always skip on_complete
+	// in that mode and let the user (or the agent) commit explicitly.
+	if !t.Worktree {
+		logf("No-worktree mode: leaving working tree as-is, skipping on_complete=%q", action)
+		return nil
+	}
+
+	switch action {
 	case "commit":
 		logf("Committing changes in worktree...")
 		if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
 			return err
 		}
 		logf("Commit completed")
-		// Track the commit hash
 		if commitHash, err := gitpkg.GetLastCommitHash(t.WorktreePath); err == nil {
 			if dbErr := e.database.AppendTaskCommit(t.ID, commitHash); dbErr != nil {
 				log.Printf("Warning: failed to record commit for task #%d: %v", t.ID, dbErr)
@@ -57,23 +66,6 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 // executeMerge handles the merge on_complete action: commits changes, squash-merges
 // the task branch into the base branch with retry/conflict-resolution, and cleans up.
 func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([]string), logf func(string, ...any)) error {
-	if !t.Worktree {
-		// No-worktree mode: treat merge as commit since there's no separate branch
-		logf("No-worktree mode: committing changes in project root...")
-		if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
-			return err
-		}
-		logf("Commit completed")
-		// Track the commit hash
-		if commitHash, err := gitpkg.GetLastCommitHash(t.WorktreePath); err == nil {
-			if dbErr := e.database.AppendTaskCommit(t.ID, commitHash); dbErr != nil {
-				log.Printf("Warning: failed to record commit for task #%d: %v", t.ID, dbErr)
-			}
-		} else {
-			log.Printf("Warning: failed to get commit hash for task #%d: %v", t.ID, err)
-		}
-		return nil
-	}
 	if t.Branch == "" {
 		return fmt.Errorf("cannot merge: task branch name is empty")
 	}
@@ -90,8 +82,10 @@ func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([
 		return fmt.Errorf("waiting for clean target branch: %w", err)
 	}
 
-	// Pick the best conventional commit message from the branch's history
-	commitMsg := gitpkg.GetSquashCommitMessage(e.repoRoot, baseBranch, t.Branch, t.Title)
+	// The squash-merge subject is derived deterministically from the task title
+	// so the merge commit reflects the user's stated intent — never an agent's
+	// intermediate commit message.
+	commitMsg := gitpkg.ConventionalCommitFromTitle(t.Title)
 	logf("Squash-merging branch %s into %s...", t.Branch, baseBranch)
 
 	var mergeErr error
