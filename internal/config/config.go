@@ -455,7 +455,7 @@ func (c *Config) ApplyDetectedProject(dir string) {
 	detected := DetectProject(dir)
 
 	if c.Project.Name == "" {
-		c.Project.Name = SanitizeProjectName(filepath.Base(dir))
+		c.Project.Name = ProjectNameFromPath(dir)
 	}
 
 	if detected.Type == ProjectTypeUnknown {
@@ -518,4 +518,13 @@ func getProjectConfigPath() string {
 // a clean, consistent name.
 func SanitizeProjectName(name string) string {
 	return strings.ReplaceAll(name, ".", "_")
+}
+
+// ProjectNameFromPath derives the canonical project name from a directory path.
+// This is the single source of truth for converting a filesystem path into the
+// name used as a database key. All call sites that need to look up or store a
+// project by its directory must route through this helper to avoid sanitization
+// drift between write and read paths (e.g. ".pai" → stored as "_pai").
+func ProjectNameFromPath(path string) string {
+	return SanitizeProjectName(filepath.Base(path))
 }

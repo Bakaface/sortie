@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/aface/sortie/internal/config"
 )
 
 func TestGetOrCreateProject(t *testing.T) {
@@ -302,6 +304,46 @@ func TestGetTasksByProjectName(t *testing.T) {
 	}
 	if len(tasks) != 0 {
 		t.Errorf("expected 0 tasks for 'nonexistent', got %d", len(tasks))
+	}
+}
+
+// Regression: dot-prefixed project directories (e.g. ".pai") were stored under
+// a sanitized name ("_pai") but the TUI looked them up by the raw basename
+// (".pai") → tasks vanished from the list. The round-trip below ensures the
+// DB-write helper agrees with the canonical name derivation now used by
+// callers (config.ProjectNameFromPath).
+func TestGetTasksByProjectName_DotPrefixedDirectory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	repoPath := "/home/user/.pai"
+	proj, err := database.GetOrCreateProject(repoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Sanity: stored name matches the helper callers must use.
+	wantName := config.ProjectNameFromPath(repoPath)
+	if proj.Name != wantName {
+		t.Fatalf("stored project name %q != ProjectNameFromPath(%q)=%q",
+			proj.Name, repoPath, wantName)
+	}
+
+	if _, err := database.CreateTask(proj.ID, "Task 1", "desc", "task-1", "", "", "pending", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks, err := database.GetTasksByProjectName(wantName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Errorf("expected 1 task for dot-prefixed project lookup by %q, got %d",
+			wantName, len(tasks))
 	}
 }
 

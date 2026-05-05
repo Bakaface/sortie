@@ -4,8 +4,9 @@ import (
 	"os"
 	"path/filepath"
 
-	gitpkg "github.com/aface/sortie/internal/git"
+	"github.com/aface/sortie/internal/config"
 	"github.com/aface/sortie/internal/db"
+	gitpkg "github.com/aface/sortie/internal/git"
 	"github.com/aface/sortie/internal/tui"
 	"github.com/spf13/cobra"
 )
@@ -37,7 +38,10 @@ func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, p
 		if err != nil {
 			return 0, "", "", true, true, 0, ""
 		}
-		repoName := filepath.Base(repoRoot)
+		// Must match config.ProjectNameFromPath used by GetOrCreateProject when
+		// the row was inserted; otherwise dot-prefixed dirs (e.g. ".pai") store
+		// as "_pai" but get queried as ".pai" → empty task list.
+		repoName := config.ProjectNameFromPath(repoRoot)
 		return 0, repoRoot, repoName, false, true, 0, ""
 	}
 
@@ -58,5 +62,5 @@ func resolveProjectMode(globalFlag bool) (projectID int64, projectPath string, p
 		return 0, repoRoot, "", false, true, 0, ""
 	}
 
-	return proj.ID, repoRoot, filepath.Base(repoRoot), false, proj.DefaultWorktree, proj.DefaultBranchMode, proj.DefaultWorkflow
+	return proj.ID, repoRoot, config.ProjectNameFromPath(repoRoot), false, proj.DefaultWorktree, proj.DefaultBranchMode, proj.DefaultWorkflow
 }

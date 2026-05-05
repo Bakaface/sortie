@@ -38,9 +38,10 @@ func (db *DB) GetOrCreateProject(projectPath string) (*Project, error) {
 		return nil, fmt.Errorf("failed to query project: %w", err)
 	}
 
-	// Create new project — derive name from directory basename, sanitized
-	// to avoid issues with dots in tmux session names and other consumers.
-	name := config.SanitizeProjectName(filepath.Base(absPath))
+	// Create new project — derive canonical name from path. Must match the
+	// name TUI/clients use to look up tasks, otherwise filtering will silently
+	// return nothing (see ProjectNameFromPath docstring).
+	name := config.ProjectNameFromPath(absPath)
 	result, err := db.Exec(
 		`INSERT INTO projects (path, name) VALUES (?, ?)`,
 		absPath, name,

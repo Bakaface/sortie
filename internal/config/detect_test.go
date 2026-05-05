@@ -95,6 +95,26 @@ func TestApplyDetectedProjectSanitizesDots(t *testing.T) {
 	}
 }
 
+func TestProjectNameFromPath(t *testing.T) {
+	tests := []struct {
+		input, expected string
+	}{
+		{"/Users/me/dev/myproject", "myproject"},
+		{"/Users/me/dev/.pai", "_pai"},
+		{"/Users/me/dev/.docs", "_docs"},
+		{"/tmp/my.project", "my_project"},
+		{"sortie", "sortie"},
+		// Trailing slashes should be ignored by filepath.Base.
+		{"/Users/me/dev/.pai/", "_pai"},
+	}
+	for _, tt := range tests {
+		got := ProjectNameFromPath(tt.input)
+		if got != tt.expected {
+			t.Errorf("ProjectNameFromPath(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
 func TestDetectNodeProject(t *testing.T) {
 	dir := t.TempDir()
 	pkgJSON := filepath.Join(dir, "package.json")
