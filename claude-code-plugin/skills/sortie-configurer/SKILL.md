@@ -48,11 +48,45 @@ workflows:
 | `max_workers` | int | `3` | Max concurrent Claude agents |
 | `default_priority` | string | `"medium"` | `low`, `medium`, `high`, `urgent` |
 | `yolo` | bool | `false` | Pass `--dangerously-skip-permissions` to Claude |
+| `system_prompt` | string | minimal default | Preamble written to each worktree's `CLAUDE.md` |
 | `verification` | object | — | Summarizer verification settings |
 | `git` | object | — | Branch naming, base branch, completion action |
 | `workflows` | object | — | **Primary config block** — defines all workflow pipelines |
 | `notifications` | object | — | Desktop notification toggles |
 | `tmux_nested_attach_behavior` | string | `"switch"` | `"switch"` or `"nest"` for tmux-in-tmux |
+| `worktree-sync-paths` | object | — | Hard-link or copy paths from main checkout into each worktree (e.g., `.docs`, `.env`). See [Sharing files into worktrees](#sharing-files-into-worktrees). |
+| `worktree-setup-command` | string | — | Single shell command run after worktree creation (`{{worktree_path}}` available) |
+| `worktree-setup-commands` | list[string] | — | Multiple setup commands run in order; preferred over the singular form when more than one step is needed |
+| `tmux-setup-command` | string | — | Shell command run when launching a tmux step. Variables: `{{session_name}}`, `{{worktree_path}}`, `{{run_agent}}` |
+
+### Field-name convention
+
+Top-level field names mix two casing styles — **don't guess, copy exactly**:
+
+- **kebab-case:** `worktree-sync-paths`, `worktree-setup-command`, `worktree-setup-commands`, `tmux-setup-command`
+- **snake_case:** `max_workers`, `default_priority`, `system_prompt`, `tmux_nested_attach_behavior`, `base_branch`, `branch_template`, `on_complete`
+
+If you author an unrecognized variant (`worktree_sync_paths`, `tmux_setup_command`, etc.), Sortie will silently ignore it.
+
+### Sharing files into worktrees
+
+`worktree-sync-paths` shape:
+
+```yaml
+worktree-sync-paths:
+  link:                 # hard-linked (NOT symlinked — see caveat below)
+    - .docs
+    - .env.local
+  copy:                 # copied (independent per worktree)
+    - some/template.tpl
+```
+
+**Important:** `link:` performs **hard-links**, not symbolic links. Sortie's binary calls `hardLinkDir` under the hood. Implications:
+
+- For source/text trees (markdown, configs), hard-links behave like the symlinks users typically expect — files appear in the worktree, edits sync via shared inodes.
+- Hard-links cannot cross filesystems. If `.sortie/worktrees/` lives on a different filesystem from the main checkout, `link:` will fail; use `copy:` instead.
+- For files you want **isolated per worktree** (build output, generated code, per-task `.env` overrides), use `copy:` not `link:`.
+- Symbolic links are **not supported** as a `worktree-sync-paths` mode. If you genuinely need symlinks, create them in `worktree-setup-command` (e.g., `ln -s ...`).
 
 ## Workflow Categories
 
@@ -78,6 +112,8 @@ Workflows are organized into three categories under `workflows:`:
       tmux: true/false       # per-step override (omit to inherit workflow default)
       timeout: "30m"         # Go duration string
       human: false           # pause for human approval
+      summarization_strategy: summarize_chat   # how this step's context is captured (see below)
+      summarization_prompt: "..."              # prompt fed to the summarizer for THIS step's context
       loop:                  # optional: jump back to earlier step
         goto: "step-name"    # must reference an earlier step
         max_iterations: 3    # >= 1
@@ -85,7 +121,13 @@ Workflows are organized into three categories under `workflows:`:
           step_context_empty: "step-name"  # exit early if this step's context is empty
 ```
 
-## Template Variables (for step prompts)
+### Step summarization
+
+By default, the agent's final output becomes the step's context. Set `summarization_strategy: summarize_chat` to instead summarize the entire transcript via a second Claude call using `summarization_prompt`. Inside `summarization_prompt`, the variable `{{chat}}` expands to the full transcript. This is essential for tmux/grilling steps where the meaningful output is the conversation, not a final message.
+
+## Template Variables
+
+**Step prompts** (`prompt:`) and **summarizer prompts** (`summarizer_prompt:`):
 
 | Variable | Description |
 |---|---|
@@ -101,6 +143,20 @@ Workflows are organized into three categories under `workflows:`:
 | `{{loop.max_iterations}}` | Max loop iterations (in loops) |
 | `{{steps.<step_name>.context}}` | Context captured from a prior step's result |
 | `{{artifacts.<step_name>}}` | Backward compat alias for `{{steps.<step_name>.context}}` |
+
+**Step `summarization_prompt:`** — same variables as above, plus:
+
+| Variable | Description |
+|---|---|
+| `{{chat}}` | Full transcript of the step being summarized (only valid inside `summarization_prompt`) |
+
+**`tmux-setup-command:`**:
+
+| Variable | Description |
+|---|---|
+| `{{session_name}}` | Tmux session name created for the task |
+| `{{worktree_path}}` | Absolute path to the task's worktree |
+| `{{run_agent}}` | Pre-built command string that launches the Claude agent inside the worktree |
 
 ## Decision Tree
 
