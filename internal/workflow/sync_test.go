@@ -344,6 +344,82 @@ func TestSyncPathsToWorktreeLinkNestedPath(t *testing.T) {
 	}
 }
 
+// Regression: macOS link(2) returns EPERM on a symlink source, which used to
+// fail the whole sync. Symlinked entries must be replicated as symlinks and
+// the rest of the link list must still be processed.
+func TestSyncPathsToWorktreeLinkSymlinkSource(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	external := t.TempDir()
+	os.WriteFile(filepath.Join(external, "vault.md"), []byte("external"), 0644)
+	if err := os.Symlink(external, filepath.Join(src, ".docs")); err != nil {
+		t.Fatalf("setup symlink: %v", err)
+	}
+	os.WriteFile(filepath.Join(src, "regular.txt"), []byte("regular"), 0644)
+
+	err := SyncPathsToWorktree(src, dst, config.WorktreeSyncPathsConfig{
+		Link: []string{".docs", "regular.txt"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	info, err := os.Lstat(filepath.Join(dst, ".docs"))
+	if err != nil {
+		t.Fatalf("expected .docs at dst: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("expected .docs to be a symlink")
+	}
+	target, err := os.Readlink(filepath.Join(dst, ".docs"))
+	if err != nil {
+		t.Fatalf("readlink dst .docs: %v", err)
+	}
+	if target != external {
+		t.Errorf("expected symlink target %q, got %q", external, target)
+	}
+	data, err := os.ReadFile(filepath.Join(dst, ".docs", "vault.md"))
+	if err != nil || string(data) != "external" {
+		t.Errorf("expected to read through symlink, got data=%q err=%v", data, err)
+	}
+
+	// The second link entry must still be synced (not aborted by .docs).
+	if _, err := os.Stat(filepath.Join(dst, "regular.txt")); err != nil {
+		t.Errorf("expected regular.txt to be synced after symlink: %v", err)
+	}
+}
+
+// One bad link path must not abort the remaining paths. Errors are joined.
+func TestSyncPathsToWorktreeContinuesOnError(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+
+	os.WriteFile(filepath.Join(src, "good-a.txt"), []byte("a"), 0644)
+	os.WriteFile(filepath.Join(src, "good-b.txt"), []byte("b"), 0644)
+
+	// Source has bad/file.txt; destination pre-exists with "bad" as a regular
+	// file, so MkdirAll for the link's parent will fail with ENOTDIR.
+	os.MkdirAll(filepath.Join(src, "bad"), 0755)
+	os.WriteFile(filepath.Join(src, "bad", "file.txt"), []byte("src"), 0644)
+	os.WriteFile(filepath.Join(dst, "bad"), []byte("blocker"), 0644)
+
+	err := SyncPathsToWorktree(src, dst, config.WorktreeSyncPathsConfig{
+		Link: []string{"good-a.txt", "bad/file.txt", "good-b.txt"},
+	})
+	if err == nil {
+		t.Fatalf("expected joined error, got nil")
+	}
+
+	// Both good entries must have been synced despite the middle one failing.
+	if _, err := os.Stat(filepath.Join(dst, "good-a.txt")); err != nil {
+		t.Errorf("good-a.txt not synced: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "good-b.txt")); err != nil {
+		t.Errorf("good-b.txt not synced (sync aborted on first error?): %v", err)
+	}
+}
+
 func TestSyncPathsToWorktreeMixed(t *testing.T) {
 	src := t.TempDir()
 	dst := t.TempDir()
