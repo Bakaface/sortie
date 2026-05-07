@@ -336,6 +336,72 @@ func TestMergeBranch_ConcurrentWithMutex(t *testing.T) {
 	}
 }
 
+func TestMergeBranch_PreservesHistory(t *testing.T) {
+	repo := initTestRepo(t)
+
+	// Create a feature branch with multiple commits
+	runGit(t, repo, "checkout", "-b", "feature")
+
+	commits := []struct {
+		file string
+		body string
+		msg  string
+	}{
+		{"step1.txt", "first", "feat: step 1"},
+		{"step2.txt", "second", "feat: step 2"},
+		{"step3.txt", "third", "feat: step 3"},
+	}
+	for _, c := range commits {
+		if err := os.WriteFile(filepath.Join(repo, c.file), []byte(c.body), 0644); err != nil {
+			t.Fatal(err)
+		}
+		runGit(t, repo, "add", "-A")
+		runGit(t, repo, "commit", "-m", c.msg)
+	}
+
+	// Capture the tip of the feature branch before merging
+	cmd := exec.Command("git", "rev-parse", "feature")
+	cmd.Dir = repo
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-parse feature failed: %v\n%s", err, out)
+	}
+	featureTip := strings.TrimSpace(string(out))
+
+	runGit(t, repo, "checkout", "main")
+	if err := MergeBranch(repo, "feature", "main", "feat: merge feature"); err != nil {
+		t.Fatalf("MergeBranch failed: %v", err)
+	}
+
+	// The merge commit on main must have two parents (--no-ff produced a real merge).
+	parentsOut := runGitOutput(t, repo, "rev-list", "--parents", "-n", "1", "HEAD")
+	parents := strings.Fields(strings.TrimSpace(parentsOut))
+	if len(parents) != 3 {
+		t.Fatalf("expected merge commit with 2 parents (3 fields incl. self), got %d: %v", len(parents)-1, parents)
+	}
+
+	// The second parent must be the original tip of the feature branch.
+	if parents[2] != featureTip {
+		t.Errorf("expected second parent to be feature tip %s, got %s", featureTip, parents[2])
+	}
+
+	// All individual feature commits must be reachable from main.
+	logOut := runGitOutput(t, repo, "log", "--format=%s", "main")
+	for _, c := range commits {
+		if !strings.Contains(logOut, c.msg) {
+			t.Errorf("expected commit %q to be reachable from main, log was:\n%s", c.msg, logOut)
+		}
+	}
+
+	// Sanity: --first-parent only shows the merge envelope, not the inner commits.
+	firstParentOut := runGitOutput(t, repo, "log", "--first-parent", "--format=%s", "main")
+	for _, c := range commits {
+		if strings.Contains(firstParentOut, c.msg) {
+			t.Errorf("--first-parent should hide inner commit %q, but log was:\n%s", c.msg, firstParentOut)
+		}
+	}
+}
+
 func TestMergeBranch_ConflictCleansUp(t *testing.T) {
 	repo := initTestRepo(t)
 

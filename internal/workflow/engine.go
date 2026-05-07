@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	// maxMergeAttempts is the number of times to retry a squash-merge before failing.
+	// maxMergeAttempts is the number of times to retry a merge before failing.
 	maxMergeAttempts = 3
 
 	// mergeBlockedPollInterval is how often to re-check whether the target branch is clean.

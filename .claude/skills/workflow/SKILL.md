@@ -103,7 +103,7 @@ When `task.Worktree == false`:
 
 ## Key Mechanisms
 
-- **Merge**: serialized via `mergeMu`; squash-merge into base, Claude resolves conflicts, up to 3 retries
+- **Merge**: serialized via `mergeMu`; `--no-ff` merge into base (preserves task branch commit history), Claude resolves conflicts, up to 3 retries
 - **Loops**: evaluate at step end, check `MaxIterations` + `ExitCondition.StepContextEmpty`, persist iteration to DB
 - **Approval gates**: human steps pause at `AwaitingApproval`, tmux steps at `Tmux`
 - **Summarization strategy**: per-step `summarization_strategy` controls how step context is captured. `last_message` (default) stores Claude's result event text. `summarize_chat` stores last_message immediately, then spawns a background goroutine that runs `summarizeChatLog()` (haiku model) against the full step log and overwrites the context via `UpdateTaskStepContext()` when done.

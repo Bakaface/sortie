@@ -50,7 +50,7 @@ Worktree path convention: `<repoRoot>/.sortie/worktrees/<branchName-with-slashes
 |----------|-------------|
 | `Commit(dir, msg)` | `add -A` -> status check -> `commit -m` (no-op if clean) |
 | `HasMeaningfulChanges(dir, excludeFiles)` | Uncommitted + committed changes excluding caller-specified files |
-| `MergeBranch(repoRoot, branch, baseBranch, commitMsg)` | Checkout baseBranch -> `merge --squash` branch -> commit. Includes deferred `CleanRepoState()` safety net on failure. |
+| `MergeBranch(repoRoot, branch, baseBranch, commitMsg)` | Checkout baseBranch -> `merge --no-ff -m commitMsg` branch (preserves task branch commit history under the merge commit). Includes deferred `CleanRepoState()` safety net on failure. |
 | `RebaseBranch(dir, baseBranch)` | Rebase with auto-abort on failure |
 | `DiffStat(dir, baseBranch)` | merge-base -> `diff --stat` |
 | `GetCurrentBranch(dir)` | Current branch name |

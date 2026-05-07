@@ -63,8 +63,9 @@ func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn f
 	}
 }
 
-// executeMerge handles the merge on_complete action: commits changes, squash-merges
-// the task branch into the base branch with retry/conflict-resolution, and cleans up.
+// executeMerge handles the merge on_complete action: commits changes, merges
+// the task branch into the base branch with `--no-ff` (preserving the task
+// branch's individual commits), retries on conflicts, and cleans up.
 func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([]string), logf func(string, ...any)) error {
 	if t.Branch == "" {
 		return fmt.Errorf("cannot merge: task branch name is empty")
@@ -82,11 +83,11 @@ func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([
 		return fmt.Errorf("waiting for clean target branch: %w", err)
 	}
 
-	// The squash-merge subject is derived deterministically from the task title
-	// so the merge commit reflects the user's stated intent — never an agent's
-	// intermediate commit message.
+	// The merge commit subject is derived deterministically from the task title
+	// so the envelope commit reflects the user's stated intent — the agent's
+	// intermediate commits remain visible via the merge's second parent.
 	commitMsg := gitpkg.ConventionalCommitFromTitle(t.Title)
-	logf("Squash-merging branch %s into %s...", t.Branch, baseBranch)
+	logf("Merging branch %s into %s (--no-ff)...", t.Branch, baseBranch)
 
 	var mergeErr error
 
@@ -95,7 +96,7 @@ func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([
 			logf("Merge attempt %d/%d...", attempt, maxMergeAttempts)
 		}
 
-		// Lock only for the squash-merge on the shared repoRoot
+		// Lock only for the merge on the shared repoRoot
 		e.mergeMu.Lock()
 		mergeErr = gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch, commitMsg)
 		e.mergeMu.Unlock()
@@ -161,10 +162,10 @@ func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([
 				return fmt.Errorf("failed to complete merge after conflict resolution: %w", err)
 			}
 
-			log.Printf("Task #%d conflicts resolved, retrying squash-merge", t.ID)
-			logf("Conflicts resolved, retrying squash-merge...")
+			log.Printf("Task #%d conflicts resolved, retrying merge", t.ID)
+			logf("Conflicts resolved, retrying merge...")
 		}
-		// If MergeInto succeeded cleanly (no error), the branch is updated — retry the squash-merge
+		// If MergeInto succeeded cleanly (no error), the branch is updated — retry the merge
 	}
 
 	if mergeErr != nil {
