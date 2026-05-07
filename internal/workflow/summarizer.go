@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -205,25 +206,95 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 	return nil
 }
 
-// summarizeChatLog reads a step's log file and uses haiku to produce a summary
-// of the full conversation as step context.
-func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName string, logPath string) (string, error) {
+// encodeClaudeProjectDir encodes a workdir path to the directory name format used by
+// Claude Code under ~/.claude/projects/. The encoding replaces both '/' and '.' with '-'.
+func encodeClaudeProjectDir(workdir string) string {
+	r := strings.NewReplacer("/", "-", ".", "-")
+	return r.Replace(workdir)
+}
+
+// loadStepChatContent returns the raw chat content for a step.
+// For tmux steps, reads the Claude session JSONL via the session id recorded by UpsertChat.
+// For headless steps, reads the per-step log file.
+// Returns empty string (no error) if no content is available yet.
+func (e *Engine) loadStepChatContent(t *task.Task, stepName string, useTmux bool) (string, error) {
+	if useTmux {
+		// Look up the session id recorded when the tmux step started
+		chat, err := e.database.GetChatByStep(t.ID, stepName)
+		if err != nil {
+			return "", fmt.Errorf("failed to look up chat session for tmux step %q: %w", stepName, err)
+		}
+		if chat == nil || chat.SessionID == "" {
+			// No session recorded yet — treat as no content available
+			return "", nil
+		}
+
+		// Construct the JSONL path: ~/.claude/projects/<encoded-workdir>/<sessionid>.jsonl
+		encoded := encodeClaudeProjectDir(t.WorktreePath)
+		jsonlPath := filepath.Join(os.Getenv("HOME"), ".claude", "projects", encoded, chat.SessionID+".jsonl")
+		data, err := os.ReadFile(jsonlPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", nil
+			}
+			return "", fmt.Errorf("failed to read claude session JSONL for step %q: %w", stepName, err)
+		}
+		return strings.TrimSpace(string(data)), nil
+	}
+
+	// Headless step: read the per-step log file
+	logPath := ProjectLogPath(e.dataDir, t.ID, stepName)
 	data, err := os.ReadFile(logPath)
 	if err != nil {
-		return "", fmt.Errorf("failed to read step log: %w", err)
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read step log for step %q: %w", stepName, err)
 	}
-	chatLog := strings.TrimSpace(string(data))
-	if chatLog == "" {
+	return strings.TrimSpace(string(data)), nil
+}
+
+// summarizeChatLog runs Claude haiku to summarise the given chat content.
+// customPrompt is a template that may reference the chat via a {{chat}} placeholder;
+// task template variables ({{task.id}}, {{task.title}}, etc.) are also resolved.
+// If customPrompt is empty, the default summarization prompt is used.
+func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, customPrompt, chatContent string) (string, error) {
+	if strings.TrimSpace(chatContent) == "" {
 		return "", nil
 	}
 
-	prompt := fmt.Sprintf(
-		"Summarize the following Claude Code conversation log from step %q of task #%d: %s\n\n"+
-			"Focus on: what was accomplished, key decisions made, files changed, and any issues encountered.\n"+
-			"Be concise but comprehensive. This summary will be passed as context to subsequent workflow steps.\n\n"+
-			"--- CONVERSATION LOG ---\n%s",
-		stepName, t.ID, t.Title, chatLog,
-	)
+	var prompt string
+	if customPrompt != "" {
+		tmplCtx := &TemplateContext{
+			Task: TaskVars{
+				ID:          t.ID,
+				Title:       t.Title,
+				Description: t.Description,
+				Slug:        t.Slug,
+				Branch:      t.Branch,
+			},
+			Git: GitVars{
+				BaseBranch: e.cfg.Git.BaseBranch,
+				RepoRoot:   e.repoRoot,
+			},
+		}
+		resolved := ResolveTemplate(customPrompt, tmplCtx)
+
+		// Support {{chat}} placeholder to inline chat content, or append as default
+		if strings.Contains(resolved, "{{chat}}") {
+			prompt = strings.ReplaceAll(resolved, "{{chat}}", chatContent)
+		} else {
+			prompt = resolved + "\n\n--- CONVERSATION LOG ---\n" + chatContent
+		}
+	} else {
+		prompt = fmt.Sprintf(
+			"Summarize the following Claude Code conversation log from step %q of task #%d: %s\n\n"+
+				"Focus on: what was accomplished, key decisions made, files changed, and any issues encountered.\n"+
+				"Be concise but comprehensive. This summary will be passed as context to subsequent workflow steps.\n\n"+
+				"--- CONVERSATION LOG ---\n%s",
+			stepName, t.ID, t.Title, chatContent,
+		)
+	}
 
 	log.Printf("Running summarize_chat for step %q of task #%d", stepName, t.ID)
 	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath)

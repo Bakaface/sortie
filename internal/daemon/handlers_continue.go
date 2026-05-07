@@ -219,6 +219,46 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 		log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 	}
 
+	// Determine whether the workflow has more steps to run.
+	// The engine increments t.StepIndex to i+1 before pausing at the tmux gate,
+	// so t.StepIndex already points at the next step. If t.StepIndex < len(steps)
+	// there is more work to do; advance to the next step instead of finalizing.
+	wf := pc.cfg.GetWorkflow(t.Workflow)
+	hasMoreSteps := wf != nil && t.StepIndex < len(wf.Steps)
+
+	if hasMoreSteps {
+		// Advance to the next step: resume the engine. ResumeAfterApproval will
+		// run summarise_chat for the just-completed tmux step (Sub-feature D) and
+		// then continue with the remaining workflow steps.
+		origStatus := t.Status
+		if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
+			return
+		}
+
+		engine := pc.engine
+		manager := s.manager
+		runner := func(ctx context.Context) error {
+			var outputFn func([]string)
+			if a, ok := manager.GetAgentByTaskID(t.ID); ok {
+				outputFn = a.AppendOutput
+			}
+			return engine.ResumeAfterApproval(ctx, t, outputFn)
+		}
+		if _, err := s.manager.StartAgent(t, t.WorktreePath, runner); err != nil {
+			_ = s.database.UpdateTaskStatus(t.ID, origStatus)
+			s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
+			return
+		}
+
+		s.broadcastTaskUpdate(t.ID)
+		log.Printf("%sTask #%d: tmux step done, advancing to step %d of %d", s.projectLogPrefix(t.ProjectID), t.ID, t.StepIndex, len(wf.Steps))
+		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d advancing to next step", t.ID)})
+		return
+	}
+
+	// Last step: run full finalization (on_complete merge + summarizer + cleanup).
+
 	// Fast-track: if no meaningful changes were made, skip full finalization
 	// and go straight to completed, cleaning up worktree and branch.
 	if t.WorktreePath != "" && t.Worktree {

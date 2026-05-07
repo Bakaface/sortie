@@ -188,12 +188,16 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			log.Printf("Warning: failed to create task step record: %v", err)
 		}
 
-		// Collect step contexts from prior completed steps
-		var priorStepNames []string
-		for j := 0; j < i; j++ {
-			priorStepNames = append(priorStepNames, steps[j].Name)
+		// Collect step contexts from ALL steps that have a recorded context.
+		// We include later-indexed steps too because loops can populate them
+		// in earlier iterations (e.g. reviewing's issues feeding back to
+		// implementing on the next pass). Steps that haven't run yet simply
+		// have no DB row and resolve to "".
+		var allStepNames []string
+		for _, s := range steps {
+			allStepNames = append(allStepNames, s.Name)
 		}
-		stepContexts, err := e.database.GetTaskStepContexts(t.ID, priorStepNames)
+		stepContexts, err := e.database.GetTaskStepContexts(t.ID, allStepNames)
 		if err != nil {
 			log.Printf("Warning: failed to get step contexts: %v", err)
 			stepContexts = make(map[string]string)
@@ -280,16 +284,19 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 
 		// Validate that the step produced meaningful changes
-		// Skip for review steps and tmux steps (agent may still be working)
+		// Skip for human and tmux steps (handled separately or not yet complete)
 		if !step.Human && !useTmux {
-			noiseFiles := []string{".claude-output.log"}
-			hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
-			if err != nil {
-				log.Printf("Warning: failed to check for changes in step %q: %v", step.Name, err)
-			} else if !hasChanges {
-				errMsg := fmt.Sprintf("step %q exited successfully but produced no code changes", step.Name)
-				e.database.UpdateTaskExitCode(t.ID, 1, errMsg)
-				return errors.New(errMsg)
+			if strings.TrimSpace(resultText) == "" {
+				// No output — require a diff as the alternative signal
+				noiseFiles := []string{".claude-output.log"}
+				hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
+				if err != nil {
+					log.Printf("Warning: failed to check for changes in step %q: %v", step.Name, err)
+				} else if !hasChanges {
+					errMsg := fmt.Sprintf("step %q exited successfully but produced no output or code changes", step.Name)
+					e.database.UpdateTaskExitCode(t.ID, 1, errMsg)
+					return errors.New(errMsg)
+				}
 			}
 		}
 
@@ -306,26 +313,21 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 
 		if step.SummarizationStrategy == config.SummarizationStrategySummarizeChat {
-			stepName := step.Name
-			taskID := t.ID
-			taskCopy := *t
-			logPath := ProjectLogPath(e.dataDir, taskID, stepName)
-			go func() {
-				bgCtx := context.Background()
-				summary, err := e.summarizeChatLog(bgCtx, &taskCopy, stepName, logPath)
-				if err != nil {
-					log.Printf("Warning: summarize_chat failed for step %q of task #%d: %v", stepName, taskID, err)
-					return
+			chat, chatErr := e.loadStepChatContent(t, step.Name, useTmux)
+			if chatErr != nil {
+				log.Printf("Warning: failed to load chat content for step %q of task #%d: %v", step.Name, t.ID, chatErr)
+			} else if chat != "" {
+				summary, sumErr := e.summarizeChatLog(ctx, t, step.Name, step.SummarizationPrompt, chat)
+				if sumErr != nil {
+					log.Printf("Warning: summarize_chat failed for step %q of task #%d: %v", step.Name, t.ID, sumErr)
+				} else if summary != "" {
+					if dbErr := e.database.UpdateTaskStepContext(t.ID, step.Name, summary); dbErr != nil {
+						log.Printf("Warning: failed to update step context after summarize_chat for step %q of task #%d: %v", step.Name, t.ID, dbErr)
+					} else {
+						log.Printf("summarize_chat updated step context for step %q of task #%d (%d chars)", step.Name, t.ID, len(summary))
+					}
 				}
-				if summary == "" {
-					return
-				}
-				if err := e.database.UpdateTaskStepContext(taskID, stepName, summary); err != nil {
-					log.Printf("Warning: failed to update step context after summarize_chat for step %q of task #%d: %v", stepName, taskID, err)
-				} else {
-					log.Printf("summarize_chat updated step context for step %q of task #%d (%d chars)", stepName, taskID, len(summary))
-				}
-			}()
+			}
 		}
 
 		// Evaluate loop condition
@@ -394,6 +396,30 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 }
 
 // ResumeAfterApproval resumes a task from its current step index.
+// If the previously-completed step was a tmux step with summarize_chat strategy,
+// summarisation runs synchronously here (it could not run during the step itself
+// because tmux steps return early and pause the engine).
 func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn func([]string)) error {
+	wf := e.cfg.GetWorkflow(t.Workflow)
+	if wf != nil && t.StepIndex > 0 && t.StepIndex <= len(wf.Steps) {
+		prevStep := wf.Steps[t.StepIndex-1]
+		if prevStep.UseTmux(wf.Tmux) && prevStep.SummarizationStrategy == config.SummarizationStrategySummarizeChat {
+			chat, err := e.loadStepChatContent(t, prevStep.Name, true)
+			if err != nil {
+				log.Printf("Warning: failed to load chat for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
+			} else if chat != "" {
+				summary, err := e.summarizeChatLog(ctx, t, prevStep.Name, prevStep.SummarizationPrompt, chat)
+				if err != nil {
+					log.Printf("Warning: summarize_chat failed for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
+				} else if summary != "" {
+					if err := e.database.UpdateTaskStepContext(t.ID, prevStep.Name, summary); err != nil {
+						log.Printf("Warning: failed to write step context for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
+					} else {
+						log.Printf("summarize_chat updated step context for tmux step %q of task #%d (%d chars)", prevStep.Name, t.ID, len(summary))
+					}
+				}
+			}
+		}
+	}
 	return e.RunTask(ctx, t, outputFn)
 }

@@ -156,6 +156,10 @@ type StepConfig struct {
 	Human                 bool        `yaml:"human"`
 	Loop                  *LoopConfig `yaml:"loop,omitempty"`
 	SummarizationStrategy string      `yaml:"summarization_strategy,omitempty"`
+	// SummarizationPrompt is the prompt template used when summarization_strategy is
+	// "summarize_chat". Supports {{task.id}}, {{task.title}}, etc. template variables.
+	// When empty, the default summarization prompt is used.
+	SummarizationPrompt string `yaml:"summarization_prompt,omitempty"`
 }
 
 // LoopConfig defines a closed-loop jump back to an earlier step.
