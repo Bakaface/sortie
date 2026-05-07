@@ -831,12 +831,18 @@ func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// Should retry, not show task selection
+	// Should request retry confirmation, not show task selection
 	if updated.selector.kind == selectorTask {
 		t.Error("expected selector kind not to be selectorTask when retrying failed task")
 	}
-	if cmd == nil {
-		t.Error("expected retry command, got nil")
+	if updated.confirmAction != "retry" {
+		t.Errorf("expected confirmAction to be 'retry', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 5 {
+		t.Errorf("expected confirmTaskID to be 5, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
 	}
 }
 
@@ -862,12 +868,18 @@ func TestHandleListKey_RRetriesTmuxTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// Should retry, not show task selection
+	// Should request retry confirmation, not show task selection
 	if updated.selector.kind == selectorTask {
 		t.Error("expected selector kind not to be selectorTask when retrying tmux task")
 	}
-	if cmd == nil {
-		t.Error("expected retry command, got nil")
+	if updated.confirmAction != "retry" {
+		t.Errorf("expected confirmAction to be 'retry', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 3 {
+		t.Errorf("expected confirmTaskID to be 3, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
 	}
 }
 
@@ -893,12 +905,18 @@ func TestHandleListKey_RRetriesCompletedTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// Should retry, not show task selection
+	// Should request retry confirmation, not show task selection
 	if updated.selector.kind == selectorTask {
 		t.Error("expected selector kind not to be selectorTask when retrying completed task")
 	}
-	if cmd == nil {
-		t.Error("expected retry command, got nil")
+	if updated.confirmAction != "retry" {
+		t.Errorf("expected confirmAction to be 'retry', got %q", updated.confirmAction)
+	}
+	if updated.confirmTaskID != 7 {
+		t.Errorf("expected confirmTaskID to be 7, got %d", updated.confirmTaskID)
+	}
+	if cmd != nil {
+		t.Error("expected no command (confirmation pending), got non-nil")
 	}
 }
 

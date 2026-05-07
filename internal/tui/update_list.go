@@ -116,7 +116,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Retry if selected task is failed, completed, or stale tmux
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "failed" || task.Status == "completed" || task.Status == "tmux" {
-				return m, m.retryTask(task.ID)
+				m.confirmAction = "retry"
+				m.confirmTaskID = task.ID
+				return m, nil
 			}
 		}
 
@@ -615,6 +617,8 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.revertTask(taskID)
 		case "stop":
 			return m, m.stopTask(taskID)
+		case "retry":
+			return m, m.retryTask(taskID)
 		default:
 			return m, nil
 		}
