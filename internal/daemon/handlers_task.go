@@ -430,6 +430,7 @@ func (s *Server) generateTitle(ctx context.Context, description string, claude *
 	args = append(args, claude.DefaultArgs...)
 
 	cmd := exec.CommandContext(ctx, claude.Command, args...)
+	cmd.Env = append(os.Environ(), "SORTIE_PURPOSE=title")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

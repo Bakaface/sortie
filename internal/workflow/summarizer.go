@@ -185,7 +185,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 	logMsg("Running summarizer for task #%d", t.ID)
 
 	// Run Claude synchronously to capture the summary text
-	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath)
+	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath, "summarize")
 	if err != nil {
 		return fmt.Errorf("summarizer claude invocation failed: %w", err)
 	}
@@ -297,7 +297,7 @@ func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, c
 	}
 
 	log.Printf("Running summarize_chat for step %q of task #%d", stepName, t.ID)
-	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath)
+	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath, "summarize_chat")
 	if err != nil {
 		return "", fmt.Errorf("summarize_chat claude invocation failed: %w", err)
 	}
@@ -370,14 +370,18 @@ func RunWorktreeSetupCommands(ctx context.Context, projectRoot, worktreePath str
 
 // runClaudeSync runs Claude Code synchronously and captures its stdout output.
 // workDir sets the working directory for the Claude process so it can access
-// the task's worktree files.
-func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir string) (string, error) {
+// the task's worktree files. purpose tags the invocation via SORTIE_PURPOSE so
+// stub claude binaries can route the response without parsing prompt text.
+func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir string, purpose string) (string, error) {
 	args := []string{"-p", prompt, "--output-format", "text", "--model", "haiku"}
 	args = append(args, e.cfg.Claude.Args()...)
 
 	cmd := exec.CommandContext(ctx, e.cfg.Claude.Command, args...)
 	if workDir != "" {
 		cmd.Dir = workDir
+	}
+	if purpose != "" {
+		cmd.Env = append(os.Environ(), "SORTIE_PURPOSE="+purpose)
 	}
 
 	var stdout, stderr bytes.Buffer
