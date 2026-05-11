@@ -207,8 +207,12 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 	}
 
 	yolo := pc != nil && pc.cfg.Claude.Yolo
+	var claudeBin string
+	if pc != nil {
+		claudeBin = pc.cfg.Claude.Command
+	}
 	scriptFile := filepath.Join(sortieDir, "run-restore.sh")
-	if err := writeClaudeScript(scriptFile, yolo); err != nil {
+	if err := writeClaudeScript(scriptFile, claudeBin, yolo); err != nil {
 		return fmt.Errorf("failed to write wrapper script: %w", err)
 	}
 

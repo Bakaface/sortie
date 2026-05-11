@@ -141,7 +141,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Yolo); err != nil {
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to write wrapper script: %v", err))
 		return
 	}
@@ -448,7 +448,7 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Yolo); err != nil {
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo); err != nil {
 		log.Printf("%sFailed to write claude script for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
 		return
 	}
@@ -584,10 +584,14 @@ func dirExists(path string) bool {
 }
 
 // writeClaudeScript writes a bash wrapper script that runs claude and drops to a shell.
-func writeClaudeScript(scriptPath string, yolo bool) error {
-	claudeCmd := "claude"
+// claudeBin is the configured Claude binary (cfg.Claude.Command); falls back to "claude".
+func writeClaudeScript(scriptPath string, claudeBin string, yolo bool) error {
+	if claudeBin == "" {
+		claudeBin = "claude"
+	}
+	claudeCmd := fmt.Sprintf("%q", claudeBin)
 	if yolo {
-		claudeCmd = "claude --dangerously-skip-permissions"
+		claudeCmd += " --dangerously-skip-permissions"
 	}
 	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", claudeCmd)
 	return os.WriteFile(scriptPath, []byte(script), 0755)
