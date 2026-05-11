@@ -152,6 +152,13 @@ func loadGlobalConfig(path string, cfg *Config) error {
 	if global.Yolo != nil {
 		cfg.Claude.Yolo = *global.Yolo
 	}
+	if global.PollInterval != "" {
+		if d, err := time.ParseDuration(global.PollInterval); err == nil && d > 0 {
+			cfg.PollInterval = d
+		} else if err != nil {
+			return fmt.Errorf("invalid poll_interval %q: %w", global.PollInterval, err)
+		}
+	}
 	if global.Verification != nil {
 		cfg.Verification = *global.Verification
 	}
@@ -198,6 +205,15 @@ func loadProjectConfig(path string, cfg *Config) error {
 
 	if proj.MaxWorkers > 0 {
 		cfg.MaxWorkers = proj.MaxWorkers
+	}
+	if proj.PollInterval != "" {
+		d, err := time.ParseDuration(proj.PollInterval)
+		if err != nil {
+			return fmt.Errorf("invalid poll_interval %q: %w", proj.PollInterval, err)
+		}
+		if d > 0 {
+			cfg.PollInterval = d
+		}
 	}
 	if proj.Git.BaseBranch != "" {
 		cfg.Git.BaseBranch = proj.Git.BaseBranch
@@ -486,6 +502,12 @@ func getGlobalConfigPath() string {
 }
 
 func getGlobalSortieYmlPath() string {
+	if xdgConfig := os.Getenv("XDG_CONFIG_HOME"); xdgConfig != "" {
+		path := filepath.Join(xdgConfig, "sortie", "config.yml")
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return ""
