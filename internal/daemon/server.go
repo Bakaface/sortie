@@ -183,7 +183,7 @@ func (s *Server) getProjectRepoRoot(t *task.Task) string {
 	return pc.repoRoot
 }
 
-func (s *Server) Start(foreground bool) error {
+func (s *Server) Start() error {
 	if err := s.cfg.EnsureDirs(); err != nil {
 		return fmt.Errorf("failed to create directories: %w", err)
 	}
@@ -510,7 +510,7 @@ func (s *Server) writePidFile() error {
 	return os.WriteFile(s.cfg.Daemon.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
 }
 
-func Start(cfg *config.Config, foreground bool) error {
+func Start(cfg *config.Config) error {
 	dbPath := cfg.GetDatabasePath("")
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -518,7 +518,7 @@ func Start(cfg *config.Config, foreground bool) error {
 	}
 
 	server := NewServer(cfg, database)
-	return server.Start(foreground)
+	return server.Start()
 }
 
 func Stop(cfg *config.Config) error {

@@ -47,6 +47,7 @@ The daemon must be running.`,
 
 		branch, _ := cmd.Flags().GetString("branch")
 		workflow, _ := cmd.Flags().GetString("workflow")
+		title, _ := cmd.Flags().GetString("title")
 		noWorktree, _ := cmd.Flags().GetBool("no-worktree")
 		target, _ := cmd.Flags().GetString("target")
 		checkout, _ := cmd.Flags().GetString("checkout")
@@ -67,6 +68,7 @@ The daemon must be running.`,
 
 		worktree := !noWorktree
 		t, err := c.CreateTaskWithOptions(daemon.CreateTaskRequest{
+			Title:          title,
 			Description:    description,
 			Workflow:       workflow,
 			Priority:       priority,

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,19 +25,24 @@ var tasksCmd = &cobra.Command{
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeTaskIDs(),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		jsonOut, _ := cmd.Flags().GetBool("json")
 		if len(args) == 1 {
-			return showTaskDetail(args[0])
+			return showTaskDetail(args[0], jsonOut)
 		}
 
 		c := client.New(cfg)
 		if err := c.Connect(); err != nil {
-			return listTasksFromDB()
+			return listTasksFromDB(jsonOut)
 		}
 		defer c.Close()
 
 		tasks, err := c.ListTasks()
 		if err != nil {
 			return fmt.Errorf("failed to list tasks: %w", err)
+		}
+
+		if jsonOut {
+			return writeJSON(os.Stdout, tasks)
 		}
 
 		if len(tasks) == 0 {
@@ -62,7 +68,13 @@ var tasksCmd = &cobra.Command{
 	},
 }
 
-func listTasksFromDB() error {
+func writeJSON(w *os.File, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+func listTasksFromDB(jsonOut bool) error {
 	dbPath := cfg.GetDatabasePath("")
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -73,6 +85,10 @@ func listTasksFromDB() error {
 	tasks, err := database.GetAllTasks()
 	if err != nil {
 		return fmt.Errorf("failed to get tasks: %w", err)
+	}
+
+	if jsonOut {
+		return writeJSON(os.Stdout, tasks)
 	}
 
 	if len(tasks) == 0 {
@@ -96,7 +112,7 @@ func listTasksFromDB() error {
 	return nil
 }
 
-func showTaskDetail(idStr string) error {
+func showTaskDetail(idStr string, jsonOut bool) error {
 	taskID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		return fmt.Errorf("invalid task ID: %s", idStr)
@@ -104,7 +120,7 @@ func showTaskDetail(idStr string) error {
 
 	c := client.New(cfg)
 	if err := c.Connect(); err != nil {
-		return showTaskDetailFromDB(taskID)
+		return showTaskDetailFromDB(taskID, jsonOut)
 	}
 	defer c.Close()
 
@@ -113,11 +129,14 @@ func showTaskDetail(idStr string) error {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
 
+	if jsonOut {
+		return writeJSON(os.Stdout, t)
+	}
 	printTaskDetail(t)
 	return nil
 }
 
-func showTaskDetailFromDB(taskID int64) error {
+func showTaskDetailFromDB(taskID int64, jsonOut bool) error {
 	dbPath := cfg.GetDatabasePath("")
 	database, err := db.Open(dbPath)
 	if err != nil {
@@ -152,6 +171,9 @@ func showTaskDetailFromDB(taskID int64) error {
 	if proj, err := database.GetProject(t.ProjectID); err == nil {
 		info.ProjectName = proj.Name
 		info.ProjectPath = proj.Path
+	}
+	if jsonOut {
+		return writeJSON(os.Stdout, &info)
 	}
 	printTaskDetail(&info)
 	return nil
@@ -238,6 +260,11 @@ var listCmd = &cobra.Command{
 		agents, err := c.ListAgents()
 		if err != nil {
 			return fmt.Errorf("failed to list agents: %w", err)
+		}
+
+		jsonOut, _ := cmd.Flags().GetBool("json")
+		if jsonOut {
+			return writeJSON(os.Stdout, agents)
 		}
 
 		if len(agents) == 0 {
