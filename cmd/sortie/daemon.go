@@ -15,9 +15,9 @@ var daemonCmd = &cobra.Command{
 var daemonStartCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the daemon",
+	Long:  "Start the Sortie daemon. The process runs in the foreground; background it with '&' or your service manager.",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		foreground, _ := cmd.Flags().GetBool("foreground")
-		return daemon.Start(cfg, foreground)
+		return daemon.Start(cfg)
 	},
 }
 

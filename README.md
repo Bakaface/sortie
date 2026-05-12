@@ -214,7 +214,7 @@ Press `t` in the TUI to attach. Sortie detects nested-tmux situations (you're al
 **Daemon**
 
 ```bash
-sortie daemon start [-f]      # start (background, or -f for foreground)
+sortie daemon start           # start (foreground; background it with '&' or your service manager)
 sortie daemon stop            # graceful shutdown
 sortie daemon status          # is it running, what PID
 ```
@@ -222,10 +222,10 @@ sortie daemon status          # is it running, what PID
 **Tasks**
 
 ```bash
-sortie create <description> [--workflow w] [--priority high]
+sortie create <description> [--workflow w] [--priority high] [--title T]
               [--branch tmpl] [--target main] [--checkout existing-branch]
               [--no-worktree]
-sortie tasks [<id>]           # list, or detail for one
+sortie tasks [<id>] [--json]  # list, or detail for one
 sortie edit <id> [--title T] [--description D] [--context C] [--priority P]
 sortie delete <id> [-y]
 sortie start <id>             # manually kick off a pending task
@@ -235,7 +235,10 @@ sortie revert <id>            # revert all commits made by a completed task
 sortie continue <id>          # resume an awaiting-approval / completed / failed task
 sortie logs <id> [step] [-n N]
 sortie cleanup [<id>]         # remove worktree + branch + logs for completed/failed
-sortie agents                 # list running agents
+sortie agents [--json]        # list running agents
+sortie depends-on add <id> <blocked-by-id>     # mark <id> as blocked by another task
+sortie depends-on rm  <id> <blocked-by-id>     # remove a dependency
+sortie depends-on list <id>                    # list tasks blocking <id>
 ```
 
 **Worktree branch management**

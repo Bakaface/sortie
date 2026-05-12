@@ -249,6 +249,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			"SORTIE_TASK_ID":  fmt.Sprintf("%d", t.ID),
 			"SORTIE_STEP":     step.Name,
 			"SORTIE_WORKTREE": t.WorktreePath,
+			"SORTIE_PURPOSE":  "step",
 		}
 
 		// Spawn Claude process (tmux or direct)

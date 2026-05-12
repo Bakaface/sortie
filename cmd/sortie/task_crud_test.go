@@ -43,6 +43,28 @@ func TestCreateCmd_InvalidPriority(t *testing.T) {
 	cmd.Flags().Set("priority", "")
 }
 
+func TestTasksCmd_JsonFlag(t *testing.T) {
+	if f := tasksCmd.Flag("json"); f == nil {
+		t.Fatal("expected --json flag on tasks command")
+	}
+}
+
+func TestAgentsCmd_JsonFlag(t *testing.T) {
+	if f := listCmd.Flag("json"); f == nil {
+		t.Fatal("expected --json flag on agents command")
+	}
+}
+
+func TestCreateCmd_TitleFlagParses(t *testing.T) {
+	cmd := createCmd
+	if f := cmd.Flag("title"); f == nil {
+		t.Fatal("expected --title flag to be registered on create command")
+	}
+	if f := cmd.Flag("title"); f.Shorthand != "t" {
+		t.Errorf("expected --title shorthand 't', got %q", f.Shorthand)
+	}
+}
+
 func TestEditCmd_MissingTaskID(t *testing.T) {
 	// edit with non-numeric task ID
 	err := editCmd.RunE(editCmd, []string{"abc"})

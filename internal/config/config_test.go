@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestStepConfigParsing(t *testing.T) {
@@ -350,6 +351,117 @@ yolo: true
 
 	if !cfg.Claude.Yolo {
 		t.Error("expected yolo to be true from global config")
+	}
+}
+
+func TestGetGlobalSortieYmlPath_HonorsXDG(t *testing.T) {
+	xdgDir := t.TempDir()
+	if err := os.Setenv("XDG_CONFIG_HOME", xdgDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Unsetenv("XDG_CONFIG_HOME") })
+
+	xdgYml := filepath.Join(xdgDir, "sortie", "config.yml")
+	if err := os.MkdirAll(filepath.Dir(xdgYml), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(xdgYml, []byte("max_workers: 7\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := getGlobalSortieYmlPath()
+	if got != xdgYml {
+		t.Errorf("expected %q, got %q", xdgYml, got)
+	}
+}
+
+func TestGetGlobalSortieYmlPath_FallsBackToHome(t *testing.T) {
+	xdgDir := t.TempDir() // empty XDG dir, no config.yml inside
+	if err := os.Setenv("XDG_CONFIG_HOME", xdgDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Unsetenv("XDG_CONFIG_HOME") })
+
+	homeDir := t.TempDir()
+	if err := os.Setenv("HOME", homeDir); err != nil {
+		t.Fatal(err)
+	}
+
+	homeYml := filepath.Join(homeDir, ".sortie.yml")
+	if err := os.WriteFile(homeYml, []byte("max_workers: 9\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := getGlobalSortieYmlPath()
+	if got != homeYml {
+		t.Errorf("expected %q, got %q", homeYml, got)
+	}
+}
+
+func TestPollIntervalProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+poll_interval: 250ms
+workflow:
+  steps:
+    - name: implement
+      prompt: "Implement the task"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.PollInterval != 250*time.Millisecond {
+		t.Errorf("expected poll_interval 250ms, got %v", cfg.PollInterval)
+	}
+}
+
+func TestPollIntervalGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	if err := os.WriteFile(configPath, []byte("poll_interval: 1s\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadGlobalConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.PollInterval != time.Second {
+		t.Errorf("expected poll_interval 1s, got %v", cfg.PollInterval)
+	}
+}
+
+func TestPollIntervalDefault(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.PollInterval != 5*time.Second {
+		t.Errorf("expected default poll_interval 5s, got %v", cfg.PollInterval)
+	}
+}
+
+func TestPollIntervalInvalid(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+poll_interval: "not a duration"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err == nil {
+		t.Error("expected error for invalid poll_interval, got nil")
 	}
 }
 
@@ -1915,5 +2027,49 @@ func TestWorkflowConfig_FirstStepIsTmux(t *testing.T) {
 				t.Errorf("FirstStepIsTmux() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestClaudeCommandProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := "claude:\n  command: /tmp/foo\n  default_args: [--flag]\n"
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Claude.Command != "/tmp/foo" {
+		t.Errorf("expected claude.command /tmp/foo, got %q", cfg.Claude.Command)
+	}
+	if len(cfg.Claude.DefaultArgs) != 1 || cfg.Claude.DefaultArgs[0] != "--flag" {
+		t.Errorf("expected claude.default_args [--flag], got %v", cfg.Claude.DefaultArgs)
+	}
+}
+
+func TestClaudeCommandGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	yamlContent := "claude:\n  command: /tmp/bar\n  default_args: [--verbose]\n"
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadGlobalConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Claude.Command != "/tmp/bar" {
+		t.Errorf("expected claude.command /tmp/bar, got %q", cfg.Claude.Command)
+	}
+	if len(cfg.Claude.DefaultArgs) != 1 || cfg.Claude.DefaultArgs[0] != "--verbose" {
+		t.Errorf("expected claude.default_args [--verbose], got %v", cfg.Claude.DefaultArgs)
 	}
 }

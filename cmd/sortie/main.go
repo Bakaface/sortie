@@ -62,9 +62,10 @@ func isDaemonSubcommand(cmd *cobra.Command) bool {
 }
 
 func init() {
-	daemonStartCmd.Flags().BoolP("foreground", "f", false, "Run daemon in foreground")
 	tuiCmd.Flags().BoolP("global", "g", false, "Show tasks from all projects")
 	logsCmd.Flags().IntP("tail", "n", 0, "Show only the last N lines")
+	tasksCmd.Flags().BoolP("json", "j", false, "Output as JSON")
+	listCmd.Flags().BoolP("json", "j", false, "Output as JSON")
 
 	daemonCmd.AddCommand(daemonStartCmd)
 	daemonCmd.AddCommand(daemonStopCmd)
@@ -76,6 +77,7 @@ func init() {
 	createCmd.Flags().StringP("priority", "p", "", "Task priority (low, medium, high, urgent)")
 	createCmd.Flags().StringP("branch", "b", "", "Custom branch name template")
 	createCmd.Flags().StringP("workflow", "w", "", "Workflow to use")
+	createCmd.Flags().StringP("title", "t", "", "Skip AI title generation; use this title directly")
 	createCmd.Flags().Bool("no-worktree", false, "Run task in current directory without creating a worktree")
 	createCmd.Flags().String("target", "", "Target branch to branch from and merge into (overrides git.base_branch)")
 	createCmd.Flags().String("checkout", "", "Check out an existing branch instead of creating a new one")
@@ -101,6 +103,11 @@ func init() {
 	rootCmd.AddCommand(detachCmd)
 	rootCmd.AddCommand(attachBranchCmd)
 	rootCmd.AddCommand(validateCmd)
+
+	dependsOnCmd.AddCommand(dependsOnAddCmd)
+	dependsOnCmd.AddCommand(dependsOnRmCmd)
+	dependsOnCmd.AddCommand(dependsOnListCmd)
+	rootCmd.AddCommand(dependsOnCmd)
 }
 
 func main() {

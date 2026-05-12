@@ -17,6 +17,20 @@ import (
 	"github.com/aface/sortie/internal/tmux"
 )
 
+// buildTmuxClaudeCmd returns the claude command-line fragment used inside the
+// generated tmux wrapper script. The binary path is shell-quoted via %q so paths
+// with spaces don't break the script.
+func buildTmuxClaudeCmd(claudeBin string, yolo bool) string {
+	if claudeBin == "" {
+		claudeBin = "claude"
+	}
+	cmd := fmt.Sprintf("%q", claudeBin)
+	if yolo {
+		cmd += " --dangerously-skip-permissions"
+	}
+	return cmd
+}
+
 func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, string, string, error) {
 	proc := claude.NewProcess(fmt.Sprintf("%d", t.ID), t.WorktreePath, &e.cfg.Claude)
 
@@ -189,11 +203,9 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 		envExports.WriteString(fmt.Sprintf("export %s=%q\n", k, v))
 	}
 
-	// Write wrapper script: run Claude interactively, then drop to bash for inspection
-	claudeCmd := "claude"
-	if e.cfg.Claude.Yolo {
-		claudeCmd += " --dangerously-skip-permissions"
-	}
+	// Write wrapper script: run Claude interactively, then drop to bash for inspection.
+	// Honor cfg.Claude.Command so e2e tests / custom installs route through a stub.
+	claudeCmd := buildTmuxClaudeCmd(e.cfg.Claude.Command, e.cfg.Claude.Yolo)
 	if len(systemPrompt) > 0 && systemPrompt[0] != "" {
 		// Write system prompt to file to avoid shell quoting issues
 		sysPromptFile := filepath.Join(sortieDir, fmt.Sprintf("step-sysprompt-%s.txt", step.Name))

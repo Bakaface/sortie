@@ -203,6 +203,7 @@ func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFil
 		"SORTIE_TASK_ID":  fmt.Sprintf("%d", t.ID),
 		"SORTIE_STEP":     step.Name,
 		"SORTIE_WORKTREE": t.WorktreePath,
+		"SORTIE_PURPOSE":  "merge_conflict",
 	}
 
 	exitCode, _, _, outputTail, err := e.runClaudeStep(ctx, t, step, prompt, env, outputFn, conflictSysPrompt)
