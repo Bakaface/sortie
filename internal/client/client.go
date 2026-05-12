@@ -261,7 +261,7 @@ func (c *Client) Subscribe() error {
 }
 
 func (c *Client) Unsubscribe() error {
-	return c.send(daemon.MsgUnsubscribe, nil)
+	return c.requestOK(daemon.MsgUnsubscribe, nil)
 }
 
 func (c *Client) GetOutput(agentID string, fromLine int) ([]string, int, error) {

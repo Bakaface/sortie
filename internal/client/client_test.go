@@ -262,6 +262,56 @@ func TestSend_FireAndForget(t *testing.T) {
 	}
 }
 
+func TestUnsubscribe_DoesNotPoisonNextRequest(t *testing.T) {
+	// Regression: Unsubscribe used to be fire-and-forget, but the daemon always
+	// replies with MsgOK. The orphaned OK sat in respChan and ambushed the next
+	// caller's response, decoding into the wrong type (e.g. zero TaskInfo).
+	listener, err := net.Listen("unix", shortSocketPath(t))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	go mockServer(t, listener, func(msg *daemon.Message) *daemon.Message {
+		switch msg.Type {
+		case daemon.MsgUnsubscribe:
+			resp, _ := daemon.NewMessage(daemon.MsgOK, daemon.OKResponse{Message: "unsubscribed"})
+			return resp
+		case daemon.MsgGetTask:
+			resp, _ := daemon.NewMessage(daemon.MsgGetTask, daemon.GetTaskResponse{Task: daemon.TaskInfo{ID: 99, Title: "real"}})
+			return resp
+		}
+		resp, _ := daemon.NewMessage(daemon.MsgError, daemon.ErrorResponse{Message: "unknown"})
+		return resp
+	})
+
+	conn, err := net.Dial("unix", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	c := &Client{
+		conn:     conn,
+		respChan: make(chan *daemon.Message, 100),
+		subChan:  make(chan *daemon.Message, 100),
+		errChan:  make(chan error, 1),
+		done:     make(chan struct{}),
+	}
+	go c.readLoop()
+	defer c.Close()
+
+	if err := c.Unsubscribe(); err != nil {
+		t.Fatalf("Unsubscribe: %v", err)
+	}
+
+	task, err := c.GetTask(99)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if task.ID != 99 || task.Title != "real" {
+		t.Errorf("GetTask returned wrong/zero data after Unsubscribe: %+v", task)
+	}
+}
+
 func TestContinueTaskRequest_JSONEncoding(t *testing.T) {
 	req := daemon.ContinueTaskRequest{TaskID: 42}
 	data, err := json.Marshal(req)
