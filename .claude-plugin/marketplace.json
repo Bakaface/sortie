@@ -1,0 +1,13 @@
+{
+  "name": "sortie-local",
+  "description": "Local marketplace for the Sortie Claude Code plugin",
+  "owner": {
+    "name": "Bakaface"
+  },
+  "plugins": [
+    {
+      "name": "sortie",
+      "source": "./claude-code-plugin"
+    }
+  ]
+}
