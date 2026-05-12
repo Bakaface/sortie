@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -61,6 +62,8 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	shutdownOnce sync.Once
 }
 
 func NewServer(cfg *config.Config, database *db.DB) *Server {
@@ -239,6 +242,9 @@ func (s *Server) acceptLoop() {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			select {
 			case <-s.ctx.Done():
 				return
@@ -445,6 +451,10 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 }
 
 func (s *Server) Shutdown() {
+	s.shutdownOnce.Do(s.shutdown)
+}
+
+func (s *Server) shutdown() {
 	log.Println("Shutting down daemon...")
 
 	if s.listener != nil {
