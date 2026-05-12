@@ -458,6 +458,20 @@ func (c *Client) UpdateStepContext(taskID int64, stepName, context string) error
 	})
 }
 
+// ListWorkflows returns the workflows configured for the project rooted at
+// projectPath, grouped by kind (tasks, one-off, init).
+func (c *Client) ListWorkflows(projectPath string) (*daemon.ListWorkflowsResponse, error) {
+	msg, err := c.request(daemon.MsgListWorkflows, daemon.ListWorkflowsRequest{ProjectPath: projectPath})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.ListWorkflowsResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func ParseAgentUpdate(msg *daemon.Message) (*daemon.AgentInfo, error) {
 	if msg.Type != daemon.MsgAgentUpdate {
 		return nil, fmt.Errorf("not an agent update message")
