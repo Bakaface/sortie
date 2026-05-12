@@ -200,10 +200,33 @@ This lists every YAML field name the binary will accept. Cross-reference unknown
 - The file goes at the project root as `.sortie.yml`
 - For one-off and init workflows, the `description` field is used as the task description
 
+## Validating a config
+
+After **every** write or edit to a `.sortie.yml`, validate it with the built-in CLI:
+
+```bash
+sortie validate           # validates ./.sortie.yml
+sortie validate path/to/.sortie.yml   # validates an explicit file
+```
+
+`sortie validate` runs the same checks the daemon performs at load time, plus a few that the runtime silently tolerates:
+
+- YAML syntax errors
+- **Unknown top-level fields** (catches typos like `worktree_sync_paths` for `worktree-sync-paths`)
+- Workflow loop validity (forward `goto`, self-reference, missing target step, `max_iterations < 1`, overlapping ranges, `human`/`tmux` on a loop step)
+- Invalid `summarization_strategy` values
+- Invalid `git.on_complete` (must be `commit`, `merge`, or `none`)
+- Invalid `default_priority` (must be `low`, `medium`, `high`, or `urgent`)
+- Invalid `tmux_nested_attach_behavior` (must be `switch` or `nest`)
+- Duplicate workflow names within a category and duplicate step names within a workflow
+
+Exit code is `0` on success and non-zero on the first error. Run it before reporting completion — never declare a config "done" until `sortie validate` exits cleanly.
+
 ## Output Instructions
 
 When generating a `.sortie.yml`:
 1. Ask what kind of workflows the user needs (or infer from context)
 2. Generate a complete, valid YAML file
 3. Write it to `.sortie.yml` in the project root
-4. Explain the key choices made
+4. **Run `sortie validate`** and fix any reported errors before finishing
+5. Explain the key choices made
