@@ -169,7 +169,7 @@ func TestMCP_ListsToolsAdvertisedToClients(t *testing.T) {
 	for _, tool := range resp.Tools {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"sortie_create_task", "sortie_list_workflows", "sortie_get_task"} {
+	for _, want := range []string{"create_task", "list_workflows", "get_task"} {
 		if !got[want] {
 			t.Errorf("tool %q not advertised; got %v", want, got)
 		}
@@ -209,7 +209,7 @@ func TestMCP_ListWorkflows_FromExplicitProjectPath(t *testing.T) {
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name:      "sortie_list_workflows",
+			Name:      "list_workflows",
 			Arguments: map[string]any{"project_path": "/tmp/some-repo"},
 		},
 	})
@@ -258,7 +258,7 @@ func TestMCP_CreateTask_PassesAllFields(t *testing.T) {
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "sortie_create_task",
+			Name: "create_task",
 			Arguments: map[string]any{
 				"description":   "Implement the login page",
 				"project_path":  "/tmp/proj",
@@ -340,7 +340,7 @@ func TestMCP_CreateTask_RejectsCwdOutsideRepo(t *testing.T) {
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name:      "sortie_create_task",
+			Name:      "create_task",
 			Arguments: map[string]any{"description": "hello"},
 		},
 	})
@@ -391,7 +391,7 @@ func TestMCP_GetTask_AggregatesSections(t *testing.T) {
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name: "sortie_get_task",
+			Name: "get_task",
 			Arguments: map[string]any{
 				"task_id":               99,
 				"include_steps":         true,
@@ -447,7 +447,7 @@ func TestMCP_GetTask_OmitsSectionsWhenNotRequested(t *testing.T) {
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name:      "sortie_get_task",
+			Name:      "get_task",
 			Arguments: map[string]any{"task_id": 1},
 		},
 	})
@@ -475,7 +475,7 @@ func TestMCP_GetTask_RejectsInvalidID(t *testing.T) {
 
 	res, err := c.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
-			Name:      "sortie_get_task",
+			Name:      "get_task",
 			Arguments: map[string]any{"task_id": 0},
 		},
 	})

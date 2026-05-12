@@ -8,15 +8,15 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// ListWorkflowsArgs is the typed input schema for sortie_list_workflows.
+// ListWorkflowsArgs is the typed input schema for list_workflows.
 type ListWorkflowsArgs struct {
 	ProjectPath string `json:"project_path,omitempty" jsonschema:"Absolute path to the project repo root. Defaults to the git toplevel of the MCP process's cwd."`
 }
 
 func registerListWorkflows(s *server.MCPServer, c *client.Client) {
 	tool := mcp.NewTool(
-		"sortie_list_workflows",
-		mcp.WithDescription("List the workflows configured for a sortie project. Returns three groups: 'tasks' (used by sortie_create_task), 'one_off' (run-menu shortcuts), and 'init' (project bootstrap). Each entry includes name, description, first_step_is_tmux, and a step summary."),
+		"list_workflows",
+		mcp.WithDescription("List the workflows configured for a sortie project. Returns three groups: 'tasks' (used by create_task), 'one_off' (run-menu shortcuts), and 'init' (project bootstrap). Each entry includes name, description, first_step_is_tmux, and a step summary."),
 		mcp.WithInputSchema[ListWorkflowsArgs](),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(_ context.Context, _ mcp.CallToolRequest, args ListWorkflowsArgs) (*mcp.CallToolResult, error) {

@@ -11,7 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// CreateTaskArgs is the typed input schema for sortie_create_task. JSON tags
+// CreateTaskArgs is the typed input schema for create_task. JSON tags
 // drive the MCP tool's input schema generation; jsonschema tags become field
 // descriptions in the schema visible to the LLM.
 type CreateTaskArgs struct {
@@ -37,8 +37,8 @@ const readyTimeout = 45 * time.Second
 
 func registerCreateTask(s *server.MCPServer, c *client.Client) {
 	tool := mcp.NewTool(
-		"sortie_create_task",
-		mcp.WithDescription("Create a new sortie task. The task is queued; the daemon will assign an agent when capacity allows. Returns the created TaskInfo as JSON. Use sortie_list_workflows first if you need to choose a workflow."),
+		"create_task",
+		mcp.WithDescription("Create a new sortie task. The task is queued; the daemon will assign an agent when capacity allows. Returns the created TaskInfo as JSON. Use list_workflows first if you need to choose a workflow."),
 		mcp.WithInputSchema[CreateTaskArgs](),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(ctx context.Context, _ mcp.CallToolRequest, args CreateTaskArgs) (*mcp.CallToolResult, error) {

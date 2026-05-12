@@ -10,7 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
-// GetTaskArgs is the typed input schema for sortie_get_task.
+// GetTaskArgs is the typed input schema for get_task.
 type GetTaskArgs struct {
 	TaskID              int64 `json:"task_id" jsonschema:"Task ID to look up. Required."`
 	IncludeSteps        bool  `json:"include_steps,omitempty" jsonschema:"Include per-step status (pending/running/completed) in workflow order."`
@@ -18,7 +18,7 @@ type GetTaskArgs struct {
 	TailOutput          int   `json:"tail_output,omitempty" jsonschema:"Return the last N lines of agent output. 0 omits output entirely. Live agent buffer is preferred; falls back to on-disk step logs."`
 }
 
-// GetTaskResult is the aggregated payload returned by sortie_get_task. Optional
+// GetTaskResult is the aggregated payload returned by get_task. Optional
 // sections stay nil when the caller doesn't ask for them so the response stays
 // compact.
 type GetTaskResult struct {
@@ -36,7 +36,7 @@ type taskOutput struct {
 
 func registerGetTask(s *server.MCPServer, c *client.Client) {
 	tool := mcp.NewTool(
-		"sortie_get_task",
+		"get_task",
 		mcp.WithDescription("Get detailed information about a sortie task: its TaskInfo (status, branch, current step, etc.), and optionally per-step state, captured step contexts, and recent agent output. Use include_* flags to opt into extra sections."),
 		mcp.WithInputSchema[GetTaskArgs](),
 	)

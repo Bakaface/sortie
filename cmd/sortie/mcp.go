@@ -15,14 +15,14 @@ The server speaks MCP over stdin/stdout, so it should be launched by the
 client — typically by adding it to the client's MCP server configuration.
 
 Exposed tools:
-  sortie_create_task    Create a task in the project rooted at cwd (or an
-                        explicit project_path). Supports workflow choice,
-                        branch templates, dependencies, and tmux mode.
-  sortie_list_workflows List the workflows configured for a project,
-                        grouped by kind (tasks / one-off / init).
-  sortie_get_task       Fetch a task's status, current step, optional
-                        per-step state, captured step contexts, and
-                        recent agent output.
+  create_task    Create a task in the project rooted at cwd (or an
+                 explicit project_path). Supports workflow choice,
+                 branch templates, dependencies, and tmux mode.
+  list_workflows List the workflows configured for a project,
+                 grouped by kind (tasks / one-off / init).
+  get_task       Fetch a task's status, current step, optional
+                 per-step state, captured step contexts, and
+                 recent agent output.
 
 The server requires a running sortie daemon — it does not start one. Run
 'sortie daemon start' first.`,
