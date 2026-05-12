@@ -125,6 +125,10 @@ Workflows are organized into three categories under `workflows:`:
 
 By default, the agent's final output becomes the step's context. Set `summarization_strategy: summarize_chat` to instead summarize the entire transcript via a second Claude call using `summarization_prompt`. Inside `summarization_prompt`, the variable `{{chat}}` expands to the full transcript. This is essential for tmux/grilling steps where the meaningful output is the conversation, not a final message.
 
+### Prompt formatting
+
+Prompt fields (`prompt`, `summarization_prompt`, `summarizer_prompt`, `system_prompt`) are LLM input, not human reading. Do not hard-wrap prose at ~80 columns — block scalars (`|`) preserve every newline as a token. Keep only the structural newlines: blank lines between paragraphs, one line per list item (continuation text stays on the item line), code fences verbatim. Reflow on contact when editing existing prompts.
+
 ## Template Variables
 
 **Step prompts** (`prompt:`) and **summarizer prompts** (`summarizer_prompt:`):
