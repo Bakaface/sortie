@@ -283,17 +283,31 @@ func (l *listView) tasksChanged(old, new []daemon.TaskInfo) bool {
 	return false
 }
 
-// filterTasks returns tasks filtered according to display settings.
+// filterTasks returns tasks filtered according to display settings,
+// with tmux tasks prioritized at the top of the list.
 func (l *listView) filterTasks(tasks []daemon.TaskInfo) []daemon.TaskInfo {
+	var filtered []daemon.TaskInfo
 	if l.showFinished {
-		return tasks
-	}
-	filtered := make([]daemon.TaskInfo, 0, len(tasks))
-	for _, t := range tasks {
-		if t.Status != "completed" && t.Status != "failed" {
-			filtered = append(filtered, t)
+		filtered = make([]daemon.TaskInfo, len(tasks))
+		copy(filtered, tasks)
+	} else {
+		filtered = make([]daemon.TaskInfo, 0, len(tasks))
+		for _, t := range tasks {
+			if t.Status != "completed" && t.Status != "failed" {
+				filtered = append(filtered, t)
+			}
 		}
 	}
+	// Stable sort to preserve incoming order (ID desc) within each group,
+	// while floating tmux tasks to the top.
+	sort.SliceStable(filtered, func(i, j int) bool {
+		iTmux := filtered[i].Status == "tmux"
+		jTmux := filtered[j].Status == "tmux"
+		if iTmux != jTmux {
+			return iTmux
+		}
+		return false
+	})
 	return filtered
 }
 

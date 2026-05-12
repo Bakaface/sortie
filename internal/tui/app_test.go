@@ -153,6 +153,29 @@ func TestListView_DetachedOmitsTmuxActivity(t *testing.T) {
 	}
 }
 
+func TestListView_TmuxTasksFloatToTop(t *testing.T) {
+	l := newListView(false, "")
+	l.SetTasks([]daemon.TaskInfo{
+		{ID: 5, Title: "Newest running", Status: "running"},
+		{ID: 4, Title: "Older tmux", Status: "tmux"},
+		{ID: 3, Title: "Pending", Status: "pending"},
+		{ID: 2, Title: "Even older tmux", Status: "tmux"},
+		{ID: 1, Title: "Oldest running", Status: "running"},
+	})
+
+	// Tmux tasks first (preserving ID-desc order within the group),
+	// then everything else (preserving ID-desc order within that group).
+	wantIDs := []int64{4, 2, 5, 3, 1}
+	if len(l.tasks) != len(wantIDs) {
+		t.Fatalf("expected %d tasks, got %d", len(wantIDs), len(l.tasks))
+	}
+	for i, want := range wantIDs {
+		if l.tasks[i].ID != want {
+			t.Errorf("position %d: expected task ID %d, got %d", i, want, l.tasks[i].ID)
+		}
+	}
+}
+
 func TestListView_NotDetachedShowsTmuxActivity(t *testing.T) {
 	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
