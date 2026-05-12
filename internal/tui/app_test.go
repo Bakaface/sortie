@@ -1936,8 +1936,15 @@ func TestHandleListKey_OAMultipleArtifactsShowsSelection(t *testing.T) {
 	}
 
 	// Simulate receiving step contexts from daemon (multiple steps)
-	contexts := map[string]string{"implement": "impl content", "review": "review content"}
-	msg := stepContextsLoadedMsg{taskID: 1, contexts: contexts, action: "view"}
+	now := time.Now()
+	msg := taskStepsLoadedMsg{
+		taskID: 1,
+		steps: []daemon.TaskStepDetail{
+			{Name: "implement", Status: stepStatusCompleted, Context: "impl content", CompletedAt: &now},
+			{Name: "review", Status: stepStatusCompleted, Context: "review content", CompletedAt: &now},
+		},
+		action: "view",
+	}
 	result2, _ := updated.Update(msg)
 	updated2 := result2.(Model)
 

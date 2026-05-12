@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aface/sortie/internal/client"
 	"github.com/aface/sortie/internal/config"
@@ -673,10 +674,10 @@ func TestHandleArtifactSelectKey_Navigation(t *testing.T) {
 			items:  []string{"implement", "review", "test"},
 			action: "view",
 		},
-		stepContexts: map[string]string{
-			"implement": "implement content",
-			"review":    "review content",
-			"test":      "test content",
+		taskSteps: []daemon.TaskStepDetail{
+			{Name: "implement", Status: stepStatusCompleted, Context: "implement content"},
+			{Name: "review", Status: stepStatusCompleted, Context: "review content"},
+			{Name: "test", Status: stepStatusCompleted, Context: "test content"},
 		},
 	}
 
@@ -846,7 +847,7 @@ func TestArtifactViewState_View(t *testing.T) {
 	}
 }
 
-func TestStepContextsLoadedMsg_SwitchesToArtifactView(t *testing.T) {
+func TestTaskStepsLoadedMsg_SwitchesToArtifactView(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
 		list: newListView(false, ""),
@@ -854,10 +855,13 @@ func TestStepContextsLoadedMsg_SwitchesToArtifactView(t *testing.T) {
 	}
 	m.artifactView.SetSize(80, 24)
 
-	msg := stepContextsLoadedMsg{
-		taskID:   1,
-		contexts: map[string]string{"implement": "test content"},
-		action:   "view",
+	now := time.Now()
+	msg := taskStepsLoadedMsg{
+		taskID: 1,
+		steps: []daemon.TaskStepDetail{
+			{Name: "implement", Status: stepStatusCompleted, Context: "test content", CompletedAt: &now},
+		},
+		action: "view",
 	}
 	result, _ := m.Update(msg)
 	updated := result.(Model)
@@ -867,8 +871,8 @@ func TestStepContextsLoadedMsg_SwitchesToArtifactView(t *testing.T) {
 	}
 }
 
-func TestStepContextsLoadedMsg_SingleContextShowsDirectly(t *testing.T) {
-	// When only one step context is returned, it should be shown directly without selection
+func TestTaskStepsLoadedMsg_SingleStepShowsDirectly(t *testing.T) {
+	// When only one actionable step is returned, it should be shown directly without selection
 	m := Model{
 		keys: newKeyMap(),
 		list: newListView(false, ""),
@@ -876,16 +880,20 @@ func TestStepContextsLoadedMsg_SingleContextShowsDirectly(t *testing.T) {
 	}
 	m.artifactView.SetSize(80, 24)
 
-	msg := stepContextsLoadedMsg{
-		taskID:   1,
-		contexts: map[string]string{"implement": "step output"},
-		action:   "view",
+	now := time.Now()
+	msg := taskStepsLoadedMsg{
+		taskID: 1,
+		steps: []daemon.TaskStepDetail{
+			{Name: "implement", Status: stepStatusCompleted, Context: "step output", CompletedAt: &now},
+			{Name: "review", Status: stepStatusPending},
+		},
+		action: "view",
 	}
 	result, _ := m.Update(msg)
 	updated := result.(Model)
 
-	if updated.selector.kind == selectorArtifact {
-		t.Error("expected selector kind not to be selectorArtifact for single context")
+	if updated.selector.kind == selectorArtifact && len(updated.selector.items) > 0 {
+		t.Error("expected selector to be empty for single actionable step")
 	}
 	if updated.view != viewArtifact {
 		t.Errorf("expected view to be viewArtifact, got %d", updated.view)

@@ -117,6 +117,42 @@ func (db *DB) GetAllTaskStepContexts(taskID int64) (map[string]string, error) {
 	return result, rows.Err()
 }
 
+// TaskStepRow is the full state of a step persisted in task_steps.
+type TaskStepRow struct {
+	StepName    string
+	Status      string
+	Context     string
+	CompletedAt sql.NullTime
+}
+
+// GetTaskStepRows returns every persisted row for a task, keyed by step_name.
+// Includes running and completed steps; the caller is expected to overlay
+// these onto the workflow's configured step list.
+func (db *DB) GetTaskStepRows(taskID int64) (map[string]TaskStepRow, error) {
+	rows, err := db.Query(
+		`SELECT step_name, status, context, completed_at FROM task_steps WHERE task_id = ?`,
+		taskID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]TaskStepRow)
+	for rows.Next() {
+		var r TaskStepRow
+		var ctx sql.NullString
+		if err := rows.Scan(&r.StepName, &r.Status, &ctx, &r.CompletedAt); err != nil {
+			return nil, err
+		}
+		if ctx.Valid {
+			r.Context = ctx.String
+		}
+		result[r.StepName] = r
+	}
+	return result, rows.Err()
+}
+
 // DeleteTaskSteps deletes all step records for a task (used on full retry/reset).
 func (db *DB) DeleteTaskSteps(taskID int64) error {
 	_, err := db.Exec(`DELETE FROM task_steps WHERE task_id = ?`, taskID)

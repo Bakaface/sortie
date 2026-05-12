@@ -435,6 +435,29 @@ func (c *Client) GetStepContexts(taskID int64) (map[string]string, error) {
 	return result.Steps, nil
 }
 
+// GetTaskSteps fetches the full per-step state for a task, in workflow config
+// order. Includes steps that have not started yet (Status == "pending").
+func (c *Client) GetTaskSteps(taskID int64) ([]daemon.TaskStepDetail, error) {
+	msg, err := c.request(daemon.MsgGetTaskSteps, daemon.GetTaskStepsRequest{TaskID: taskID})
+	if err != nil {
+		return nil, err
+	}
+	var result daemon.GetTaskStepsResponse
+	if err := msg.DecodePayload(&result); err != nil {
+		return nil, err
+	}
+	return result.Steps, nil
+}
+
+// UpdateStepContext overwrites the captured context for a completed step.
+func (c *Client) UpdateStepContext(taskID int64, stepName, context string) error {
+	return c.requestOK(daemon.MsgUpdateStepContext, daemon.UpdateStepContextRequest{
+		TaskID:   taskID,
+		StepName: stepName,
+		Context:  context,
+	})
+}
+
 func ParseAgentUpdate(msg *daemon.Message) (*daemon.AgentInfo, error) {
 	if msg.Type != daemon.MsgAgentUpdate {
 		return nil, fmt.Errorf("not an agent update message")

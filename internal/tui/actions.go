@@ -339,6 +339,63 @@ func (m Model) openEditorForPrompt() tea.Cmd {
 	})
 }
 
+// openEditorForStepContext launches $EDITOR with the current step context
+// written to a temporary file. On editor exit the file contents are pushed
+// back to the daemon via UpdateStepContext.
+func (m Model) openEditorForStepContext(taskID int64, stepName, currentValue string) tea.Cmd {
+	safeStep := strings.NewReplacer("/", "-", " ", "_").Replace(stepName)
+	f, err := os.CreateTemp("", fmt.Sprintf("sortie-step-%s-*.md", safeStep))
+	if err != nil {
+		return func() tea.Msg { return errorMsg(fmt.Errorf("failed to create temp file: %w", err)) }
+	}
+
+	if currentValue != "" {
+		if _, err := f.WriteString(currentValue); err != nil {
+			f.Close()
+			os.Remove(f.Name())
+			return func() tea.Msg { return errorMsg(fmt.Errorf("failed to write temp file: %w", err)) }
+		}
+	}
+	f.Close()
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+
+	path := f.Name()
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		if err != nil {
+			os.Remove(path)
+			return errorMsg(fmt.Errorf("editor exited with error: %w", err))
+		}
+		return editorStepContextFinishedMsg{taskID: taskID, stepName: stepName, path: path}
+	})
+}
+
+func (m Model) handleStepContextEditorResult(msg editorStepContextFinishedMsg) tea.Cmd {
+	return func() tea.Msg {
+		defer os.Remove(msg.path)
+
+		data, err := os.ReadFile(msg.path)
+		if err != nil {
+			return errorMsg(fmt.Errorf("failed to read temp file: %w", err))
+		}
+
+		value := string(data)
+		if m.client == nil {
+			return nil
+		}
+
+		if err := m.client.UpdateStepContext(msg.taskID, msg.stepName, value); err != nil {
+			return errorMsg(fmt.Errorf("failed to update step context: %w", err))
+		}
+
+		return stepContextUpdatedMsg{taskID: msg.taskID, stepName: msg.stepName, context: value}
+	}
+}
+
 func (m Model) openEditorForField(taskID int64, field, currentValue string) tea.Cmd {
 	f, err := os.CreateTemp("", fmt.Sprintf("sortie-%s-*.md", field))
 	if err != nil {
