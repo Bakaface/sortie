@@ -141,7 +141,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Yolo); err != nil {
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Yolo, ""); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to write wrapper script: %v", err))
 		return
 	}
@@ -448,7 +448,7 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Yolo); err != nil {
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Yolo, ""); err != nil {
 		log.Printf("%sFailed to write claude script for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
 		return
 	}
@@ -584,11 +584,23 @@ func dirExists(path string) bool {
 }
 
 // writeClaudeScript writes a bash wrapper script that runs claude and drops to a shell.
-func writeClaudeScript(scriptPath string, yolo bool) error {
-	claudeCmd := "claude"
-	if yolo {
-		claudeCmd = "claude --dangerously-skip-permissions"
-	}
-	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", claudeCmd)
+// If resumeSessionID is non-empty, the script invokes `claude --resume <id>` to
+// restore a previous chat session.
+func writeClaudeScript(scriptPath string, yolo bool, resumeSessionID string) error {
+	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", buildClaudeCommand(yolo, resumeSessionID))
 	return os.WriteFile(scriptPath, []byte(script), 0755)
+}
+
+// buildClaudeCommand assembles the `claude` CLI invocation with the appropriate
+// flags. If resumeSessionID is non-empty, `--resume <id>` is appended so the
+// chat is automatically restored.
+func buildClaudeCommand(yolo bool, resumeSessionID string) string {
+	cmd := "claude"
+	if yolo {
+		cmd += " --dangerously-skip-permissions"
+	}
+	if resumeSessionID != "" {
+		cmd += " --resume " + resumeSessionID
+	}
+	return cmd
 }
