@@ -19,6 +19,7 @@ var noProjectRequired = map[string]bool{
 	"start":            true,
 	"stop":             true,
 	"status":           true,
+	"validate":         true,
 }
 
 var rootCmd = &cobra.Command{
@@ -31,6 +32,11 @@ dedicated git worktrees, and provides real-time monitoring via TUI.`,
 		var err error
 		cfg, err = config.Load()
 		if err != nil {
+			// The validate command surfaces config errors itself, so don't
+			// bubble them up generically here.
+			if cmd.Name() == "validate" {
+				return nil
+			}
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 
@@ -96,6 +102,7 @@ func init() {
 	rootCmd.AddCommand(deleteCmd)
 	rootCmd.AddCommand(detachCmd)
 	rootCmd.AddCommand(attachBranchCmd)
+	rootCmd.AddCommand(validateCmd)
 
 	dependsOnCmd.AddCommand(dependsOnAddCmd)
 	dependsOnCmd.AddCommand(dependsOnRmCmd)

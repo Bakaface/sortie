@@ -167,10 +167,13 @@ func (s *Server) recoverOrphanedTasks() error {
 	if len(tmuxTasksToRestore) > 0 && tmux.IsAvailable() {
 		for _, t := range tmuxTasksToRestore {
 			prefix := s.projectLogPrefix(t.ProjectID)
-			if err := s.restoreTmuxSession(t); err != nil {
+			resumed, err := s.restoreTmuxSession(t)
+			if err != nil {
 				log.Printf("%sFailed to restore tmux session for task #%d: %v", prefix, t.ID, err)
+			} else if resumed {
+				log.Printf("%sRestored tmux session for task #%d (auto-resumed previous Claude chat)", prefix, t.ID)
 			} else {
-				log.Printf("%sRestored tmux session for task #%d (use /resume in claude to restore chat)", prefix, t.ID)
+				log.Printf("%sRestored tmux session for task #%d (no prior chat found; started fresh — use /resume to restore manually)", prefix, t.ID)
 			}
 		}
 	}
@@ -179,11 +182,14 @@ func (s *Server) recoverOrphanedTasks() error {
 }
 
 // restoreTmuxSession recreates a tmux session for a task whose session was
-// lost during a daemon restart. It spawns an empty Claude Code session in
-// the task's worktree — the user can restore their previous chat via /resume.
-func (s *Server) restoreTmuxSession(t *task.Task) error {
+// lost during a daemon restart. If a previous Claude chat session ID is
+// recorded for the task in the chats table, the spawned Claude process is
+// invoked with `--resume <id>` so the chat is automatically restored.
+// Returns (resumed, error) where resumed indicates whether a prior session
+// was found and resumed.
+func (s *Server) restoreTmuxSession(t *task.Task) (bool, error) {
 	if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
-		return fmt.Errorf("worktree path does not exist: %s", t.WorktreePath)
+		return false, fmt.Errorf("worktree path does not exist: %s", t.WorktreePath)
 	}
 
 	taskID := fmt.Sprintf("%d", t.ID)
@@ -198,12 +204,22 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 
 	if session.Exists() {
 		log.Printf("%sTmux session already exists for task #%d, skipping restore", s.projectLogPrefix(t.ProjectID), t.ID)
-		return nil
+		return false, nil
+	}
+
+	// Look up the most recent Claude chat session for this task so we can
+	// auto-resume it. Failures here are non-fatal: we fall back to a fresh
+	// `claude` invocation, matching the pre-resume behavior.
+	var resumeSessionID string
+	if chat, err := s.database.GetLatestChat(t.ID); err != nil {
+		log.Printf("%sWarning: failed to look up chat for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+	} else if chat != nil {
+		resumeSessionID = chat.SessionID
 	}
 
 	sortieDir := filepath.Join(t.WorktreePath, ".sortie")
 	if err := os.MkdirAll(sortieDir, 0755); err != nil {
-		return fmt.Errorf("failed to create sortie dir: %w", err)
+		return false, fmt.Errorf("failed to create sortie dir: %w", err)
 	}
 
 	yolo := pc != nil && pc.cfg.Claude.Yolo
@@ -212,8 +228,8 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 		claudeBin = pc.cfg.Claude.Command
 	}
 	scriptFile := filepath.Join(sortieDir, "run-restore.sh")
-	if err := writeClaudeScript(scriptFile, claudeBin, yolo); err != nil {
-		return fmt.Errorf("failed to write wrapper script: %w", err)
+	if err := writeClaudeScript(scriptFile, claudeBin, yolo, resumeSessionID); err != nil {
+		return false, fmt.Errorf("failed to write wrapper script: %w", err)
 	}
 
 	var setupCmd string
@@ -223,22 +239,18 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 
 	if tmux.SetupCommandControlsAgent(setupCmd) {
 		if err := session.Create(""); err != nil {
-			return fmt.Errorf("failed to create tmux session: %w", err)
+			return false, fmt.Errorf("failed to create tmux session: %w", err)
 		}
 	} else {
 		if err := session.Create("bash", scriptFile); err != nil {
-			return fmt.Errorf("failed to create tmux session: %w", err)
+			return false, fmt.Errorf("failed to create tmux session: %w", err)
 		}
 	}
 
 	// Run tmux setup command if configured
 	if setupCmd != "" {
-		claudeCmd := "claude"
-		if yolo {
-			claudeCmd += " --dangerously-skip-permissions"
-		}
 		vars := &tmux.SetupVars{
-			ClaudeCommand: claudeCmd,
+			ClaudeCommand: buildClaudeCommand(claudeBin, yolo, resumeSessionID),
 			RunAgent:      scriptFile,
 		}
 		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
@@ -246,5 +258,5 @@ func (s *Server) restoreTmuxSession(t *task.Task) error {
 		}
 	}
 
-	return nil
+	return resumeSessionID != "", nil
 }

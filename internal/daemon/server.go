@@ -3,11 +3,13 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -61,6 +63,8 @@ type Server struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	shutdownOnce sync.Once
 }
 
 func NewServer(cfg *config.Config, database *db.DB) *Server {
@@ -212,8 +216,8 @@ func (s *Server) Start() error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		<-sigChan
-		log.Println("Received shutdown signal")
+		sig := <-sigChan
+		log.Printf("Received signal %q (pid=%d, ppid=%d)", sig, os.Getpid(), os.Getppid())
 		s.Shutdown()
 	}()
 
@@ -226,7 +230,7 @@ func (s *Server) Start() error {
 	s.wg.Add(1)
 	go s.tmuxMonitorLoop()
 
-	log.Printf("Daemon started, listening on %s", s.cfg.Daemon.SocketPath)
+	log.Printf("Daemon started, listening on %s (pid=%d, ppid=%d)", s.cfg.Daemon.SocketPath, os.Getpid(), os.Getppid())
 
 	s.wg.Wait()
 
@@ -239,6 +243,9 @@ func (s *Server) acceptLoop() {
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			select {
 			case <-s.ctx.Done():
 				return
@@ -437,6 +444,10 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		s.handleGetStepContexts(conn, req)
 
 	case MsgShutdown:
+		s.mu.RLock()
+		clientCount := len(s.clients)
+		s.mu.RUnlock()
+		log.Printf("Received MsgShutdown from socket client (conn=%p, total_clients=%d)", conn, clientCount)
 		s.Shutdown()
 
 	default:
@@ -445,7 +456,13 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 }
 
 func (s *Server) Shutdown() {
-	log.Println("Shutting down daemon...")
+	s.shutdownOnce.Do(s.shutdown)
+}
+
+func (s *Server) shutdown() {
+	buf := make([]byte, 8192)
+	n := runtime.Stack(buf, false)
+	log.Printf("Shutting down daemon (pid=%d, ppid=%d)\nshutdown caller goroutine:\n%s", os.Getpid(), os.Getppid(), buf[:n])
 
 	if s.listener != nil {
 		s.listener.Close()

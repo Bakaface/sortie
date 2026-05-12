@@ -141,7 +141,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo); err != nil {
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, ""); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to write wrapper script: %v", err))
 		return
 	}
@@ -161,12 +161,8 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 
 	// Run tmux setup command if configured
 	if setupCmd != "" {
-		claudeCmd := "claude"
-		if pc.cfg.Claude.Yolo {
-			claudeCmd += " --dangerously-skip-permissions"
-		}
 		vars := &tmux.SetupVars{
-			ClaudeCommand: claudeCmd,
+			ClaudeCommand: buildClaudeCommand(pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, ""),
 			RunAgent:      scriptFile,
 		}
 		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
@@ -448,7 +444,7 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo); err != nil {
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, ""); err != nil {
 		log.Printf("%sFailed to write claude script for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
 		return
 	}
@@ -468,12 +464,8 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 
 	// Run tmux setup command if configured
 	if setupCmd != "" {
-		claudeCmd := "claude"
-		if pc.cfg.Claude.Yolo {
-			claudeCmd += " --dangerously-skip-permissions"
-		}
 		vars := &tmux.SetupVars{
-			ClaudeCommand: claudeCmd,
+			ClaudeCommand: buildClaudeCommand(pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, ""),
 			RunAgent:      scriptFile,
 		}
 		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
@@ -585,14 +577,27 @@ func dirExists(path string) bool {
 
 // writeClaudeScript writes a bash wrapper script that runs claude and drops to a shell.
 // claudeBin is the configured Claude binary (cfg.Claude.Command); falls back to "claude".
-func writeClaudeScript(scriptPath string, claudeBin string, yolo bool) error {
+// If resumeSessionID is non-empty, the script invokes `claude --resume <id>` to
+// restore a previous chat session.
+func writeClaudeScript(scriptPath string, claudeBin string, yolo bool, resumeSessionID string) error {
+	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", buildClaudeCommand(claudeBin, yolo, resumeSessionID))
+	return os.WriteFile(scriptPath, []byte(script), 0755)
+}
+
+// buildClaudeCommand assembles the `claude` CLI invocation with the appropriate
+// flags. claudeBin is the configured Claude binary (cfg.Claude.Command); falls
+// back to "claude". If resumeSessionID is non-empty, `--resume <id>` is appended
+// so the chat is automatically restored.
+func buildClaudeCommand(claudeBin string, yolo bool, resumeSessionID string) string {
 	if claudeBin == "" {
 		claudeBin = "claude"
 	}
-	claudeCmd := fmt.Sprintf("%q", claudeBin)
+	cmd := fmt.Sprintf("%q", claudeBin)
 	if yolo {
-		claudeCmd += " --dangerously-skip-permissions"
+		cmd += " --dangerously-skip-permissions"
 	}
-	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", claudeCmd)
-	return os.WriteFile(scriptPath, []byte(script), 0755)
+	if resumeSessionID != "" {
+		cmd += " --resume " + resumeSessionID
+	}
+	return cmd
 }
