@@ -2029,3 +2029,47 @@ func TestWorkflowConfig_FirstStepIsTmux(t *testing.T) {
 		})
 	}
 }
+
+func TestClaudeCommandProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := "claude:\n  command: /tmp/foo\n  default_args: [--flag]\n"
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Claude.Command != "/tmp/foo" {
+		t.Errorf("expected claude.command /tmp/foo, got %q", cfg.Claude.Command)
+	}
+	if len(cfg.Claude.DefaultArgs) != 1 || cfg.Claude.DefaultArgs[0] != "--flag" {
+		t.Errorf("expected claude.default_args [--flag], got %v", cfg.Claude.DefaultArgs)
+	}
+}
+
+func TestClaudeCommandGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "config.yaml")
+
+	yamlContent := "claude:\n  command: /tmp/bar\n  default_args: [--verbose]\n"
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadGlobalConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Claude.Command != "/tmp/bar" {
+		t.Errorf("expected claude.command /tmp/bar, got %q", cfg.Claude.Command)
+	}
+	if len(cfg.Claude.DefaultArgs) != 1 || cfg.Claude.DefaultArgs[0] != "--verbose" {
+		t.Errorf("expected claude.default_args [--verbose], got %v", cfg.Claude.DefaultArgs)
+	}
+}

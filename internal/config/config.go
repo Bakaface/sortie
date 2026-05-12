@@ -166,6 +166,14 @@ func loadGlobalConfig(path string, cfg *Config) error {
 	if global.TmuxNestedAttachBehavior != "" {
 		cfg.TmuxNestedAttachBehavior = global.TmuxNestedAttachBehavior
 	}
+	if global.Claude != nil {
+		if global.Claude.Command != "" {
+			cfg.Claude.Command = global.Claude.Command
+		}
+		if len(global.Claude.DefaultArgs) > 0 {
+			cfg.Claude.DefaultArgs = global.Claude.DefaultArgs
+		}
+	}
 	if global.Options != nil {
 		if global.Options.Number != nil {
 			cfg.Options.Number = global.Options.Number
@@ -229,6 +237,14 @@ func loadProjectConfig(path string, cfg *Config) error {
 	}
 	if proj.Yolo != nil {
 		cfg.Claude.Yolo = *proj.Yolo
+	}
+	if proj.Claude != nil {
+		if proj.Claude.Command != "" {
+			cfg.Claude.Command = proj.Claude.Command
+		}
+		if len(proj.Claude.DefaultArgs) > 0 {
+			cfg.Claude.DefaultArgs = proj.Claude.DefaultArgs
+		}
 	}
 	if proj.Verification != nil {
 		cfg.Verification = *proj.Verification

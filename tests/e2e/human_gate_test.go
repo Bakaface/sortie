@@ -1,0 +1,48 @@
+//go:build e2e
+
+package e2e
+
+import (
+	"fmt"
+	"testing"
+	"time"
+)
+
+func humanApprovalWorkflowYAML(stubPath string) string {
+	return fmt.Sprintf(`claude:
+  command: %s
+poll_interval: 100ms
+git:
+  base_branch: main
+  on_complete: merge
+workflows:
+  tasks:
+    - name: human-approval
+      steps:
+        - name: implementing
+          prompt: "Implement the task"
+        - name: approve
+          human: true
+          prompt: "Human review step"
+`, stubPath)
+}
+
+// TestHumanApprovalPausesAndResumes verifies that a workflow with a human step:
+// 1. Pauses at the human step (status = "awaiting-approval")
+// 2. Resumes after sortie continue <id>
+// 3. Completes successfully
+func TestHumanApprovalPausesAndResumes(t *testing.T) {
+	e := setupE2E(t, "human_gate")
+	e.WriteSortieYAML(humanApprovalWorkflowYAML(e.StubPath))
+
+	e.MustSortie("create", "--title", "human gate task", "human gate task")
+
+	// Should pause at the human step
+	e.WaitStatus(1, "awaiting-approval", 10*time.Second)
+
+	// Resume
+	e.MustSortie("continue", "1")
+
+	// Should complete
+	e.WaitStatus(1, "completed", 10*time.Second)
+}

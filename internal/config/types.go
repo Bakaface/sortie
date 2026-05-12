@@ -74,6 +74,7 @@ type ProjectConfig struct {
 	DefaultPriority          string                  `yaml:"default_priority"`
 	Yolo                     *bool                   `yaml:"yolo,omitempty"`
 	PollInterval             string                  `yaml:"poll_interval,omitempty"`
+	Claude                   *ClaudeConfig           `yaml:"claude,omitempty"`
 	Verification             *VerificationConfig     `yaml:"verification,omitempty"`
 	Git                      GitConfig               `yaml:"git"`
 	Workflows                ProjectWorkflows        `yaml:"workflows"`
@@ -304,6 +305,7 @@ type GlobalConfig struct {
 	MaxWorkers               int                 `yaml:"max_workers"`
 	Yolo                     *bool               `yaml:"yolo,omitempty"`
 	PollInterval             string              `yaml:"poll_interval,omitempty"`
+	Claude                   *ClaudeConfig       `yaml:"claude,omitempty"`
 	Verification             *VerificationConfig `yaml:"verification,omitempty"`
 	Notifications            NotificationsConfig `yaml:"notifications"`
 	TmuxNestedAttachBehavior string              `yaml:"tmux_nested_attach_behavior"`

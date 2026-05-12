@@ -1,0 +1,283 @@
+//go:build e2e
+
+package e2e
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+// sortieBinPath is set by TestMain once after building the binary.
+var sortieBinPath string
+
+// repoRoot is computed once by TestMain.
+var repoRoot string
+
+// Env holds the per-test environment: paths, daemon handle, and the testing.T.
+type Env struct {
+	t            *testing.T
+	ProjectDir   string // isolated git repo for this test
+	XDGDir       string // XDG_CONFIG_HOME for this test
+	ResponsesDir string // $E2E_RESPONSES_DIR — points at testdata/<scenario>/
+	StubLog      string // path to per-test stub invocation log
+	StubPath     string // absolute path to stub-claude.sh
+	daemonCmd    *exec.Cmd
+	daemonLog    string // path to daemon stdout+stderr log
+}
+
+// setupE2E initializes a full Sortie environment for the given scenario name.
+// It starts the daemon, initializes a git repo, and registers cleanup.
+// Tests must call e.WriteSortieYAML before creating any tasks.
+func setupE2E(t *testing.T, scenario string) *Env {
+	t.Helper()
+
+	// macOS unix sockets are limited to 104 bytes (sockaddr_un.sun_path).
+	// t.TempDir paths include the full test name and can exceed the limit, e.g.
+	// /var/folders/.../TestStepFailureAndRetry.../001/sortie/daemon.sock. Use a
+	// short prefix under /tmp instead and register manual cleanup.
+	xdgDir, err := os.MkdirTemp("/tmp", "s")
+	if err != nil {
+		t.Fatalf("mkdir xdg temp: %v", err)
+	}
+	projectDir, err := os.MkdirTemp("/tmp", "p")
+	if err != nil {
+		t.Fatalf("mkdir project temp: %v", err)
+	}
+	t.Cleanup(func() {
+		if t.Failed() && os.Getenv("KEEP_E2E_TMPDIR") != "" {
+			t.Logf("KEEP_E2E_TMPDIR: XDGDir=%s ProjectDir=%s", xdgDir, projectDir)
+			return
+		}
+		_ = os.RemoveAll(xdgDir)
+		_ = os.RemoveAll(projectDir)
+	})
+	stubLog := filepath.Join(xdgDir, "stub.log")
+	responsesDir := filepath.Join(repoRoot, "tests", "e2e", "testdata", scenario)
+	stubPath := filepath.Join(repoRoot, "tests", "e2e", "stub-claude.sh")
+
+	// Propagate test-specific env via t.Setenv (restored on cleanup automatically)
+	t.Setenv("XDG_CONFIG_HOME", xdgDir)
+	t.Setenv("HOME", xdgDir)
+	t.Setenv("E2E_RESPONSES_DIR", responsesDir)
+	t.Setenv("SORTIE_E2E_LOG", stubLog)
+
+	e := &Env{
+		t:            t,
+		ProjectDir:   projectDir,
+		XDGDir:       xdgDir,
+		ResponsesDir: responsesDir,
+		StubLog:      stubLog,
+		StubPath:     stubPath,
+		daemonLog:    filepath.Join(xdgDir, "daemon.log"),
+	}
+
+	// Initialize git repo with an initial commit on main.
+	// The .gitignore excludes .sortie/ (daemon-managed worktree state) so that
+	// git status on the project root remains clean — otherwise the workflow's
+	// merge step refuses to run with "target branch has pending changes".
+	e.mustRun(projectDir, "git", "init", "-b", "main")
+	e.mustRun(projectDir, "git", "config", "user.email", "test@e2e.local")
+	e.mustRun(projectDir, "git", "config", "user.name", "E2E Test")
+	if err := os.WriteFile(filepath.Join(projectDir, ".gitkeep"), nil, 0644); err != nil {
+		t.Fatalf("write .gitkeep: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".gitignore"), []byte(".sortie/\n"), 0644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+	e.mustRun(projectDir, "git", "add", ".gitkeep", ".gitignore")
+	e.mustRun(projectDir, "git", "commit", "-m", "initial")
+
+	// Verify we are on main.
+	out := e.mustRunOut(projectDir, "git", "branch", "--show-current")
+	if strings.TrimSpace(out) != "main" {
+		t.Fatalf("expected git branch main, got %q", strings.TrimSpace(out))
+	}
+
+	// Start daemon and register stop cleanup immediately, so a failed
+	// WaitDaemonReady does not leak the daemon process.
+	e.startDaemon()
+	t.Cleanup(func() {
+		// Attempt graceful stop.
+		stopCmd := exec.Command(sortieBinPath, "daemon", "stop")
+		stopCmd.Env = os.Environ()
+		stopCmd.Dir = projectDir
+		_ = stopCmd.Run()
+
+		// Give 500ms grace, then kill.
+		timer := time.NewTimer(500 * time.Millisecond)
+		done := make(chan struct{})
+		go func() {
+			if e.daemonCmd.Process != nil {
+				_ = e.daemonCmd.Wait()
+			}
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-timer.C:
+			if e.daemonCmd.Process != nil {
+				_ = e.daemonCmd.Process.Kill()
+			}
+		}
+		timer.Stop()
+	})
+
+	// Wait for daemon socket.
+	socketPath := filepath.Join(xdgDir, "sortie", "daemon.sock")
+	e.WaitDaemonReady(socketPath, 5*time.Second)
+
+	return e
+}
+
+func (e *Env) startDaemon() {
+	e.t.Helper()
+	cmd := exec.Command(sortieBinPath, "daemon", "start")
+	cmd.Env = os.Environ()
+	cmd.Dir = e.ProjectDir
+
+	logFile, err := os.Create(e.daemonLog)
+	if err != nil {
+		e.t.Fatalf("create daemon log: %v", err)
+	}
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+
+	if err := cmd.Start(); err != nil {
+		e.t.Fatalf("start daemon: %v", err)
+	}
+	e.daemonCmd = cmd
+}
+
+// WriteSortieYAML writes the given YAML string as .sortie.yml in the project
+// directory and commits it so the working tree remains clean before tasks run.
+func (e *Env) WriteSortieYAML(yaml string) {
+	e.t.Helper()
+	path := filepath.Join(e.ProjectDir, ".sortie.yml")
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		e.t.Fatalf("write .sortie.yml: %v", err)
+	}
+	e.mustRun(e.ProjectDir, "git", "add", ".sortie.yml")
+	e.mustRun(e.ProjectDir, "git", "commit", "-m", "add .sortie.yml")
+}
+
+// SwapResponses writes newSubdir as the active subdir pointer in ResponsesDir.
+// The stub reads this file at each invocation and appends the subdir to the base
+// ResponsesDir path. This allows changing responses without restarting the daemon.
+func (e *Env) SwapResponses(newSubdir string) {
+	e.t.Helper()
+	ptr := filepath.Join(e.ResponsesDir, ".current-subdir")
+	if err := os.WriteFile(ptr, []byte(newSubdir), 0644); err != nil {
+		e.t.Fatalf("SwapResponses: %v", err)
+	}
+}
+
+// Sortie runs the sortie binary with the given args in the project directory.
+// Returns combined stdout+stderr output and any error.
+func (e *Env) Sortie(args ...string) (string, error) {
+	cmd := exec.Command(sortieBinPath, args...)
+	cmd.Env = os.Environ()
+	cmd.Dir = e.ProjectDir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// MustSortie runs sortie and calls t.Fatalf on error.
+func (e *Env) MustSortie(args ...string) string {
+	e.t.Helper()
+	out, err := e.Sortie(args...)
+	if err != nil {
+		e.t.Fatalf("sortie %v: %v\noutput: %s", args, err, out)
+	}
+	return out
+}
+
+// SortieJSON runs sortie with --json appended and decodes JSON output.
+func (e *Env) SortieJSON(args ...string) (map[string]any, error) {
+	argsWithJSON := append(args, "--json")
+	out, err := e.Sortie(argsWithJSON...)
+	if err != nil {
+		return nil, fmt.Errorf("sortie %v: %w\noutput: %s", argsWithJSON, err, out)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		return nil, fmt.Errorf("decode JSON: %w\nraw: %s", err, out)
+	}
+	return m, nil
+}
+
+// TaskStatus returns the status string for the given task ID by calling sortie tasks.
+func (e *Env) TaskStatus(id int64) string {
+	e.t.Helper()
+	m, err := e.SortieJSON("tasks", fmt.Sprintf("%d", id))
+	if err != nil {
+		return ""
+	}
+	s, _ := m["status"].(string)
+	return s
+}
+
+// TaskField returns the named field from sortie tasks <id> --json as a string.
+func (e *Env) TaskField(id int64, key string) string {
+	e.t.Helper()
+	m, err := e.SortieJSON("tasks", fmt.Sprintf("%d", id))
+	if err != nil {
+		return ""
+	}
+	switch v := m[key].(type) {
+	case string:
+		return v
+	case nil:
+		return ""
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+// mustRun runs cmd in dir and calls t.Fatal on failure.
+func (e *Env) mustRun(dir string, name string, args ...string) {
+	e.t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		e.t.Fatalf("run %s %v in %s: %v\n%s", name, args, dir, err, out)
+	}
+}
+
+// mustRunOut runs cmd in dir, returns stdout, and calls t.Fatal on failure.
+func (e *Env) mustRunOut(dir string, name string, args ...string) string {
+	e.t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		e.t.Fatalf("run %s %v in %s: %v\n%s", name, args, dir, err, out)
+	}
+	return string(out)
+}
+
+// KillDaemon sends SIGKILL to the daemon process. Used for orphan-recovery tests.
+func (e *Env) KillDaemon() {
+	e.t.Helper()
+	if e.daemonCmd != nil && e.daemonCmd.Process != nil {
+		if err := e.daemonCmd.Process.Kill(); err != nil {
+			e.t.Logf("KillDaemon: %v", err)
+		}
+	}
+}
+
+// DaemonLogPath returns the path to the daemon's stdout+stderr log.
+func (e *Env) DaemonLogPath() string {
+	return e.daemonLog
+}
+
+// formatElapsed returns a human-readable elapsed duration string for failure messages.
+func formatElapsed(start time.Time) string {
+	return fmt.Sprintf("%.1fs", time.Since(start).Seconds())
+}
