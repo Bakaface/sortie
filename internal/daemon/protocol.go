@@ -42,6 +42,8 @@ const (
 	MsgDetachBranch       MessageType = "detach_branch"
 	MsgAttachBranch       MessageType = "attach_branch"
 	MsgGetStepContexts    MessageType = "get_step_contexts"
+	MsgUpdateStepContext  MessageType = "update_step_context"
+	MsgGetTaskSteps       MessageType = "get_task_steps"
 )
 
 type Message struct {
@@ -177,6 +179,29 @@ type GetStepContextsRequest struct {
 
 type GetStepContextsResponse struct {
 	Steps map[string]string `json:"steps"` // step_name -> context
+}
+
+type GetTaskStepsRequest struct {
+	TaskID int64 `json:"task_id"`
+}
+
+// TaskStepDetail is the per-step state returned to clients. Steps that exist
+// in the workflow but have no DB row yet are included with Status == "pending".
+type TaskStepDetail struct {
+	Name        string     `json:"name"`
+	Status      string     `json:"status"` // "pending" | "running" | "completed"
+	Context     string     `json:"context,omitempty"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+}
+
+type GetTaskStepsResponse struct {
+	Steps []TaskStepDetail `json:"steps"` // ordered by workflow config
+}
+
+type UpdateStepContextRequest struct {
+	TaskID   int64  `json:"task_id"`
+	StepName string `json:"step_name"`
+	Context  string `json:"context"`
 }
 
 type CreateTaskResponse struct {

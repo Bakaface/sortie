@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"sort"
 	"strings"
 	"time"
 
@@ -78,7 +77,7 @@ type Model struct {
 
 
 	// Step context state (kept after selector closes)
-	stepContexts map[string]string // loaded step contexts for current selection
+	taskSteps []daemon.TaskStepDetail // loaded step details for current selection
 
 	// Artifact viewer state
 	artifactView artifactViewState
@@ -128,6 +127,16 @@ type editorFieldFinishedMsg struct {
 	taskID int64
 	field  string
 	path   string
+}
+type editorStepContextFinishedMsg struct {
+	taskID   int64
+	stepName string
+	path     string
+}
+type stepContextUpdatedMsg struct {
+	taskID   int64
+	stepName string
+	context  string
 }
 
 func NewModel(cfg *config.Config, projectID int64, projectPath, projectName string, globalMode bool, defaultWorktree bool, defaultBranchMode int, defaultWorkflow string) Model {
@@ -252,6 +261,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorFieldFinishedMsg:
 		return m, m.handleFieldEditorResult(msg)
 
+	case editorStepContextFinishedMsg:
+		return m, m.handleStepContextEditorResult(msg)
+
+	case stepContextUpdatedMsg:
+		// Refresh cached step list and viewer if currently viewing this step.
+		for i := range m.taskSteps {
+			if m.taskSteps[i].Name == msg.stepName {
+				m.taskSteps[i].Context = msg.context
+				m.taskSteps[i].Status = stepStatusCompleted
+				if m.view == viewArtifact && m.artifactView.name == msg.stepName {
+					m.artifactView.SetContent(msg.stepName, msg.context)
+					m.artifactView.editable = msg.context != ""
+				}
+				break
+			}
+		}
+		m.statusMessage = fmt.Sprintf("step %q context saved · already-run steps won't see this", msg.stepName)
+		m.statusMessageTTL = 4
+		return m, nil
+
 	case taskFieldUpdatedMsg:
 		label := msg.field
 		if len(label) > 0 {
@@ -262,30 +291,57 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.refreshing = true
 		return m, m.refreshTasks()
 
-	case stepContextsLoadedMsg:
-		var names []string
-		for name := range msg.contexts {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+	case taskStepsLoadedMsg:
+		m.taskSteps = msg.steps
 
-		if len(names) == 1 {
-			// Single step context — show it directly
-			name := names[0]
-			m.stepContexts = msg.contexts
-			m.artifactView.SetContent(name, msg.contexts[name])
+		// Build parallel slices for the generic selector.
+		names := make([]string, len(msg.steps))
+		descriptions := make([]string, len(msg.steps))
+		disabled := make([]bool, len(msg.steps))
+		for i, s := range msg.steps {
+			names[i] = stepSelectorLabel(s)
+			descriptions[i] = stepSelectorDescription(s)
+			disabled[i] = !stepIsActionable(s)
+		}
+
+		// Single completed step with content — skip the picker entirely.
+		actionable := actionableSteps(msg.steps)
+		if len(actionable) == 1 && msg.action == "view" {
+			step := actionable[0]
+			m.selector = selector{kind: selectorArtifact, taskID: msg.taskID, action: msg.action}
+			m.artifactView.SetContent(step.Name, renderStepBody(step))
+			m.artifactView.editable = stepIsEditable(step)
+			m.artifactView.taskID = msg.taskID
 			m.view = viewArtifact
 			return m, nil
 		}
+		if len(actionable) == 1 && msg.action == "edit" && stepIsEditable(actionable[0]) {
+			step := actionable[0]
+			m.selector = selector{kind: selectorArtifact, taskID: msg.taskID, action: msg.action}
+			return m, m.openEditorForStepContext(msg.taskID, step.Name, step.Context)
+		}
+
+		// Place cursor on the first actionable row.
+		cursor := 0
+		for i, s := range msg.steps {
+			if stepIsActionable(s) {
+				cursor = i
+				break
+			}
+		}
 
 		m.selector = selector{
-			kind:   selectorArtifact,
-			title:  "Select Step Context",
-			items:  names,
-			taskID: msg.taskID,
-			action: msg.action,
+			kind:         selectorArtifact,
+			title:        "Step Context",
+			items:        names,
+			cursor:       cursor,
+			descriptions: descriptions,
+			disabled:     disabled,
+			itemStyle:    stepSelectorItemStyle,
+			hint:         "j/k: navigate  enter: view  e: edit  esc: cancel",
+			taskID:       msg.taskID,
+			action:       msg.action,
 		}
-		m.stepContexts = msg.contexts
 		return m, nil
 
 	case branchesLoadedMsg:

@@ -360,6 +360,60 @@ func (s *Server) handleGetStepContexts(conn net.Conn, req GetStepContextsRequest
 	s.sendMessage(conn, MsgGetStepContexts, GetStepContextsResponse{Steps: steps})
 }
 
+func (s *Server) handleGetTaskSteps(conn net.Conn, req GetTaskStepsRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
+	projCfg := s.cfg
+	if pc, err := s.getProjectContext(t.ProjectID); err == nil {
+		projCfg = pc.cfg
+	}
+
+	wf := projCfg.GetWorkflow(t.Workflow)
+	if wf == nil {
+		s.sendMessage(conn, MsgGetTaskSteps, GetTaskStepsResponse{Steps: nil})
+		return
+	}
+
+	rows, err := s.database.GetTaskStepRows(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get step rows: %v", err))
+		return
+	}
+
+	details := make([]TaskStepDetail, 0, len(wf.Steps))
+	for _, step := range wf.Steps {
+		d := TaskStepDetail{Name: step.Name, Status: "pending"}
+		if row, ok := rows[step.Name]; ok {
+			d.Status = row.Status
+			d.Context = row.Context
+			if row.CompletedAt.Valid {
+				ts := row.CompletedAt.Time
+				d.CompletedAt = &ts
+			}
+		}
+		details = append(details, d)
+	}
+
+	s.sendMessage(conn, MsgGetTaskSteps, GetTaskStepsResponse{Steps: details})
+}
+
+func (s *Server) handleUpdateStepContext(conn net.Conn, req UpdateStepContextRequest) {
+	if strings.TrimSpace(req.StepName) == "" {
+		s.sendError(conn, "step_name is required")
+		return
+	}
+	if err := s.database.UpdateTaskStepContext(req.TaskID, req.StepName, req.Context); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update step context: %v", err))
+		return
+	}
+	s.broadcastTaskUpdate(req.TaskID)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("step %q context updated", req.StepName)})
+}
+
 func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string, initialTitle string, manualTitle string) {
 	projCfg := s.cfg
 	if pc, err := s.getProjectContext(projectID); err == nil {

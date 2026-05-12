@@ -341,6 +341,7 @@ type artifactViewKeyMap struct {
 	Down       key.Binding
 	HalfUp     key.Binding
 	HalfDown   key.Binding
+	Edit       key.Binding
 }
 
 func newArtifactViewKeyMap() artifactViewKeyMap {
@@ -372,6 +373,10 @@ func newArtifactViewKeyMap() artifactViewKeyMap {
 		HalfDown: key.NewBinding(
 			key.WithKeys("ctrl+d", "pgdown"),
 			key.WithHelp("ctrl+d", "half down"),
+		),
+		Edit: key.NewBinding(
+			key.WithKeys("e"),
+			key.WithHelp("e", "edit context"),
 		),
 	}
 }

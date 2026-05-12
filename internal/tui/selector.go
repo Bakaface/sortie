@@ -37,10 +37,11 @@ type selector struct {
 	pendingG     bool
 	descriptions []string                         // optional; shown under selected item
 	itemStyle    func(name string) lipgloss.Style // optional; per-item coloring for non-selected
+	disabled     []bool                           // optional; rows with disabled[i]==true are skipped on navigation and not selectable
 	hint         string                           // footer override; empty uses default
 	// Auxiliary data for the on-select callback
 	taskID int64  // for priority, artifact
-	action string // for artifact ("view"/"edit")
+	action string // for artifact ("view"/"edit") — may be mutated mid-flow (e.g. pressing 'e' overrides to "edit")
 }
 
 func (s *selector) IsActive() bool {
@@ -64,7 +65,7 @@ func (s *selector) HandleKey(keyStr string) selectionResult {
 	if keyStr == "g" {
 		if s.pendingG {
 			s.pendingG = false
-			s.cursor = 0
+			s.cursor = s.firstActionable()
 			return selNone
 		}
 		s.pendingG = true
@@ -74,36 +75,110 @@ func (s *selector) HandleKey(keyStr string) selectionResult {
 
 	switch keyStr {
 	case "up", "k":
-		if s.cursor > 0 {
-			s.cursor--
-		}
+		s.cursor = s.stepCursor(s.cursor, -1)
 	case "down", "j":
-		if s.cursor < len(s.items)-1 {
-			s.cursor++
-		}
+		s.cursor = s.stepCursor(s.cursor, 1)
 	case "G":
-		s.cursor = max(0, len(s.items)-1)
+		s.cursor = s.lastActionable()
 	case "ctrl+d", "pgdown":
 		half := max(1, len(s.items)/2)
-		s.cursor = min(s.cursor+half, len(s.items)-1)
+		s.cursor = s.snapActionable(min(s.cursor+half, len(s.items)-1), 1)
 	case "ctrl+u", "pgup":
 		half := max(1, len(s.items)/2)
-		s.cursor = max(s.cursor-half, 0)
+		s.cursor = s.snapActionable(max(s.cursor-half, 0), -1)
 	case "enter":
+		if s.isDisabled(s.cursor) {
+			return selNone
+		}
 		return selChosen
+	case "e":
+		// Optional: pressing 'e' on artifact-style selectors picks edit mode
+		// before firing the selection. Caller decides what to do with action.
+		if s.kind == selectorArtifact && !s.isDisabled(s.cursor) {
+			s.action = "edit"
+			return selChosen
+		}
+	case "v":
+		if s.kind == selectorArtifact && !s.isDisabled(s.cursor) {
+			s.action = "view"
+			return selChosen
+		}
 	case "esc", "q":
 		return selCancelled
 	default:
 		// Number keys for quick selection (1-9)
 		if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
 			idx := int(keyStr[0] - '1')
-			if idx < len(s.items) {
+			if idx < len(s.items) && !s.isDisabled(idx) {
 				s.cursor = idx
 				return selChosen
 			}
 		}
 	}
 	return selNone
+}
+
+// isDisabled reports whether the row at idx is non-actionable.
+func (s *selector) isDisabled(idx int) bool {
+	if idx < 0 || idx >= len(s.disabled) {
+		return false
+	}
+	return s.disabled[idx]
+}
+
+// stepCursor moves the cursor one step in the given direction, skipping
+// disabled rows. Stops at the first/last actionable row instead of wrapping.
+func (s *selector) stepCursor(from, dir int) int {
+	for i := from + dir; i >= 0 && i < len(s.items); i += dir {
+		if !s.isDisabled(i) {
+			return i
+		}
+	}
+	return from
+}
+
+// snapActionable returns the nearest actionable row to idx in the given
+// direction, falling back to the other direction if needed.
+func (s *selector) snapActionable(idx, dir int) int {
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(s.items) {
+		idx = len(s.items) - 1
+	}
+	if !s.isDisabled(idx) {
+		return idx
+	}
+	for i := idx; i >= 0 && i < len(s.items); i += dir {
+		if !s.isDisabled(i) {
+			return i
+		}
+	}
+	// Fall back: scan the other direction.
+	for i := idx; i >= 0 && i < len(s.items); i -= dir {
+		if !s.isDisabled(i) {
+			return i
+		}
+	}
+	return idx
+}
+
+func (s *selector) firstActionable() int {
+	for i := range s.items {
+		if !s.isDisabled(i) {
+			return i
+		}
+	}
+	return 0
+}
+
+func (s *selector) lastActionable() int {
+	for i := len(s.items) - 1; i >= 0; i-- {
+		if !s.isDisabled(i) {
+			return i
+		}
+	}
+	return max(0, len(s.items)-1)
 }
 
 // View renders the selection dialog.

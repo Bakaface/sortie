@@ -443,6 +443,22 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleGetStepContexts(conn, req)
 
+	case MsgGetTaskSteps:
+		var req GetTaskStepsRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleGetTaskSteps(conn, req)
+
+	case MsgUpdateStepContext:
+		var req UpdateStepContextRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleUpdateStepContext(conn, req)
+
 	case MsgShutdown:
 		s.mu.RLock()
 		clientCount := len(s.clients)

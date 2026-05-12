@@ -486,6 +486,13 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 	kind := m.selector.kind
 	taskID := m.selector.taskID
 	action := m.selector.action
+	cursor := m.selector.cursor
+
+	// For artifact selectors items carry decoration (glyphs/state); look up the
+	// bare step name from the parallel taskSteps slice before resetting.
+	if kind == selectorArtifact && cursor >= 0 && cursor < len(m.taskSteps) {
+		item = m.taskSteps[cursor].Name
+	}
 	m.selector.Reset()
 
 	switch kind {
@@ -517,7 +524,7 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 		return m, m.updateTaskPriority(taskID, item)
 
 	case selectorArtifact:
-		return m.performArtifactAction(item, action)
+		return m.performArtifactAction(taskID, item, action)
 	}
 
 	return m, nil
