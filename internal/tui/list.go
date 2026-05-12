@@ -695,14 +695,16 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		return outerStyle.Render(line)
 	}
 
-	// Apply priority/status colors for non-selected, non-matched rows
-	idCol := lipgloss.NewStyle().Width(l.cw.id).Render(taskID)
-	priCol := priorityStyle(task.Priority).Width(2).Render(priBadge)
+	// Apply priority/status colors for non-selected, non-matched rows.
+	// Pre-truncate cell text before styling: lipgloss.Width() wraps overflow
+	// onto a new line, which corrupts the table layout.
+	idCol := lipgloss.NewStyle().Render(truncateOrPad(taskID, l.cw.id))
+	priCol := priorityStyle(task.Priority).Render(truncateOrPad(priBadge, 2))
 	statusSt := stateStyle(task.Status)
 	if strings.Contains(status, "(deadlocked)") {
 		statusSt = stateStyle("failed")
 	}
-	statusCol := statusSt.Width(l.cw.status).Render(status)
+	statusCol := statusSt.Render(truncateOrPad(status, l.cw.status))
 
 	branchCol := ""
 	if l.showBranch {
@@ -710,27 +712,27 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 		if l.branchView && index < len(l.treeEntries) {
 			branchText = l.treeEntries[index].renderBranchColumn(task.Branch, l.cw.branch)
 		}
-		branchCol = " " + dimStyle.Copy().Width(l.cw.branch).Render(branchText)
+		branchCol = " " + dimStyle.Render(truncateOrPad(branchText, l.cw.branch))
 	}
 	targetCol := ""
 	if l.showTarget {
-		targetCol = " " + dimStyle.Copy().Width(l.cw.target).Render(truncateOrPad(task.TargetBranch, l.cw.target))
+		targetCol = " " + dimStyle.Render(truncateOrPad(task.TargetBranch, l.cw.target))
 	}
 
 	var line string
 	if l.showLineNumbers {
 		gutterWidth := l.cw.lineNum
 		idxStr := fmt.Sprintf("%*d", gutterWidth, index+1)
-		idxCol := lineNumStyle.Width(gutterWidth).Render(idxStr)
+		idxCol := lineNumStyle.Render(truncateOrPad(idxStr, gutterWidth))
 		if l.globalMode {
-			projCol := lipgloss.NewStyle().Width(l.cw.project).Render(l.projectNameFor(task))
+			projCol := lipgloss.NewStyle().Render(truncateOrPad(l.projectNameFor(task), l.cw.project))
 			line = fmt.Sprintf(" %s %s %s %s %s%s%s %s", idxCol, idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 		} else {
 			line = fmt.Sprintf(" %s %s %s %s%s%s %s", idxCol, idCol, priCol, statusCol, branchCol, targetCol, title)
 		}
 	} else {
 		if l.globalMode {
-			projCol := lipgloss.NewStyle().Width(l.cw.project).Render(l.projectNameFor(task))
+			projCol := lipgloss.NewStyle().Render(truncateOrPad(l.projectNameFor(task), l.cw.project))
 			line = fmt.Sprintf("  %s %s %s %s%s%s %s", idCol, priCol, projCol, statusCol, branchCol, targetCol, title)
 		} else {
 			line = fmt.Sprintf("  %s %s %s%s%s %s", idCol, priCol, statusCol, branchCol, targetCol, title)

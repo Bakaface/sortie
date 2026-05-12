@@ -359,6 +359,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tmuxSessionsMsg:
 		m.list.tmuxSessions = msg
+		m.list.recomputeColumns()
 		return m, nil
 
 	case taskDeletedMsg:
