@@ -101,11 +101,12 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		return
 	}
 
-	// When using existing branch with empty description, generate title from branch name.
-	// When the first workflow step is tmux and the description is empty, fall back
-	// to a stable title derived from the workflow so the task list stays readable.
+	// Caller-supplied title wins. Otherwise: branch-derived for checkout-only,
+	// workflow-derived for tmux-first with no description, else sanitized description.
 	var title string
 	switch {
+	case strings.TrimSpace(req.Title) != "":
+		title = strings.TrimSpace(req.Title)
 	case description == "" && req.CheckoutBranch != "":
 		title = "⎇ " + req.CheckoutBranch
 	case description == "" && tmuxFirst:
