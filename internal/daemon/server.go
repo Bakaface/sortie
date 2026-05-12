@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -215,8 +216,8 @@ func (s *Server) Start(foreground bool) error {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		<-sigChan
-		log.Println("Received shutdown signal")
+		sig := <-sigChan
+		log.Printf("Received signal %q (pid=%d, ppid=%d)", sig, os.Getpid(), os.Getppid())
 		s.Shutdown()
 	}()
 
@@ -229,7 +230,7 @@ func (s *Server) Start(foreground bool) error {
 	s.wg.Add(1)
 	go s.tmuxMonitorLoop()
 
-	log.Printf("Daemon started, listening on %s", s.cfg.Daemon.SocketPath)
+	log.Printf("Daemon started, listening on %s (pid=%d, ppid=%d)", s.cfg.Daemon.SocketPath, os.Getpid(), os.Getppid())
 
 	s.wg.Wait()
 
@@ -443,6 +444,10 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		s.handleGetStepContexts(conn, req)
 
 	case MsgShutdown:
+		s.mu.RLock()
+		clientCount := len(s.clients)
+		s.mu.RUnlock()
+		log.Printf("Received MsgShutdown from socket client (conn=%p, total_clients=%d)", conn, clientCount)
 		s.Shutdown()
 
 	default:
@@ -455,7 +460,9 @@ func (s *Server) Shutdown() {
 }
 
 func (s *Server) shutdown() {
-	log.Println("Shutting down daemon...")
+	buf := make([]byte, 8192)
+	n := runtime.Stack(buf, false)
+	log.Printf("Shutting down daemon (pid=%d, ppid=%d)\nshutdown caller goroutine:\n%s", os.Getpid(), os.Getppid(), buf[:n])
 
 	if s.listener != nil {
 		s.listener.Close()
