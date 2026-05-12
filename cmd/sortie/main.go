@@ -20,6 +20,7 @@ var noProjectRequired = map[string]bool{
 	"stop":             true,
 	"status":           true,
 	"validate":         true,
+	"mcp":              true,
 }
 
 var rootCmd = &cobra.Command{
@@ -103,6 +104,7 @@ func init() {
 	rootCmd.AddCommand(detachCmd)
 	rootCmd.AddCommand(attachBranchCmd)
 	rootCmd.AddCommand(validateCmd)
+	rootCmd.AddCommand(mcpCmd)
 
 	dependsOnCmd.AddCommand(dependsOnAddCmd)
 	dependsOnCmd.AddCommand(dependsOnRmCmd)

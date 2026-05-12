@@ -44,6 +44,7 @@ const (
 	MsgGetStepContexts    MessageType = "get_step_contexts"
 	MsgUpdateStepContext  MessageType = "update_step_context"
 	MsgGetTaskSteps       MessageType = "get_task_steps"
+	MsgListWorkflows      MessageType = "list_workflows"
 )
 
 type Message struct {
@@ -202,6 +203,43 @@ type UpdateStepContextRequest struct {
 	TaskID   int64  `json:"task_id"`
 	StepName string `json:"step_name"`
 	Context  string `json:"context"`
+}
+
+// ListWorkflowsRequest asks the daemon to return all workflows configured for
+// a project. ProjectPath is the absolute repo-root path; the daemon resolves
+// it the same way CreateTaskRequest does (GetOrCreateProject + getProjectContext).
+type ListWorkflowsRequest struct {
+	ProjectPath string `json:"project_path"`
+}
+
+// WorkflowStepSummary is a per-step projection returned by ListWorkflows.
+// It deliberately omits prompts and timing details — the MCP surface only
+// needs identifying information and execution-mode signals.
+type WorkflowStepSummary struct {
+	Name  string `json:"name"`
+	Mode  string `json:"mode,omitempty"`
+	Tmux  bool   `json:"tmux,omitempty"`
+	Human bool   `json:"human,omitempty"`
+	Loop  bool   `json:"loop,omitempty"`
+}
+
+// WorkflowSummary describes a single workflow available in a project.
+type WorkflowSummary struct {
+	Name             string                `json:"name"`
+	Description      string                `json:"description,omitempty"`
+	Tmux             bool                  `json:"tmux,omitempty"`              // workflow-level default
+	FirstStepIsTmux  bool                  `json:"first_step_is_tmux,omitempty"` // derived; useful for picking interactive workflows
+	Steps            []WorkflowStepSummary `json:"steps,omitempty"`
+}
+
+// ListWorkflowsResponse groups workflows by kind. Kinds match the keys in
+// .sortie.yml's workflows: section: tasks, one-off, init.
+type ListWorkflowsResponse struct {
+	ProjectPath string            `json:"project_path"`
+	ProjectName string            `json:"project_name,omitempty"`
+	Tasks       []WorkflowSummary `json:"tasks"`
+	OneOff      []WorkflowSummary `json:"one_off"`
+	Init        []WorkflowSummary `json:"init"`
 }
 
 type CreateTaskResponse struct {

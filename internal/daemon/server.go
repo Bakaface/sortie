@@ -459,6 +459,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleUpdateStepContext(conn, req)
 
+	case MsgListWorkflows:
+		var req ListWorkflowsRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleListWorkflows(conn, req)
+
 	case MsgShutdown:
 		s.mu.RLock()
 		clientCount := len(s.clients)
