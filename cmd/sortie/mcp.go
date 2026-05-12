@@ -1,0 +1,32 @@
+package main
+
+import (
+	"github.com/aface/sortie/internal/mcp"
+	"github.com/spf13/cobra"
+)
+
+var mcpCmd = &cobra.Command{
+	Use:   "mcp",
+	Short: "Run an MCP server over stdio that talks to the sortie daemon",
+	Long: `Run a Model Context Protocol server that exposes a safe-by-default
+subset of the sortie daemon to MCP clients (e.g. Claude Code sessions).
+
+The server speaks MCP over stdin/stdout, so it should be launched by the
+client — typically by adding it to the client's MCP server configuration.
+
+Exposed tools:
+  sortie_create_task    Create a task in the project rooted at cwd (or an
+                        explicit project_path). Supports workflow choice,
+                        branch templates, dependencies, and tmux mode.
+  sortie_list_workflows List the workflows configured for a project,
+                        grouped by kind (tasks / one-off / init).
+  sortie_get_task       Fetch a task's status, current step, optional
+                        per-step state, captured step contexts, and
+                        recent agent output.
+
+The server requires a running sortie daemon — it does not start one. Run
+'sortie daemon start' first.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return mcp.Serve(cfg)
+	},
+}

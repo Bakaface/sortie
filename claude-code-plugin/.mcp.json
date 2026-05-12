@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "sortie": {
+      "command": "sortie",
+      "args": ["mcp"]
+    }
+  }
+}
