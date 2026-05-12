@@ -12,7 +12,7 @@ func TestWriteClaudeScript_HonorsClaudeBin(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "run.sh")
 
-	if err := writeClaudeScript(script, "/tmp/stub-claude", false, ""); err != nil {
+	if err := writeClaudeScript(script, "/tmp/stub-claude", false, "", ""); err != nil {
 		t.Fatalf("writeClaudeScript failed: %v", err)
 	}
 
@@ -39,7 +39,7 @@ func TestWriteClaudeScript_FallsBackToClaude(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "run.sh")
 
-	if err := writeClaudeScript(script, "", false, ""); err != nil {
+	if err := writeClaudeScript(script, "", false, "", ""); err != nil {
 		t.Fatalf("writeClaudeScript failed: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func TestWriteClaudeScript_YoloAddsFlag(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "run.sh")
 
-	if err := writeClaudeScript(script, "/tmp/stub", true, ""); err != nil {
+	if err := writeClaudeScript(script, "/tmp/stub", true, "", ""); err != nil {
 		t.Fatalf("writeClaudeScript failed: %v", err)
 	}
 
@@ -71,7 +71,7 @@ func TestWriteClaudeScript_QuotesPathWithSpaces(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "run.sh")
 
-	if err := writeClaudeScript(script, "/path with spaces/claude", false, ""); err != nil {
+	if err := writeClaudeScript(script, "/path with spaces/claude", false, "", ""); err != nil {
 		t.Fatalf("writeClaudeScript failed: %v", err)
 	}
 

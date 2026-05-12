@@ -141,7 +141,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, ""); err != nil {
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, "", ""); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to write wrapper script: %v", err))
 		return
 	}
@@ -162,7 +162,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	// Run tmux setup command if configured
 	if setupCmd != "" {
 		vars := &tmux.SetupVars{
-			ClaudeCommand: buildClaudeCommand(pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, ""),
+			ClaudeCommand: buildClaudeCommand(pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, "", ""),
 			RunAgent:      scriptFile,
 		}
 		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
@@ -394,7 +394,10 @@ func (s *Server) cleanupWorktreeAndBranch(pc *projectContext, t *task.Task) {
 }
 
 // setupTmuxDirect creates a tmux session for a task that should go directly into tmux state,
-// skipping the normal workflow. Used for branch tasks created via the "b" keybind.
+// skipping the normal workflow. Used for branch tasks created via the "b" keybind and for
+// MCP create_task with tmux_direct=true. When the task has a non-empty description, it is
+// passed to claude as the initial prompt so the user lands in a session that's already
+// thinking about the request.
 func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 	slug := task.Slugify(title)
 
@@ -444,7 +447,8 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 	}
 	scriptFile := filepath.Join(sortieDir, "run-continue.sh")
 
-	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, ""); err != nil {
+	initialPrompt := strings.TrimSpace(t.Description)
+	if err := writeClaudeScript(scriptFile, pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, "", initialPrompt); err != nil {
 		log.Printf("%sFailed to write claude script for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)
 		return
 	}
@@ -465,7 +469,7 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 	// Run tmux setup command if configured
 	if setupCmd != "" {
 		vars := &tmux.SetupVars{
-			ClaudeCommand: buildClaudeCommand(pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, ""),
+			ClaudeCommand: buildClaudeCommand(pc.cfg.Claude.Command, pc.cfg.Claude.Yolo, "", initialPrompt),
 			RunAgent:      scriptFile,
 		}
 		if err := session.RunSetupCommand(setupCmd, vars); err != nil {
@@ -579,16 +583,18 @@ func dirExists(path string) bool {
 // claudeBin is the configured Claude binary (cfg.Claude.Command); falls back to "claude".
 // If resumeSessionID is non-empty, the script invokes `claude --resume <id>` to
 // restore a previous chat session.
-func writeClaudeScript(scriptPath string, claudeBin string, yolo bool, resumeSessionID string) error {
-	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", buildClaudeCommand(claudeBin, yolo, resumeSessionID))
+func writeClaudeScript(scriptPath string, claudeBin string, yolo bool, resumeSessionID string, initialPrompt string) error {
+	script := fmt.Sprintf("#!/bin/bash\n%s\nexec bash\n", buildClaudeCommand(claudeBin, yolo, resumeSessionID, initialPrompt))
 	return os.WriteFile(scriptPath, []byte(script), 0755)
 }
 
 // buildClaudeCommand assembles the `claude` CLI invocation with the appropriate
 // flags. claudeBin is the configured Claude binary (cfg.Claude.Command); falls
 // back to "claude". If resumeSessionID is non-empty, `--resume <id>` is appended
-// so the chat is automatically restored.
-func buildClaudeCommand(claudeBin string, yolo bool, resumeSessionID string) string {
+// so the chat is automatically restored. If initialPrompt is non-empty, it is
+// appended as the positional prompt so Claude opens with that message as the
+// user's first turn (mutually exclusive with --resume in practice; resume wins).
+func buildClaudeCommand(claudeBin string, yolo bool, resumeSessionID string, initialPrompt string) string {
 	if claudeBin == "" {
 		claudeBin = "claude"
 	}
@@ -598,6 +604,15 @@ func buildClaudeCommand(claudeBin string, yolo bool, resumeSessionID string) str
 	}
 	if resumeSessionID != "" {
 		cmd += " --resume " + resumeSessionID
+	} else if initialPrompt != "" {
+		cmd += " " + shellSingleQuote(initialPrompt)
 	}
 	return cmd
+}
+
+// shellSingleQuote wraps s in POSIX-safe single quotes. Single quotes inside
+// the string are escaped via the standard '\'' trick so the result is safe to
+// drop into a bash command line.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

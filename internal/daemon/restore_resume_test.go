@@ -38,7 +38,7 @@ func TestBuildClaudeCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := buildClaudeCommand("", tt.yolo, tt.resumeSessionID)
+			got := buildClaudeCommand("", tt.yolo, tt.resumeSessionID, "")
 			if got != tt.want {
 				t.Errorf("buildClaudeCommand(%q, %v, %q) = %q, want %q",
 					"", tt.yolo, tt.resumeSessionID, got, tt.want)
@@ -51,7 +51,7 @@ func TestWriteClaudeScript_IncludesResumeFlag(t *testing.T) {
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "run.sh")
 
-	if err := writeClaudeScript(scriptPath, "", false, "sess-xyz"); err != nil {
+	if err := writeClaudeScript(scriptPath, "", false, "sess-xyz", ""); err != nil {
 		t.Fatalf("writeClaudeScript failed: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestWriteClaudeScript_NoResumeWhenEmpty(t *testing.T) {
 	dir := t.TempDir()
 	scriptPath := filepath.Join(dir, "run.sh")
 
-	if err := writeClaudeScript(scriptPath, "", false, ""); err != nil {
+	if err := writeClaudeScript(scriptPath, "", false, "", ""); err != nil {
 		t.Fatalf("writeClaudeScript failed: %v", err)
 	}
 
