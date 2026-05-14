@@ -126,6 +126,8 @@ type StepConfig struct {
 
 **Summarization strategies**: `summarize_chat` (default when unset) runs a haiku pass over the full chat log; `last_message` uses the Claude result event text — cheaper but often misleading and unusable for tmux steps (which have no result event). The default is resolved via `StepConfig.EffectiveSummarizationStrategy()` and lives in `DefaultSummarizationStrategy`. Validated at config load via `ValidateSteps()`.
 
+**Summarization model**: per-step and per-project `summarization_model` (alias like `haiku`/`sonnet`/`opus`, or a full model id). Resolved via `StepConfig.EffectiveSummarizationModel(projectDefault)` — step-level > project-level (`ProjectConfig.SummarizationModel` → merged into runtime `Config.SummarizationModel`) > `DefaultSummarizationModel` (`haiku`). Project-level value is also used as the final-task summarizer model. Per-model prompt size ceilings live in `internal/workflow/summarizer.go` (`maxPromptBytesForModel`); above the ceiling the summariser falls back to map-reduce chunking.
+
 **Loop validation**: goto must reference earlier step, max_iterations >= 1, no human/tmux on looped steps, no overlapping ranges.
 
 ### LoopConfig

@@ -184,8 +184,10 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 
 	logMsg("Running summarizer for task #%d", t.ID)
 
-	// Run Claude synchronously to capture the summary text
-	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath, "summarize")
+	// Run Claude synchronously to capture the summary text. The final task
+	// summarizer uses the project-level summarization_model (per-step overrides
+	// only apply to step-level summarize_chat passes).
+	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath, "summarize", e.cfg.SummarizationModel)
 	if err != nil {
 		return fmt.Errorf("summarizer claude invocation failed: %w", err)
 	}
@@ -274,16 +276,85 @@ func shouldSummarizeChat(chat, resultText string, useTmux bool) bool {
 	return len(chat) >= smallChatBytes
 }
 
+// haikuPromptByteLimit / largeModelPromptByteLimit are the safe per-invocation
+// prompt-size ceilings for `claude -p`. Empirically haiku rejects prompts
+// around ~200 KB with "Prompt is too long". Larger-context models (sonnet,
+// opus) tolerate much more; we cap at 800 KB to stay clear of the macOS
+// ARG_MAX (1 MB) for the entire argv vector.
+const (
+	haikuPromptByteLimit      = 180 * 1024
+	largeModelPromptByteLimit = 800 * 1024
+)
+
+// maxPromptBytesForModel returns the safe upper bound for a single `claude -p`
+// invocation when using the given model.
+func maxPromptBytesForModel(model string) int {
+	switch model {
+	case "sonnet", "opus":
+		return largeModelPromptByteLimit
+	default:
+		return haikuPromptByteLimit
+	}
+}
+
+// chunkBytesForModel returns the target chunk size for map-reduce summarization
+// when using the given model, leaving headroom for the surrounding instruction
+// prompt.
+func chunkBytesForModel(model string) int {
+	const headroom = 30 * 1024
+	return maxPromptBytesForModel(model) - headroom
+}
+
 // summarizeChatLog runs Claude haiku to summarise the given chat content.
 // customPrompt is a template that may reference the chat via a {{chat}} placeholder;
 // task template variables ({{task.id}}, {{task.title}}, etc.) are also resolved.
 // If customPrompt is empty, the default summarization prompt is used.
-func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, customPrompt, chatContent string) (string, error) {
+//
+// When the resolved prompt exceeds the model's prompt byte limit the chat is
+// summarised via map-reduce: it is split on line boundaries into chunks sized
+// to fit the model, each chunk is summarised with a generic extraction prompt,
+// and the chunk summaries are then fed back through the original (customPrompt
+// or default) final-summary prompt.
+//
+// model is the Claude model alias (e.g. "haiku", "sonnet", "opus") or full
+// model id to use for the haiku-style summarization passes. Empty falls back
+// to DefaultSummarizationModel.
+func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, customPrompt, chatContent, model string) (string, error) {
 	if strings.TrimSpace(chatContent) == "" {
 		return "", nil
 	}
+	if model == "" {
+		model = config.DefaultSummarizationModel
+	}
 
-	var prompt string
+	prompt := e.buildSummarizePrompt(t, stepName, customPrompt, chatContent)
+	maxBytes := maxPromptBytesForModel(model)
+
+	if len(prompt) > maxBytes {
+		log.Printf("summarize_chat: prompt %d bytes exceeds %s limit %d for step %q of task #%d; running map-reduce", len(prompt), model, maxBytes, stepName, t.ID)
+		chunkSummaries, err := e.summarizeChatChunks(ctx, t, stepName, chatContent, model)
+		if err != nil {
+			return "", err
+		}
+		reduced := strings.Join(chunkSummaries, "\n\n--- CHUNK BOUNDARY ---\n\n")
+		prompt = e.buildSummarizePrompt(t, stepName, customPrompt, reduced)
+		log.Printf("summarize_chat: map-reduce reduce step for step %q of task #%d (%d chunk summaries, %d chars)", stepName, t.ID, len(chunkSummaries), len(reduced))
+	}
+
+	log.Printf("Running summarize_chat for step %q of task #%d (model=%s, prompt %d bytes)", stepName, t.ID, model, len(prompt))
+	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath, "summarize_chat", model)
+	if err != nil {
+		return "", fmt.Errorf("summarize_chat claude invocation failed: %w", err)
+	}
+	summary = strings.TrimSpace(summary)
+	log.Printf("summarize_chat completed for step %q of task #%d (%d chars)", stepName, t.ID, len(summary))
+	return summary, nil
+}
+
+// buildSummarizePrompt resolves the summarization prompt for the given chat content,
+// using customPrompt (template, with optional {{chat}} placeholder) if non-empty,
+// or a sensible default otherwise.
+func (e *Engine) buildSummarizePrompt(t *task.Task, stepName, customPrompt, chatContent string) string {
 	if customPrompt != "" {
 		tmplCtx := &TemplateContext{
 			Task: TaskVars{
@@ -300,33 +371,73 @@ func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, c
 		}
 		resolved := ResolveTemplate(customPrompt, tmplCtx)
 
-		// Support {{chat}} placeholder to inline chat content, or append as default
 		if strings.Contains(resolved, "{{chat}}") {
-			prompt = strings.ReplaceAll(resolved, "{{chat}}", chatContent)
-		} else {
-			prompt = resolved + "\n\n--- CONVERSATION LOG ---\n" + chatContent
+			return strings.ReplaceAll(resolved, "{{chat}}", chatContent)
 		}
-	} else {
-		prompt = fmt.Sprintf(
-			"Summarize the following Claude Code conversation log from step %q of task #%d: %s\n\n"+
-				"Output requirements:\n"+
-				"- Under 200 words.\n"+
-				"- Preserve file paths, function/symbol names, command lines, and error strings VERBATIM — do not paraphrase identifiers.\n"+
-				"- Cover what was accomplished, key decisions, files changed, and any blockers or unresolved issues.\n"+
-				"- Prioritise actionable detail over narrative; this summary becomes context for later workflow steps.\n\n"+
-				"--- CONVERSATION LOG ---\n%s",
-			stepName, t.ID, t.Title, chatContent,
-		)
+		return resolved + "\n\n--- CONVERSATION LOG ---\n" + chatContent
 	}
 
-	log.Printf("Running summarize_chat for step %q of task #%d", stepName, t.ID)
-	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath, "summarize_chat")
-	if err != nil {
-		return "", fmt.Errorf("summarize_chat claude invocation failed: %w", err)
+	return fmt.Sprintf(
+		"Summarize the following Claude Code conversation log from step %q of task #%d: %s\n\n"+
+			"Output requirements:\n"+
+			"- Under 200 words.\n"+
+			"- Preserve file paths, function/symbol names, command lines, and error strings VERBATIM — do not paraphrase identifiers.\n"+
+			"- Cover what was accomplished, key decisions, files changed, and any blockers or unresolved issues.\n"+
+			"- Prioritise actionable detail over narrative; this summary becomes context for later workflow steps.\n\n"+
+			"--- CONVERSATION LOG ---\n%s",
+		stepName, t.ID, t.Title, chatContent,
+	)
+}
+
+// summarizeChatChunks splits chatContent on line boundaries and runs an
+// extraction pass over each chunk with the given model, returning the per-chunk
+// summaries.
+func (e *Engine) summarizeChatChunks(ctx context.Context, t *task.Task, stepName, chatContent, model string) ([]string, error) {
+	chunks := splitOnLineBoundary(chatContent, chunkBytesForModel(model))
+	summaries := make([]string, 0, len(chunks))
+	for i, chunk := range chunks {
+		log.Printf("summarize_chat: map step %d/%d for step %q of task #%d (model=%s, %d chars)", i+1, len(chunks), stepName, t.ID, model, len(chunk))
+		mapPrompt := fmt.Sprintf(
+			"This is chunk %d of %d from a Claude Code conversation log (step %q of task #%d: %s).\n"+
+				"Extract the key information from this chunk: decisions made, file paths, function/symbol names, "+
+				"commands run, errors hit, blockers, and unresolved questions. Preserve identifiers VERBATIM. "+
+				"Under 300 words. This is a partial slice — a later pass will combine all chunk extracts into a final summary.\n\n"+
+				"--- CHUNK ---\n%s",
+			i+1, len(chunks), stepName, t.ID, t.Title, chunk,
+		)
+		s, err := e.runClaudeSync(ctx, mapPrompt, t.WorktreePath, "summarize_chat_chunk", model)
+		if err != nil {
+			return nil, fmt.Errorf("summarize_chat map step %d/%d failed: %w", i+1, len(chunks), err)
+		}
+		summaries = append(summaries, strings.TrimSpace(s))
 	}
-	summary = strings.TrimSpace(summary)
-	log.Printf("summarize_chat completed for step %q of task #%d (%d chars)", stepName, t.ID, len(summary))
-	return summary, nil
+	return summaries, nil
+}
+
+// splitOnLineBoundary splits content into chunks no larger than maxBytes, breaking
+// only on newline boundaries so that line-delimited formats (e.g. JSONL) stay intact.
+// A single line longer than maxBytes becomes its own (oversized) chunk.
+func splitOnLineBoundary(content string, maxBytes int) []string {
+	if len(content) <= maxBytes {
+		return []string{content}
+	}
+	var chunks []string
+	var cur strings.Builder
+	for _, line := range strings.Split(content, "\n") {
+		// +1 accounts for the newline that will be re-added before this line.
+		if cur.Len() > 0 && cur.Len()+1+len(line) > maxBytes {
+			chunks = append(chunks, cur.String())
+			cur.Reset()
+		}
+		if cur.Len() > 0 {
+			cur.WriteByte('\n')
+		}
+		cur.WriteString(line)
+	}
+	if cur.Len() > 0 {
+		chunks = append(chunks, cur.String())
+	}
+	return chunks
 }
 
 // summarizationDescription returns a human-readable description of the summarization
@@ -395,8 +506,13 @@ func RunWorktreeSetupCommands(ctx context.Context, projectRoot, worktreePath str
 // workDir sets the working directory for the Claude process so it can access
 // the task's worktree files. purpose tags the invocation via SORTIE_PURPOSE so
 // stub claude binaries can route the response without parsing prompt text.
-func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir string, purpose string) (string, error) {
-	args := []string{"-p", prompt, "--output-format", "text", "--model", "haiku"}
+// model is the Claude model alias (e.g. "haiku", "sonnet", "opus") or full
+// model id; an empty string falls back to DefaultSummarizationModel.
+func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir string, purpose string, model string) (string, error) {
+	if model == "" {
+		model = config.DefaultSummarizationModel
+	}
+	args := []string{"-p", prompt, "--output-format", "text", "--model", model}
 	args = append(args, e.cfg.Claude.Args()...)
 
 	cmd := exec.CommandContext(ctx, e.cfg.Claude.Command, args...)
@@ -412,8 +528,21 @@ func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir strin
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("claude command failed: %w (stderr: %s)", err, stderr.String())
+		// claude prints user-facing errors (e.g. "Prompt is too long") to stdout
+		// rather than stderr, so surface both streams for diagnosis.
+		return "", fmt.Errorf("claude command failed: %w (stdout: %s, stderr: %s)", err, truncateForLog(stdout.String()), truncateForLog(stderr.String()))
 	}
 
 	return stdout.String(), nil
+}
+
+// truncateForLog clips a string to a sensible length for inclusion in error
+// messages so a multi-megabyte stdout dump cannot drown a log line.
+func truncateForLog(s string) string {
+	const maxLen = 500
+	s = strings.TrimSpace(s)
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + fmt.Sprintf("... (truncated, %d total bytes)", len(s))
 }

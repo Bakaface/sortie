@@ -783,6 +783,33 @@ func TestValidateLoopsNoLoop(t *testing.T) {
 	}
 }
 
+func TestEffectiveSummarizationModel(t *testing.T) {
+	tests := []struct {
+		name           string
+		stepModel      string
+		projectDefault string
+		want           string
+	}{
+		{"both empty falls back to default", "", "", DefaultSummarizationModel},
+		{"project default used when step empty", "", "opus", "opus"},
+		{"step overrides project default", "sonnet", "opus", "sonnet"},
+		{"step overrides empty project default", "opus", "", "opus"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			step := &StepConfig{SummarizationModel: tt.stepModel}
+			if got := step.EffectiveSummarizationModel(tt.projectDefault); got != tt.want {
+				t.Errorf("EffectiveSummarizationModel(%q) with step=%q = %q, want %q",
+					tt.projectDefault, tt.stepModel, got, tt.want)
+			}
+		})
+	}
+	if DefaultSummarizationModel != "haiku" {
+		t.Errorf("DefaultSummarizationModel = %q, want %q (changing the default warrants reviewing prompt-size limits in internal/workflow/summarizer.go)",
+			DefaultSummarizationModel, "haiku")
+	}
+}
+
 func TestEffectiveSummarizationStrategy(t *testing.T) {
 	tests := []struct {
 		name     string

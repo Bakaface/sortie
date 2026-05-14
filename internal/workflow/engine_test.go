@@ -383,7 +383,7 @@ func TestRunClaudeSyncSetsWorkDir(t *testing.T) {
 	engine := NewEngine(cfg, nil, nil, dir)
 
 	ctx := context.Background()
-	output, err := engine.runClaudeSync(ctx, "test prompt", dir, "")
+	output, err := engine.runClaudeSync(ctx, "test prompt", dir, "", "")
 	if err != nil {
 		t.Fatalf("runClaudeSync failed: %v", err)
 	}
@@ -408,7 +408,7 @@ func TestRunClaudeSyncEmptyWorkDir(t *testing.T) {
 	engine := NewEngine(cfg, nil, nil, "")
 
 	ctx := context.Background()
-	output, err := engine.runClaudeSync(ctx, "test prompt", "", "")
+	output, err := engine.runClaudeSync(ctx, "test prompt", "", "", "")
 	if err != nil {
 		t.Fatalf("runClaudeSync failed: %v", err)
 	}

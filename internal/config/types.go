@@ -88,6 +88,12 @@ type ProjectConfig struct {
 	WorktreeSetupCommands    []string                `yaml:"worktree-setup-commands"`
 	TmuxSetupCommand         string                  `yaml:"tmux-setup-command"`
 	Options                  *OptionsConfig          `yaml:"options,omitempty"`
+	// SummarizationModel is the Claude model alias (e.g. "haiku", "sonnet", "opus")
+	// or full model id used for all summarization invocations — both step-level
+	// `summarize_chat` passes and the final task summarizer. Per-step overrides
+	// via StepConfig.SummarizationModel take precedence. When empty,
+	// DefaultSummarizationModel is used.
+	SummarizationModel string `yaml:"summarization_model,omitempty"`
 }
 
 // ProjectWorkflows is the consolidated workflows section in .sortie.yml.
@@ -162,6 +168,13 @@ type StepConfig struct {
 	// "summarize_chat". Supports {{task.id}}, {{task.title}}, etc. template variables.
 	// When empty, the default summarization prompt is used.
 	SummarizationPrompt string `yaml:"summarization_prompt,omitempty"`
+	// SummarizationModel overrides the model used for this step's `summarize_chat`
+	// pass — useful when a step typically produces very large transcripts (where a
+	// larger context model like "opus" avoids triggering map-reduce chunking) or
+	// when a step's transcript is short (and "haiku" suffices).
+	// When empty, falls back to the project-level summarization_model, then to
+	// DefaultSummarizationModel.
+	SummarizationModel string `yaml:"summarization_model,omitempty"`
 }
 
 // LoopConfig defines a closed-loop jump back to an earlier step.
@@ -298,6 +311,14 @@ const (
 	// DefaultSummarizationStrategy is the strategy used when StepConfig.SummarizationStrategy
 	// is left empty. See EffectiveSummarizationStrategy().
 	DefaultSummarizationStrategy = SummarizationStrategySummarizeChat
+
+	// DefaultSummarizationModel is the Claude model alias used for summarization
+	// when neither the step nor the project specifies one. Haiku is cheap and fast,
+	// but its prompt size ceiling (~180 KB empirically) triggers map-reduce
+	// chunking for long tmux sessions; set summarization_model: opus at the
+	// project or step level to side-step chunking when a single bigger-context
+	// call is preferable.
+	DefaultSummarizationModel = "haiku"
 )
 
 // ValidSummarizationStrategies enumerates accepted values for StepConfig.SummarizationStrategy.
@@ -315,6 +336,18 @@ func (s *StepConfig) EffectiveSummarizationStrategy() string {
 		return DefaultSummarizationStrategy
 	}
 	return s.SummarizationStrategy
+}
+
+// EffectiveSummarizationModel resolves the model used for this step's summarize_chat
+// invocation. Precedence: step-level > project-level > DefaultSummarizationModel.
+func (s *StepConfig) EffectiveSummarizationModel(projectDefault string) string {
+	if s.SummarizationModel != "" {
+		return s.SummarizationModel
+	}
+	if projectDefault != "" {
+		return projectDefault
+	}
+	return DefaultSummarizationModel
 }
 
 // GlobalConfig from ~/.config/sortie/config.yaml
@@ -385,6 +418,11 @@ type Config struct {
 
 	// Command to run after creating a tmux session (e.g. layout setup)
 	TmuxSetupCommand string
+
+	// SummarizationModel is the Claude model alias used for project-level
+	// summarization defaults. Empty means DefaultSummarizationModel. Resolved
+	// per-step via StepConfig.EffectiveSummarizationModel(cfg.SummarizationModel).
+	SummarizationModel string
 
 	// From global config
 	Notifications            NotificationsConfig

@@ -270,6 +270,9 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if proj.TmuxSetupCommand != "" {
 		cfg.TmuxSetupCommand = proj.TmuxSetupCommand
 	}
+	if proj.SummarizationModel != "" {
+		cfg.SummarizationModel = proj.SummarizationModel
+	}
 	if proj.Options != nil {
 		if proj.Options.Number != nil {
 			cfg.Options.Number = proj.Options.Number
