@@ -122,7 +122,7 @@ workflows:
       step_context_empty: reviewing   # exit early when this step's output is empty
 ```
 
-Loops must point to an earlier step, can't be `human:` or `tmux:`, and can't overlap with other loops.
+Loops must point to an earlier step, can't be `human:` or run in tmux (set `print: true`), and can't overlap with other loops.
 
 ### Template variables
 
@@ -199,15 +199,42 @@ In the detail view, `j/k/G/gg/ctrl+u/ctrl+d` scroll logs; `esc` toggles between 
 
 ## Tmux integration
 
-Setting `tmux: true` on a step (or workflow) runs the agent inside a named tmux session (`sortie/<project>/<task_id>/<step>`). This is what you want when:
+Tmux is the **default** execution mode: every step runs inside a named tmux session (`sortie/<project>/<task_id>/<step>`) hosting an interactive Claude Code TUI. The daemon installs a project-scoped Claude Code `Stop` hook so it can detect turn-end events and either auto-advance to the next workflow step or finalize the task — no human "approve" keystroke needed unless the step has `human: true`. If the Stop hook never fires (e.g. managed-settings policy disabled hooks), the daemon falls back to a tmux pane hash-stability detector with a 30 s idle threshold.
 
-- The agent might ask clarifying questions you'll answer interactively.
-- You want to drop in, observe, and steer the conversation in real time.
-- A step is intrinsically interactive (e.g. reviewing diffs side-by-side).
+To opt into headless execution via `claude -p` (e.g. for short, deterministic steps where you don't need to watch), set `print: true`:
 
-Press `t` in the TUI to attach. Sortie detects nested-tmux situations (you're already inside tmux) and either switches client or nests a session, controlled by `tmux_nested_attach_behavior` (`switch` / `nest`).
+```yaml
+workflows:
+  tasks:
+    - name: ship-it
+      print: true         # workflow-level default: headless
+      steps:
+        - name: implement
+          prompt: "..."
+        - name: review
+          print: false    # this step still uses tmux
+          prompt: "..."
+```
+
+| `print` | `human` | Behavior |
+|---|---|---|
+| false (default) | false | tmux + auto-advance via Stop hook (with hash fallback) |
+| false | true | tmux + manual approval (drop into the session, then press `a`/`c`) |
+| true | false | headless `claude -p` + auto-advance on exit (legacy non-tmux flow) |
+| true | true | headless `claude -p`, then pause at `awaiting_approval` |
+
+Press `t` in the TUI to attach to a tmux session. Sortie detects nested-tmux situations (you're already inside tmux) and either switches client or nests a session, controlled by `tmux_nested_attach_behavior` (`switch` / `nest`).
 
 `sortie attach <task_id>` does the same from the shell.
+
+### Migrating from `tmux:` to `print:`
+
+The pre-Sortie-54 `tmux:` field was removed. Inversion mapping:
+
+- `tmux: true`  → `print: false` (or drop the line entirely — tmux is now the default)
+- `tmux: false` → `print: true`
+
+The daemon refuses to load a config containing the old `tmux:` field, with an error pointing at the new field.
 
 ## CLI reference
 
