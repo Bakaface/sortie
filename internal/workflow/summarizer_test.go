@@ -103,10 +103,10 @@ func TestMaxPromptBytesForModel(t *testing.T) {
 		want  int
 	}{
 		{"haiku", haikuPromptByteLimit},
-		{"", haikuPromptByteLimit},                       // empty falls back to haiku limit
+		{"", haikuPromptByteLimit},                          // empty falls back to haiku limit
 		{"claude-haiku-4-5-20251001", haikuPromptByteLimit}, // full id unknown -> defaults to haiku limit
-		{"sonnet", largeModelPromptByteLimit},
-		{"opus", largeModelPromptByteLimit},
+		{"sonnet", sonnetPromptByteLimit},
+		{"opus", opusPromptByteLimit},
 	}
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {
@@ -114,6 +114,13 @@ func TestMaxPromptBytesForModel(t *testing.T) {
 				t.Errorf("maxPromptBytesForModel(%q) = %d, want %d", tt.model, got, tt.want)
 			}
 		})
+	}
+
+	// Empirically calibrated ordering — see scripts/measure-claude-limits.
+	// Haiku < sonnet < opus must hold for chooseSummarizationModel to keep
+	// preferring the cheapest fitting model.
+	if !(haikuPromptByteLimit < sonnetPromptByteLimit && sonnetPromptByteLimit < opusPromptByteLimit) {
+		t.Errorf("expected haiku(%d) < sonnet(%d) < opus(%d)", haikuPromptByteLimit, sonnetPromptByteLimit, opusPromptByteLimit)
 	}
 }
 
@@ -123,6 +130,85 @@ func TestChunkBytesForModel(t *testing.T) {
 	}
 	if got := chunkBytesForModel("opus"); got <= chunkBytesForModel("haiku") {
 		t.Errorf("chunkBytesForModel(opus)=%d should exceed haiku's chunk size %d", got, chunkBytesForModel("haiku"))
+	}
+}
+
+func TestChooseSummarizationModel(t *testing.T) {
+	all := []string{"haiku", "sonnet", "opus"}
+
+	tests := []struct {
+		name        string
+		promptBytes int
+		allowed     []string
+		wantModel   string
+		wantFits    bool
+	}{
+		{
+			name:        "tiny prompt with all allowed picks haiku",
+			promptBytes: 1024,
+			allowed:     all,
+			wantModel:   "haiku",
+			wantFits:    true,
+		},
+		{
+			name:        "past haiku ceiling picks sonnet",
+			promptBytes: haikuPromptByteLimit + 1,
+			allowed:     all,
+			wantModel:   "sonnet",
+			wantFits:    true,
+		},
+		{
+			name:        "past sonnet ceiling picks opus",
+			promptBytes: sonnetPromptByteLimit + 1,
+			allowed:     all,
+			wantModel:   "opus",
+			wantFits:    true,
+		},
+		{
+			name:        "past opus ceiling falls back to opus with fits=false",
+			promptBytes: opusPromptByteLimit + 1,
+			allowed:     all,
+			wantModel:   "opus",
+			wantFits:    false,
+		},
+		{
+			name:        "haiku disallowed skips to sonnet",
+			promptBytes: 1024,
+			allowed:     []string{"sonnet", "opus"},
+			wantModel:   "sonnet",
+			wantFits:    true,
+		},
+		{
+			name:        "only opus allowed always picks opus",
+			promptBytes: 1024,
+			allowed:     []string{"opus"},
+			wantModel:   "opus",
+			wantFits:    true,
+		},
+		{
+			name:        "only haiku allowed past haiku ceiling falls back to haiku with fits=false",
+			promptBytes: haikuPromptByteLimit + 1,
+			allowed:     []string{"haiku"},
+			wantModel:   "haiku",
+			wantFits:    false,
+		},
+		{
+			name:        "empty allowed list uses default allowlist",
+			promptBytes: 1024,
+			allowed:     nil,
+			wantModel:   "haiku",
+			wantFits:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			model, fits := chooseSummarizationModel(tt.promptBytes, tt.allowed)
+			if model != tt.wantModel || fits != tt.wantFits {
+				t.Errorf("chooseSummarizationModel(%d, %v) = (%q, %v), want (%q, %v)",
+					tt.promptBytes, tt.allowed, model, fits, tt.wantModel, tt.wantFits)
+			}
+		})
 	}
 }
 

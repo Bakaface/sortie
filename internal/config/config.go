@@ -270,8 +270,14 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if proj.TmuxSetupCommand != "" {
 		cfg.TmuxSetupCommand = proj.TmuxSetupCommand
 	}
-	if proj.SummarizationModel != "" {
-		cfg.SummarizationModel = proj.SummarizationModel
+	if len(proj.AllowedSummarizationModels) > 0 {
+		for _, m := range proj.AllowedSummarizationModels {
+			if !ValidSummarizationModels[m] {
+				return fmt.Errorf("invalid allowed_summarization_models entry %q (must be one of %q, %q, %q)",
+					m, SummarizationModelHaiku, SummarizationModelSonnet, SummarizationModelOpus)
+			}
+		}
+		cfg.AllowedSummarizationModels = append([]string(nil), proj.AllowedSummarizationModels...)
 	}
 	if proj.Options != nil {
 		if proj.Options.Number != nil {

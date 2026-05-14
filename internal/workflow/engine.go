@@ -318,7 +318,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			if chatErr != nil {
 				log.Printf("Warning: failed to load chat content for step %q of task #%d: %v", step.Name, t.ID, chatErr)
 			} else if chat != "" && shouldSummarizeChat(chat, resultText, useTmux) {
-				summary, sumErr := e.summarizeChatLog(ctx, t, step.Name, step.SummarizationPrompt, chat, step.EffectiveSummarizationModel(e.cfg.SummarizationModel))
+				summary, sumErr := e.summarizeChatLog(ctx, t, step.Name, step.SummarizationPrompt, chat, step.EffectiveAllowedSummarizationModels(e.cfg.AllowedSummarizationModels))
 				if sumErr != nil {
 					log.Printf("Warning: summarize_chat failed for step %q of task #%d: %v", step.Name, t.ID, sumErr)
 				} else if summary != "" {
@@ -409,7 +409,7 @@ func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn
 			if err != nil {
 				log.Printf("Warning: failed to load chat for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
 			} else if chat != "" {
-				summary, err := e.summarizeChatLog(ctx, t, prevStep.Name, prevStep.SummarizationPrompt, chat, prevStep.EffectiveSummarizationModel(e.cfg.SummarizationModel))
+				summary, err := e.summarizeChatLog(ctx, t, prevStep.Name, prevStep.SummarizationPrompt, chat, prevStep.EffectiveAllowedSummarizationModels(e.cfg.AllowedSummarizationModels))
 				if err != nil {
 					log.Printf("Warning: summarize_chat failed for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
 				} else if summary != "" {

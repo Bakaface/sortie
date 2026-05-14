@@ -184,10 +184,12 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 
 	logMsg("Running summarizer for task #%d", t.ID)
 
-	// Run Claude synchronously to capture the summary text. The final task
-	// summarizer uses the project-level summarization_model (per-step overrides
-	// only apply to step-level summarize_chat passes).
-	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath, "summarize", e.cfg.SummarizationModel)
+	// Run Claude synchronously to capture the summary text. Auto-select a
+	// model from the project-level allowlist based on prompt size — the final
+	// task summarizer uses the same allowlist as step-level summarize_chat
+	// (per-step allowlist overrides only apply to summarize_chat passes).
+	model, _ := chooseSummarizationModel(len(prompt), e.cfg.AllowedSummarizationModels)
+	summary, err := e.runClaudeSync(ctx, prompt, t.WorktreePath, "summarize", model)
 	if err != nil {
 		return fmt.Errorf("summarizer claude invocation failed: %w", err)
 	}
@@ -276,22 +278,27 @@ func shouldSummarizeChat(chat, resultText string, useTmux bool) bool {
 	return len(chat) >= smallChatBytes
 }
 
-// haikuPromptByteLimit / largeModelPromptByteLimit are the safe per-invocation
-// prompt-size ceilings for `claude -p`. Empirically haiku rejects prompts
-// around ~200 KB with "Prompt is too long". Larger-context models (sonnet,
-// opus) tolerate much more; we cap at 800 KB to stay clear of the macOS
-// ARG_MAX (1 MB) for the entire argv vector.
+// haikuPromptByteLimit / sonnetPromptByteLimit / opusPromptByteLimit are the
+// empirically measured safe per-invocation prompt-size ceilings for `claude -p`.
+// Each is calibrated below the size at which `claude -p` returns
+// "Prompt is too long" — see scripts/measure-claude-limits/ (or
+// /tmp/sortie-limit-test/results.csv from the original measurement). The prompt
+// is piped on stdin so the OS-level ARG_MAX (1 MB on macOS) does not apply.
 const (
-	haikuPromptByteLimit      = 180 * 1024
-	largeModelPromptByteLimit = 800 * 1024
+	haikuPromptByteLimit  = 380 * 1024  // empirical reject at ~420 KB
+	sonnetPromptByteLimit = 700 * 1024  // empirical reject at ~800 KB
+	opusPromptByteLimit   = 1500 * 1024 // empirical reject at ~1.8 MB
 )
 
 // maxPromptBytesForModel returns the safe upper bound for a single `claude -p`
-// invocation when using the given model.
+// invocation when using the given model alias. Unknown aliases fall back to
+// the haiku ceiling (most conservative).
 func maxPromptBytesForModel(model string) int {
 	switch model {
-	case "sonnet", "opus":
-		return largeModelPromptByteLimit
+	case config.SummarizationModelOpus:
+		return opusPromptByteLimit
+	case config.SummarizationModelSonnet:
+		return sonnetPromptByteLimit
 	default:
 		return haikuPromptByteLimit
 	}
@@ -305,40 +312,85 @@ func chunkBytesForModel(model string) int {
 	return maxPromptBytesForModel(model) - headroom
 }
 
-// summarizeChatLog runs Claude haiku to summarise the given chat content.
-// customPrompt is a template that may reference the chat via a {{chat}} placeholder;
-// task template variables ({{task.id}}, {{task.title}}, etc.) are also resolved.
-// If customPrompt is empty, the default summarization prompt is used.
+// chooseSummarizationModel picks the cheapest model from the allowed list
+// whose prompt-byte ceiling fits promptBytes. Returns (model, fits=true) when
+// a fitting model exists. If no allowed model can hold the prompt, returns the
+// largest-ceiling allowed model and fits=false — the caller should fall back
+// to map-reduce on the returned model.
 //
-// When the resolved prompt exceeds the model's prompt byte limit the chat is
-// summarised via map-reduce: it is split on line boundaries into chunks sized
-// to fit the model, each chunk is summarised with a generic extraction prompt,
-// and the chunk summaries are then fed back through the original (customPrompt
-// or default) final-summary prompt.
+// Model ordering (cheapest → most capable): haiku < sonnet < opus. An empty
+// allowed list is treated as DefaultAllowedSummarizationModels.
+func chooseSummarizationModel(promptBytes int, allowed []string) (string, bool) {
+	if len(allowed) == 0 {
+		allowed = config.DefaultAllowedSummarizationModels
+	}
+	allowedSet := make(map[string]bool, len(allowed))
+	for _, m := range allowed {
+		allowedSet[m] = true
+	}
+	// Cheapest → most capable.
+	candidates := []string{
+		config.SummarizationModelHaiku,
+		config.SummarizationModelSonnet,
+		config.SummarizationModelOpus,
+	}
+	var largestAllowed string
+	var largestCap int
+	for _, m := range candidates {
+		if !allowedSet[m] {
+			continue
+		}
+		cap := maxPromptBytesForModel(m)
+		if promptBytes <= cap {
+			return m, true
+		}
+		if cap > largestCap {
+			largestCap = cap
+			largestAllowed = m
+		}
+	}
+	// Nothing fits — fall back to the largest allowed model for map-reduce.
+	// largestAllowed is non-empty because allowed is non-empty after the
+	// default-list substitution above (and candidates covers every entry that
+	// passes ValidateSteps).
+	return largestAllowed, false
+}
+
+// summarizeChatLog summarises the given chat content via Claude. The model is
+// chosen automatically per-call: the cheapest model in `allowed` whose
+// prompt-size ceiling fits the resolved prompt wins (see
+// chooseSummarizationModel). If no allowed model fits, the chat is summarised
+// via map-reduce on the largest allowed model: split on line boundaries into
+// chunks sized to fit, each chunk is summarised with a generic extraction
+// prompt, then the chunk summaries are fed back through the original
+// (customPrompt or default) final-summary prompt — at which point a fresh
+// auto-selection runs over the (smaller) reduced prompt.
 //
-// model is the Claude model alias (e.g. "haiku", "sonnet", "opus") or full
-// model id to use for the haiku-style summarization passes. Empty falls back
-// to DefaultSummarizationModel.
-func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, customPrompt, chatContent, model string) (string, error) {
+// customPrompt is a template that may reference the chat via a {{chat}}
+// placeholder; task template variables ({{task.id}}, {{task.title}}, etc.) are
+// also resolved. If customPrompt is empty, the default summarization prompt is
+// used.
+//
+// An empty `allowed` list falls back to DefaultAllowedSummarizationModels.
+func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, customPrompt, chatContent string, allowed []string) (string, error) {
 	if strings.TrimSpace(chatContent) == "" {
 		return "", nil
 	}
-	if model == "" {
-		model = config.DefaultSummarizationModel
-	}
 
 	prompt := e.buildSummarizePrompt(t, stepName, customPrompt, chatContent)
-	maxBytes := maxPromptBytesForModel(model)
+	model, fits := chooseSummarizationModel(len(prompt), allowed)
 
-	if len(prompt) > maxBytes {
-		log.Printf("summarize_chat: prompt %d bytes exceeds %s limit %d for step %q of task #%d; running map-reduce", len(prompt), model, maxBytes, stepName, t.ID)
-		chunkSummaries, err := e.summarizeChatChunks(ctx, t, stepName, chatContent, model)
+	if !fits {
+		log.Printf("summarize_chat: prompt %d bytes exceeds all allowed-model limits (%v) for step %q of task #%d; running map-reduce on %s", len(prompt), allowed, stepName, t.ID, model)
+		chunkSummaries, err := e.summarizeChatChunks(ctx, t, stepName, chatContent, allowed, model)
 		if err != nil {
 			return "", err
 		}
 		reduced := strings.Join(chunkSummaries, "\n\n--- CHUNK BOUNDARY ---\n\n")
 		prompt = e.buildSummarizePrompt(t, stepName, customPrompt, reduced)
-		log.Printf("summarize_chat: map-reduce reduce step for step %q of task #%d (%d chunk summaries, %d chars)", stepName, t.ID, len(chunkSummaries), len(reduced))
+		// Re-select on the smaller reduced prompt: a cheaper model may now fit.
+		model, _ = chooseSummarizationModel(len(prompt), allowed)
+		log.Printf("summarize_chat: map-reduce reduce step for step %q of task #%d (%d chunk summaries, %d chars, model=%s)", stepName, t.ID, len(chunkSummaries), len(reduced), model)
 	}
 
 	log.Printf("Running summarize_chat for step %q of task #%d (model=%s, prompt %d bytes)", stepName, t.ID, model, len(prompt))
@@ -389,14 +441,15 @@ func (e *Engine) buildSummarizePrompt(t *task.Task, stepName, customPrompt, chat
 	)
 }
 
-// summarizeChatChunks splits chatContent on line boundaries and runs an
-// extraction pass over each chunk with the given model, returning the per-chunk
-// summaries.
-func (e *Engine) summarizeChatChunks(ctx context.Context, t *task.Task, stepName, chatContent, model string) ([]string, error) {
-	chunks := splitOnLineBoundary(chatContent, chunkBytesForModel(model))
+// summarizeChatChunks splits chatContent on line boundaries (sized for
+// chunkModel) and runs an extraction pass over each chunk, returning the
+// per-chunk summaries. Each chunk re-selects from `allowed`: chunks small
+// enough to fit a cheaper model use it. chunkModel sets the chunk size and
+// caps the maximum chunk a cheaper model may need to swallow.
+func (e *Engine) summarizeChatChunks(ctx context.Context, t *task.Task, stepName, chatContent string, allowed []string, chunkModel string) ([]string, error) {
+	chunks := splitOnLineBoundary(chatContent, chunkBytesForModel(chunkModel))
 	summaries := make([]string, 0, len(chunks))
 	for i, chunk := range chunks {
-		log.Printf("summarize_chat: map step %d/%d for step %q of task #%d (model=%s, %d chars)", i+1, len(chunks), stepName, t.ID, model, len(chunk))
 		mapPrompt := fmt.Sprintf(
 			"This is chunk %d of %d from a Claude Code conversation log (step %q of task #%d: %s).\n"+
 				"Extract the key information from this chunk: decisions made, file paths, function/symbol names, "+
@@ -405,6 +458,8 @@ func (e *Engine) summarizeChatChunks(ctx context.Context, t *task.Task, stepName
 				"--- CHUNK ---\n%s",
 			i+1, len(chunks), stepName, t.ID, t.Title, chunk,
 		)
+		model, _ := chooseSummarizationModel(len(mapPrompt), allowed)
+		log.Printf("summarize_chat: map step %d/%d for step %q of task #%d (model=%s, %d chars)", i+1, len(chunks), stepName, t.ID, model, len(chunk))
 		s, err := e.runClaudeSync(ctx, mapPrompt, t.WorktreePath, "summarize_chat_chunk", model)
 		if err != nil {
 			return nil, fmt.Errorf("summarize_chat map step %d/%d failed: %w", i+1, len(chunks), err)
@@ -506,13 +561,18 @@ func RunWorktreeSetupCommands(ctx context.Context, projectRoot, worktreePath str
 // workDir sets the working directory for the Claude process so it can access
 // the task's worktree files. purpose tags the invocation via SORTIE_PURPOSE so
 // stub claude binaries can route the response without parsing prompt text.
-// model is the Claude model alias (e.g. "haiku", "sonnet", "opus") or full
-// model id; an empty string falls back to DefaultSummarizationModel.
+// model is the Claude model alias ("haiku", "sonnet", "opus") or full model id;
+// an empty string falls back to the haiku alias.
+//
+// The prompt is piped on stdin (claude reads it via the default --input-format
+// text path) rather than passed as an argv positional. This sidesteps the
+// macOS ARG_MAX (1 MB) ceiling that would otherwise cap the largest model
+// (opus) far below its actual prompt-size capacity.
 func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir string, purpose string, model string) (string, error) {
 	if model == "" {
-		model = config.DefaultSummarizationModel
+		model = config.SummarizationModelHaiku
 	}
-	args := []string{"-p", prompt, "--output-format", "text", "--model", model}
+	args := []string{"-p", "--output-format", "text", "--model", model}
 	args = append(args, e.cfg.Claude.Args()...)
 
 	cmd := exec.CommandContext(ctx, e.cfg.Claude.Command, args...)
@@ -522,6 +582,7 @@ func (e *Engine) runClaudeSync(ctx context.Context, prompt string, workDir strin
 	if purpose != "" {
 		cmd.Env = append(os.Environ(), "SORTIE_PURPOSE="+purpose)
 	}
+	cmd.Stdin = strings.NewReader(prompt)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

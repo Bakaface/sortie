@@ -783,30 +783,72 @@ func TestValidateLoopsNoLoop(t *testing.T) {
 	}
 }
 
-func TestEffectiveSummarizationModel(t *testing.T) {
+func TestEffectiveAllowedSummarizationModels(t *testing.T) {
 	tests := []struct {
 		name           string
-		stepModel      string
-		projectDefault string
-		want           string
+		stepAllowed    []string
+		projectDefault []string
+		want           []string
 	}{
-		{"both empty falls back to default", "", "", DefaultSummarizationModel},
-		{"project default used when step empty", "", "opus", "opus"},
-		{"step overrides project default", "sonnet", "opus", "sonnet"},
-		{"step overrides empty project default", "opus", "", "opus"},
+		{
+			name:           "both empty falls back to default allowlist",
+			stepAllowed:    nil,
+			projectDefault: nil,
+			want:           DefaultAllowedSummarizationModels,
+		},
+		{
+			name:           "project default used when step empty",
+			stepAllowed:    nil,
+			projectDefault: []string{"sonnet", "opus"},
+			want:           []string{"sonnet", "opus"},
+		},
+		{
+			name:           "step overrides project default",
+			stepAllowed:    []string{"opus"},
+			projectDefault: []string{"haiku", "sonnet"},
+			want:           []string{"opus"},
+		},
+		{
+			name:           "step overrides empty project default",
+			stepAllowed:    []string{"haiku"},
+			projectDefault: nil,
+			want:           []string{"haiku"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := &StepConfig{SummarizationModel: tt.stepModel}
-			if got := step.EffectiveSummarizationModel(tt.projectDefault); got != tt.want {
-				t.Errorf("EffectiveSummarizationModel(%q) with step=%q = %q, want %q",
-					tt.projectDefault, tt.stepModel, got, tt.want)
+			step := &StepConfig{AllowedSummarizationModels: tt.stepAllowed}
+			got := step.EffectiveAllowedSummarizationModels(tt.projectDefault)
+			if len(got) != len(tt.want) {
+				t.Fatalf("EffectiveAllowedSummarizationModels: got %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("EffectiveAllowedSummarizationModels[%d]: got %q, want %q", i, got[i], tt.want[i])
+				}
 			}
 		})
 	}
-	if DefaultSummarizationModel != "haiku" {
-		t.Errorf("DefaultSummarizationModel = %q, want %q (changing the default warrants reviewing prompt-size limits in internal/workflow/summarizer.go)",
-			DefaultSummarizationModel, "haiku")
+
+	// The default must allow all three aliases so the auto-selector can pick the
+	// cheapest fitting model for every prompt size.
+	wantDefault := map[string]bool{"haiku": true, "sonnet": true, "opus": true}
+	if len(DefaultAllowedSummarizationModels) != len(wantDefault) {
+		t.Errorf("DefaultAllowedSummarizationModels = %v, want all three aliases", DefaultAllowedSummarizationModels)
+	}
+	for _, m := range DefaultAllowedSummarizationModels {
+		if !wantDefault[m] {
+			t.Errorf("DefaultAllowedSummarizationModels contains unexpected entry %q", m)
+		}
+	}
+
+	// EffectiveAllowedSummarizationModels must return a copy so callers can
+	// mutate the slice without poisoning the default.
+	step := &StepConfig{}
+	got := step.EffectiveAllowedSummarizationModels(nil)
+	got[0] = "MUTATED"
+	if DefaultAllowedSummarizationModels[0] == "MUTATED" {
+		t.Errorf("EffectiveAllowedSummarizationModels returned a reference to the default slice")
 	}
 }
 

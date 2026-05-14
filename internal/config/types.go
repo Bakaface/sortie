@@ -88,12 +88,13 @@ type ProjectConfig struct {
 	WorktreeSetupCommands    []string                `yaml:"worktree-setup-commands"`
 	TmuxSetupCommand         string                  `yaml:"tmux-setup-command"`
 	Options                  *OptionsConfig          `yaml:"options,omitempty"`
-	// SummarizationModel is the Claude model alias (e.g. "haiku", "sonnet", "opus")
-	// or full model id used for all summarization invocations — both step-level
-	// `summarize_chat` passes and the final task summarizer. Per-step overrides
-	// via StepConfig.SummarizationModel take precedence. When empty,
-	// DefaultSummarizationModel is used.
-	SummarizationModel string `yaml:"summarization_model,omitempty"`
+	// AllowedSummarizationModels restricts which Claude model aliases the
+	// summarizer is allowed to pick from. The actual model is chosen
+	// automatically per-call based on prompt size — the smallest allowed model
+	// whose ceiling fits the prompt wins. Valid aliases: "haiku", "sonnet",
+	// "opus". When empty, defaults to DefaultAllowedSummarizationModels (all
+	// three). Per-step overrides live on StepConfig.AllowedSummarizationModels.
+	AllowedSummarizationModels []string `yaml:"allowed_summarization_models,omitempty"`
 }
 
 // ProjectWorkflows is the consolidated workflows section in .sortie.yml.
@@ -168,13 +169,11 @@ type StepConfig struct {
 	// "summarize_chat". Supports {{task.id}}, {{task.title}}, etc. template variables.
 	// When empty, the default summarization prompt is used.
 	SummarizationPrompt string `yaml:"summarization_prompt,omitempty"`
-	// SummarizationModel overrides the model used for this step's `summarize_chat`
-	// pass — useful when a step typically produces very large transcripts (where a
-	// larger context model like "opus" avoids triggering map-reduce chunking) or
-	// when a step's transcript is short (and "haiku" suffices).
-	// When empty, falls back to the project-level summarization_model, then to
-	// DefaultSummarizationModel.
-	SummarizationModel string `yaml:"summarization_model,omitempty"`
+	// AllowedSummarizationModels narrows which models the summarizer may pick
+	// for this step's `summarize_chat` pass. Same semantics as the project-level
+	// field — auto-selection picks the cheapest allowed model that fits the
+	// prompt. When empty, the project-level setting is used.
+	AllowedSummarizationModels []string `yaml:"allowed_summarization_models,omitempty"`
 }
 
 // LoopConfig defines a closed-loop jump back to an earlier step.
@@ -267,6 +266,13 @@ func (wf *WorkflowConfig) ValidateSteps() error {
 				step.Name, step.SummarizationStrategy,
 				SummarizationStrategyLastMessage, SummarizationStrategySummarizeChat)
 		}
+		for _, m := range step.AllowedSummarizationModels {
+			if !ValidSummarizationModels[m] {
+				return fmt.Errorf("step %q: invalid allowed_summarization_models entry %q (must be one of %q, %q, %q)",
+					step.Name, m,
+					SummarizationModelHaiku, SummarizationModelSonnet, SummarizationModelOpus)
+			}
+		}
 	}
 	return nil
 }
@@ -312,14 +318,30 @@ const (
 	// is left empty. See EffectiveSummarizationStrategy().
 	DefaultSummarizationStrategy = SummarizationStrategySummarizeChat
 
-	// DefaultSummarizationModel is the Claude model alias used for summarization
-	// when neither the step nor the project specifies one. Haiku is cheap and fast,
-	// but its prompt size ceiling (~180 KB empirically) triggers map-reduce
-	// chunking for long tmux sessions; set summarization_model: opus at the
-	// project or step level to side-step chunking when a single bigger-context
-	// call is preferable.
-	DefaultSummarizationModel = "haiku"
+	// SummarizationModelHaiku, SummarizationModelSonnet, SummarizationModelOpus
+	// are the three Claude model aliases the summarizer auto-selects from.
+	// Ordered cheapest → most capable.
+	SummarizationModelHaiku  = "haiku"
+	SummarizationModelSonnet = "sonnet"
+	SummarizationModelOpus   = "opus"
 )
+
+// DefaultAllowedSummarizationModels is the allowlist used when neither the
+// step nor the project specifies one. All three models are allowed by default;
+// the summarizer picks the cheapest one whose prompt-size ceiling fits.
+var DefaultAllowedSummarizationModels = []string{
+	SummarizationModelHaiku,
+	SummarizationModelSonnet,
+	SummarizationModelOpus,
+}
+
+// ValidSummarizationModels enumerates accepted aliases for the
+// allowed_summarization_models config field.
+var ValidSummarizationModels = map[string]bool{
+	SummarizationModelHaiku:  true,
+	SummarizationModelSonnet: true,
+	SummarizationModelOpus:   true,
+}
 
 // ValidSummarizationStrategies enumerates accepted values for StepConfig.SummarizationStrategy.
 var ValidSummarizationStrategies = map[string]bool{
@@ -338,16 +360,21 @@ func (s *StepConfig) EffectiveSummarizationStrategy() string {
 	return s.SummarizationStrategy
 }
 
-// EffectiveSummarizationModel resolves the model used for this step's summarize_chat
-// invocation. Precedence: step-level > project-level > DefaultSummarizationModel.
-func (s *StepConfig) EffectiveSummarizationModel(projectDefault string) string {
-	if s.SummarizationModel != "" {
-		return s.SummarizationModel
+// EffectiveAllowedSummarizationModels resolves the allowlist used to pick a
+// summarization model for this step. Precedence: step-level >
+// project-level > DefaultAllowedSummarizationModels. Returns a copy so callers
+// can safely mutate.
+func (s *StepConfig) EffectiveAllowedSummarizationModels(projectDefault []string) []string {
+	src := s.AllowedSummarizationModels
+	if len(src) == 0 {
+		src = projectDefault
 	}
-	if projectDefault != "" {
-		return projectDefault
+	if len(src) == 0 {
+		src = DefaultAllowedSummarizationModels
 	}
-	return DefaultSummarizationModel
+	out := make([]string, len(src))
+	copy(out, src)
+	return out
 }
 
 // GlobalConfig from ~/.config/sortie/config.yaml
@@ -419,10 +446,11 @@ type Config struct {
 	// Command to run after creating a tmux session (e.g. layout setup)
 	TmuxSetupCommand string
 
-	// SummarizationModel is the Claude model alias used for project-level
-	// summarization defaults. Empty means DefaultSummarizationModel. Resolved
-	// per-step via StepConfig.EffectiveSummarizationModel(cfg.SummarizationModel).
-	SummarizationModel string
+	// AllowedSummarizationModels is the project-level allowlist used to
+	// auto-pick a summarization model. Empty means
+	// DefaultAllowedSummarizationModels. Resolved per-step via
+	// StepConfig.EffectiveAllowedSummarizationModels(cfg.AllowedSummarizationModels).
+	AllowedSummarizationModels []string
 
 	// From global config
 	Notifications            NotificationsConfig
