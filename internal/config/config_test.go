@@ -866,6 +866,7 @@ func TestEffectiveSummarizationStrategy(t *testing.T) {
 		{"empty falls back to default", "", DefaultSummarizationStrategy},
 		{"explicit last_message preserved", SummarizationStrategyLastMessage, SummarizationStrategyLastMessage},
 		{"explicit summarize_chat preserved", SummarizationStrategySummarizeChat, SummarizationStrategySummarizeChat},
+		{"explicit none preserved", SummarizationStrategyNone, SummarizationStrategyNone},
 	}
 
 	for _, tt := range tests {
@@ -892,6 +893,7 @@ func TestValidateStepsSummarizationStrategy(t *testing.T) {
 		{"empty (default)", "", false},
 		{"last_message", "last_message", false},
 		{"summarize_chat", "summarize_chat", false},
+		{"none", "none", false},
 		{"invalid", "bogus", true},
 	}
 

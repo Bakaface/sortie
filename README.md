@@ -104,7 +104,7 @@ workflows:
 | `timeout` | duration | e.g. `30m`. Default: 30 minutes. |
 | `human` | bool | Pause and wait for explicit approval in the TUI. |
 | `tmux` | bool | Run inside a tmux session you can attach to (`t` in the TUI). Step-level overrides workflow-level. |
-| `summarization_strategy` | enum | `last_message` (default) or `summarize_chat` (Haiku-summarized chat log). |
+| `summarization_strategy` | enum | `last_message`, `summarize_chat` (default, Haiku-summarized chat log), or `none` (no context captured). |
 | `loop` | object | Jump back to an earlier step. See below. |
 
 ### Loops

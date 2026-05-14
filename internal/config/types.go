@@ -320,9 +320,9 @@ func (wf *WorkflowConfig) ValidateLoops() error {
 func (wf *WorkflowConfig) ValidateSteps() error {
 	for _, step := range wf.Steps {
 		if !ValidSummarizationStrategies[step.SummarizationStrategy] {
-			return fmt.Errorf("step %q: invalid summarization_strategy %q (must be %q or %q)",
+			return fmt.Errorf("step %q: invalid summarization_strategy %q (must be %q, %q, or %q)",
 				step.Name, step.SummarizationStrategy,
-				SummarizationStrategyLastMessage, SummarizationStrategySummarizeChat)
+				SummarizationStrategyLastMessage, SummarizationStrategySummarizeChat, SummarizationStrategyNone)
 		}
 		for _, m := range step.AllowedSummarizationModels {
 			if !ValidSummarizationModels[m] {
@@ -380,6 +380,14 @@ const (
 	// stores the summary as step context. Default for new steps when unset.
 	SummarizationStrategySummarizeChat = "summarize_chat"
 
+	// SummarizationStrategyNone disables summarization for the step entirely:
+	// no chat summarization pass is run and no step context is captured. Later
+	// steps that reference `{{steps.<name>.context}}` will see an empty string.
+	// Useful for steps whose output isn't meaningful to later steps (e.g.
+	// fire-and-forget actions) and where the cost of a summarization pass is
+	// unwanted.
+	SummarizationStrategyNone = "none"
+
 	// DefaultSummarizationStrategy is the strategy used when StepConfig.SummarizationStrategy
 	// is left empty. See EffectiveSummarizationStrategy().
 	DefaultSummarizationStrategy = SummarizationStrategySummarizeChat
@@ -414,6 +422,7 @@ var ValidSummarizationStrategies = map[string]bool{
 	"":                                 true, // empty means default (DefaultSummarizationStrategy)
 	SummarizationStrategyLastMessage:   true,
 	SummarizationStrategySummarizeChat: true,
+	SummarizationStrategyNone:          true,
 }
 
 // EffectiveSummarizationStrategy returns the configured strategy, substituting the

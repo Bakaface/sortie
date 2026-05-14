@@ -190,7 +190,9 @@ By default, the step's captured context is the agent's final output message. Two
 | Strategy | What gets captured |
 |---|---|
 | (unset) | The agent's final output message |
+| `last_message` | The agent's final output message (explicit) |
 | `summarize_chat` | A second Claude call summarizes the full transcript using `summarization_prompt` |
+| `none` | Nothing — no step context is captured; later `{{steps.<name>.context}}` references resolve to empty |
 
 `summarize_chat` is essential for tmux/grilling steps where the meaningful output is the dialogue, not a final message. The summarizer step also unlocks the `step_context_empty` loop exit pattern: instruct the summarizer to emit empty output when "no issues found", and the loop will terminate.
 

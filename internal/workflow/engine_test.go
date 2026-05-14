@@ -949,6 +949,72 @@ func TestRunTaskDoesNotCallExecuteOnComplete(t *testing.T) {
 	}
 }
 
+func TestRunTaskSummarizationStrategyNoneSkipsContext(t *testing.T) {
+	// Verify that a step with summarization_strategy: none does not capture
+	// any step context — later steps see empty context for that step.
+	dir := t.TempDir()
+
+	// Fake Claude script emits something on stdout so a normal step would
+	// otherwise capture a non-empty result.
+	script := filepath.Join(t.TempDir(), "fake-claude.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho 'last message body'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+
+	tk, err := database.CreateTask(project.ID, "Test task", "desc", "slug", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+	tk.Worktree = false
+	tk.WorktreePath = dir
+
+	cfg := &config.Config{
+		Claude: config.ClaudeConfig{Command: script},
+		Git:    config.GitConfig{OnComplete: "none"},
+		Workflows: []config.WorkflowConfig{
+			{
+				Name: "default",
+				Steps: []config.StepConfig{
+					{
+						Name:                  "fire-and-forget",
+						Prompt:                "do a thing",
+						SummarizationStrategy: config.SummarizationStrategyNone,
+					},
+				},
+			},
+		},
+	}
+	engine := NewEngine(cfg, database, nil, dir)
+
+	ctx := context.Background()
+	if err := engine.RunTask(ctx, tk, nil); err != nil {
+		t.Fatalf("RunTask failed: %v", err)
+	}
+
+	gotCtx, err := database.GetTaskStepContext(tk.ID, "fire-and-forget")
+	if err != nil {
+		t.Fatalf("GetTaskStepContext failed: %v", err)
+	}
+	if gotCtx != "" {
+		t.Errorf("expected empty step context for summarization_strategy=none, got %q", gotCtx)
+	}
+}
+
 func TestTmuxScriptNonEmptyPromptPassesPrompt(t *testing.T) {
 	// Verify that when prompt is non-empty, the tmux script passes it to Claude
 	prompt := "implement the feature"

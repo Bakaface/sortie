@@ -318,16 +318,18 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		// Record step completion with context.
 		// For summarize_chat, store last_message immediately and kick off
 		// background summarization that will overwrite the context when done.
+		// For "none", skip context capture entirely so later steps see no context.
+		strategy := step.EffectiveSummarizationStrategy()
 		stepContextText := resultText
 		var ctxPtr *string
-		if stepContextText != "" {
+		if strategy != config.SummarizationStrategyNone && stepContextText != "" {
 			ctxPtr = &stepContextText
 		}
 		if err := e.database.CompleteTaskStep(t.ID, step.Name, ctxPtr, exitCode); err != nil {
 			log.Printf("Warning: failed to complete task step record: %v", err)
 		}
 
-		if step.EffectiveSummarizationStrategy() == config.SummarizationStrategySummarizeChat {
+		if strategy == config.SummarizationStrategySummarizeChat {
 			chat, chatErr := e.loadStepChatContent(t, step.Name, useTmux)
 			if chatErr != nil {
 				log.Printf("Warning: failed to load chat content for step %q of task #%d: %v", step.Name, t.ID, chatErr)
