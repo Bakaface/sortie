@@ -188,16 +188,22 @@ func (s *Server) recoverOrphanedTasks() error {
 // Returns (resumed, error) where resumed indicates whether a prior session
 // was found and resumed.
 func (s *Server) restoreTmuxSession(t *task.Task) (bool, error) {
-	if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
-		return false, fmt.Errorf("worktree path does not exist: %s", t.WorktreePath)
-	}
-
 	taskID := fmt.Sprintf("%d", t.ID)
 
 	pc, _ := s.getProjectContext(t.ProjectID)
 	projectName := ""
 	if pc != nil {
 		projectName = pc.cfg.Project.Name
+	}
+
+	// Non-worktree tasks may have empty WorktreePath in older DB rows
+	// (the engine used to set it in-memory only). Fall back to repo root,
+	// matching startTaskAgent's fallback behavior.
+	if t.WorktreePath == "" && pc != nil && pc.repoRoot != "" {
+		t.WorktreePath = pc.repoRoot
+	}
+	if t.WorktreePath == "" || !dirExists(t.WorktreePath) {
+		return false, fmt.Errorf("worktree path does not exist: %s", t.WorktreePath)
 	}
 
 	session := tmux.NewSession(projectName, taskID, t.WorktreePath)

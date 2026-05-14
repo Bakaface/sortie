@@ -134,8 +134,13 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 		}
 	} else {
-		// No-worktree mode: run in project root directory
+		// No-worktree mode: run in project root directory.
+		// Persist the path so daemon restart can restore tmux sessions for
+		// non-worktree tasks (DB row would otherwise have NULL worktree_path).
 		t.WorktreePath = e.repoRoot
+		if err := e.database.UpdateTaskWorktreePath(t.ID, e.repoRoot); err != nil {
+			log.Printf("Warning: failed to persist worktree path for non-worktree task #%d: %v", t.ID, err)
+		}
 	}
 
 	// Sync configured paths from project root into the worktree
