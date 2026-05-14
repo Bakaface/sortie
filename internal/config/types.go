@@ -145,26 +145,50 @@ type GitConfig struct {
 }
 
 type WorkflowConfig struct {
-	Name                 string                  `yaml:"name"`
-	Description          string                  `yaml:"description,omitempty"`
-	Tmux                 bool                    `yaml:"tmux,omitempty"`
-	Steps                []StepConfig            `yaml:"steps"`
-	SummarizerPrompt     string                  `yaml:"summarizer_prompt"`
-	WorktreeSyncPaths    WorktreeSyncPathsConfig `yaml:"worktree-sync-paths,omitempty"`
+	Name                  string                  `yaml:"name"`
+	Description           string                  `yaml:"description,omitempty"`
+	// Print controls the workflow-level default execution mode for Claude steps.
+	//   false (default): run each step in tmux (interactive Claude Code TUI).
+	//   true:            run each step headless via `claude -p`.
+	// Step-level Print overrides this default. Replaces the previous `tmux` field.
+	Print                 bool                    `yaml:"print,omitempty"`
+	Steps                 []StepConfig            `yaml:"steps"`
+	SummarizerPrompt      string                  `yaml:"summarizer_prompt"`
+	WorktreeSyncPaths     WorktreeSyncPathsConfig `yaml:"worktree-sync-paths,omitempty"`
 	WorktreeSetupCommand  string                  `yaml:"worktree-setup-command,omitempty"`
-	WorktreeSetupCommands []string               `yaml:"worktree-setup-commands,omitempty"`
-	TmuxSetupCommand     string                  `yaml:"tmux-setup-command,omitempty"`
+	WorktreeSetupCommands []string                `yaml:"worktree-setup-commands,omitempty"`
+	TmuxSetupCommand      string                  `yaml:"tmux-setup-command,omitempty"`
+}
+
+// UnmarshalYAML decodes a WorkflowConfig and rejects the legacy `tmux:` field
+// with a migration error. The replacement is the inverted `print:` field.
+func (wf *WorkflowConfig) UnmarshalYAML(value *yaml.Node) error {
+	if err := checkDeprecatedTmuxField(value, "workflow"); err != nil {
+		return err
+	}
+	type raw WorkflowConfig
+	var r raw
+	if err := value.Decode(&r); err != nil {
+		return err
+	}
+	*wf = WorkflowConfig(r)
+	return nil
 }
 
 type StepConfig struct {
-	Name                  string      `yaml:"name"`
-	Prompt                string      `yaml:"prompt"`
-	Mode                  string      `yaml:"mode"`
-	Tmux                  *bool       `yaml:"tmux,omitempty"`
-	Timeout               string      `yaml:"timeout"`
-	Human                 bool        `yaml:"human"`
-	Loop                  *LoopConfig `yaml:"loop,omitempty"`
-	SummarizationStrategy string      `yaml:"summarization_strategy,omitempty"`
+	Name string `yaml:"name"`
+	Prompt string `yaml:"prompt"`
+	Mode string `yaml:"mode"`
+	// Print, when non-nil, overrides the workflow-level Print default for this step.
+	//   nil (default):    inherit workflow.Print
+	//   *false:           tmux
+	//   *true:            headless `claude -p`
+	// Replaces the previous step-level `tmux` field.
+	Print *bool `yaml:"print,omitempty"`
+	Timeout string `yaml:"timeout"`
+	Human bool `yaml:"human"`
+	Loop *LoopConfig `yaml:"loop,omitempty"`
+	SummarizationStrategy string `yaml:"summarization_strategy,omitempty"`
 	// SummarizationPrompt is the prompt template used when summarization_strategy is
 	// "summarize_chat". Supports {{task.id}}, {{task.title}}, etc. template variables.
 	// When empty, the default summarization prompt is used.
@@ -174,6 +198,40 @@ type StepConfig struct {
 	// field — auto-selection picks the cheapest allowed model that fits the
 	// prompt. When empty, the project-level setting is used.
 	AllowedSummarizationModels []string `yaml:"allowed_summarization_models,omitempty"`
+}
+
+// UnmarshalYAML decodes a StepConfig and rejects the legacy `tmux:` field
+// with a migration error.
+func (s *StepConfig) UnmarshalYAML(value *yaml.Node) error {
+	if err := checkDeprecatedTmuxField(value, "step"); err != nil {
+		return err
+	}
+	type raw StepConfig
+	var r raw
+	if err := value.Decode(&r); err != nil {
+		return err
+	}
+	*s = StepConfig(r)
+	return nil
+}
+
+// checkDeprecatedTmuxField scans a YAML mapping node for the removed `tmux:`
+// field and returns a migration-friendly error pointing at the new `print:`
+// field. scope is the noun reported in the error (e.g. "workflow" or "step").
+func checkDeprecatedTmuxField(node *yaml.Node, scope string) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i]
+		if key.Kind != yaml.ScalarNode {
+			continue
+		}
+		if key.Value == "tmux" {
+			return fmt.Errorf("%s field `tmux` was removed in favour of `print` (inverted): replace `tmux: true` with `print: false` and `tmux: false` with `print: true`", scope)
+		}
+	}
+	return nil
 }
 
 // LoopConfig defines a closed-loop jump back to an earlier step.
@@ -223,12 +281,12 @@ func (wf *WorkflowConfig) ValidateLoops() error {
 			return fmt.Errorf("step %q: loop max_iterations must be >= 1", step.Name)
 		}
 
-		// A step with loop cannot have human or tmux
+		// A step with loop cannot have human or run inside tmux
 		if step.Human {
 			return fmt.Errorf("step %q: loop steps cannot have human: true", step.Name)
 		}
-		if step.Tmux != nil && *step.Tmux {
-			return fmt.Errorf("step %q: loop steps cannot have tmux: true", step.Name)
+		if !step.UsePrint(wf.Print) {
+			return fmt.Errorf("step %q: loop steps cannot run in tmux (set print: true on the step or workflow)", step.Name)
 		}
 
 		// Validate exit condition
@@ -277,24 +335,32 @@ func (wf *WorkflowConfig) ValidateSteps() error {
 	return nil
 }
 
-// UseTmux returns whether this step should use tmux execution.
-// Step-level setting overrides the workflow default.
-func (s *StepConfig) UseTmux(workflowDefault bool) bool {
-	if s.Tmux != nil {
-		return *s.Tmux
+// UsePrint returns whether this step should execute via `claude -p` (headless).
+// Step-level setting overrides the workflow default. When false (the default), the
+// step runs inside a tmux session housing the Claude Code TUI.
+func (s *StepConfig) UsePrint(workflowDefault bool) bool {
+	if s.Print != nil {
+		return *s.Print
 	}
 	return workflowDefault
 }
 
+// UseTmux is the inverse of UsePrint: it returns whether this step runs inside a
+// tmux session. Kept as a thin helper because most call sites still care about
+// the tmux side of the decision.
+func (s *StepConfig) UseTmux(workflowDefault bool) bool {
+	return !s.UsePrint(workflowDefault)
+}
+
 // FirstStepIsTmux returns true when this workflow has at least one step and the
-// first step runs in tmux (either via step-level Tmux=true or the workflow-level
-// Tmux default). Tmux-first workflows may be started without a description since
-// the user drives the session interactively.
+// first step runs in tmux (i.e. `print` is false at both workflow and step level
+// for the first step). Tmux-first workflows may be started without a description
+// since the user drives the session interactively.
 func (wf *WorkflowConfig) FirstStepIsTmux() bool {
 	if wf == nil || len(wf.Steps) == 0 {
 		return false
 	}
-	return wf.Steps[0].UseTmux(wf.Tmux)
+	return wf.Steps[0].UseTmux(wf.Print)
 }
 
 const (

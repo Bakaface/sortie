@@ -120,17 +120,20 @@ func TestDeleteCmd_InvalidTaskID(t *testing.T) {
 }
 
 func TestWorkflowAllowsEmptyDescription(t *testing.T) {
-	tr := true
-
 	tmuxFirst := config.WorkflowConfig{
+		// Default mode is tmux — no need to set print explicitly.
 		Name: "interact",
 		Steps: []config.StepConfig{
-			{Name: "shell", Tmux: &tr},
+			{Name: "shell"},
 			{Name: "review"},
 		},
 	}
 	plain := config.WorkflowConfig{
-		Name: "default",
+		// Workflow-level print=true forces headless execution; tasks that use
+		// this workflow must supply a description because there is no
+		// interactive tmux session for the user to drive.
+		Name:  "default",
+		Print: true,
 		Steps: []config.StepConfig{
 			{Name: "implement"},
 		},
@@ -145,14 +148,14 @@ func TestWorkflowAllowsEmptyDescription(t *testing.T) {
 		t.Error("nil cfg should never allow empty descriptions")
 	}
 	if workflowAllowsEmptyDescription(cfg, "default") {
-		t.Error("plain workflow should not allow empty descriptions")
+		t.Error("print workflow should not allow empty descriptions")
 	}
 	if !workflowAllowsEmptyDescription(cfg, "interact") {
 		t.Error("tmux-first workflow should allow empty descriptions")
 	}
 	// Empty workflow name resolves to the first registered workflow,
-	// which in this fixture is the plain (non-tmux) workflow.
+	// which in this fixture is the headless (print=true) workflow.
 	if workflowAllowsEmptyDescription(cfg, "") {
-		t.Error("empty workflow name should resolve to first workflow (plain)")
+		t.Error("empty workflow name should resolve to first workflow (print=true)")
 	}
 }

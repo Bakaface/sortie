@@ -235,15 +235,17 @@ func TestTmuxFirstTitle(t *testing.T) {
 }
 
 func TestCreateTaskRequest_EmptyDescriptionAllowedForTmuxFirstWorkflow(t *testing.T) {
-	tr := true
 	tmuxFirst := config.WorkflowConfig{
+		// Default mode is tmux — no explicit `print` needed.
 		Name: "interact",
 		Steps: []config.StepConfig{
-			{Name: "shell", Tmux: &tr},
+			{Name: "shell"},
 		},
 	}
 	plain := config.WorkflowConfig{
-		Name: "default",
+		// Force headless mode so this workflow demands a description.
+		Name:  "default",
+		Print: true,
 		Steps: []config.StepConfig{
 			{Name: "implement"},
 		},
@@ -269,7 +271,7 @@ func TestCreateTaskRequest_EmptyDescriptionAllowedForTmuxFirstWorkflow(t *testin
 			wantTitle:   "tmux: interact",
 		},
 		{
-			name:        "empty description with plain workflow is rejected",
+			name:        "empty description with print workflow is rejected",
 			description: "",
 			workflow:    "default",
 			wantReject:  true,

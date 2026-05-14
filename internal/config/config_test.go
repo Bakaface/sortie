@@ -498,6 +498,7 @@ func TestLoopConfigParsing(t *testing.T) {
 
 	yamlContent := `
 workflow:
+  print: true
   steps:
     - name: plan
       prompt: "Plan"
@@ -556,8 +557,10 @@ workflow:
 }
 
 func TestValidateLoopsValidConfig(t *testing.T) {
+	// Loop steps cannot run in tmux, so the workflow must opt into headless mode.
 	wf := &WorkflowConfig{
-		Name: "test",
+		Name:  "test",
+		Print: true,
 		Steps: []StepConfig{
 			{Name: "plan", Prompt: "Plan"},
 			{Name: "implement", Prompt: "Implement"},
@@ -707,7 +710,8 @@ func TestValidateLoopsHumanStep(t *testing.T) {
 
 func TestValidateLoopsInvalidExitCondition(t *testing.T) {
 	wf := &WorkflowConfig{
-		Name: "test",
+		Name:  "test",
+		Print: true,
 		Steps: []StepConfig{
 			{Name: "plan", Prompt: "Plan"},
 			{
@@ -735,7 +739,8 @@ func TestValidateLoopsInvalidExitCondition(t *testing.T) {
 
 func TestValidateLoopsOverlapping(t *testing.T) {
 	wf := &WorkflowConfig{
-		Name: "test",
+		Name:  "test",
+		Print: true,
 		Steps: []StepConfig{
 			{Name: "step1", Prompt: "Step 1"},
 			{Name: "step2", Prompt: "Step 2"},
@@ -2060,56 +2065,50 @@ func TestWorkflowConfig_FirstStepIsTmux(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "step-level tmux true on first step",
+			// Default (print not set) means tmux mode — first step runs in tmux.
+			name: "default first step is tmux",
 			wf: &WorkflowConfig{
 				Name: "tmux-first",
 				Steps: []StepConfig{
-					{Name: "interact", Tmux: &tr},
-					{Name: "review"},
-				},
-			},
-			want: true,
-		},
-		{
-			name: "workflow-level tmux default applies to first step",
-			wf: &WorkflowConfig{
-				Name: "wf-tmux",
-				Tmux: true,
-				Steps: []StepConfig{
 					{Name: "interact"},
+					{Name: "review"},
 				},
 			},
 			want: true,
 		},
 		{
-			name: "step-level tmux false overrides workflow default",
+			// Workflow-level print=true makes the first step run headless.
+			name: "workflow-level print true disables tmux",
 			wf: &WorkflowConfig{
-				Name: "override-off",
-				Tmux: true,
+				Name:  "headless",
+				Print: true,
 				Steps: []StepConfig{
-					{Name: "implement", Tmux: &fa},
+					{Name: "implement"},
 				},
 			},
 			want: false,
 		},
 		{
-			name: "first step non-tmux even when later step is tmux",
+			// Step-level print=false overrides workflow-level print=true, restoring tmux.
+			name: "step-level print false overrides workflow default",
 			wf: &WorkflowConfig{
-				Name: "tmux-second",
+				Name:  "override-on",
+				Print: true,
 				Steps: []StepConfig{
-					{Name: "implement"},
-					{Name: "interact", Tmux: &tr},
+					{Name: "interact", Print: &fa},
 				},
 			},
-			want: false,
+			want: true,
 		},
 		{
-			name: "no tmux at all returns false",
+			// Step-level print=true on the first step disables tmux even when
+			// workflow-level print=false (tmux mode).
+			name: "step-level print true on first step",
 			wf: &WorkflowConfig{
-				Name: "plain",
+				Name: "headless-first",
 				Steps: []StepConfig{
-					{Name: "implement"},
-					{Name: "review"},
+					{Name: "implement", Print: &tr},
+					{Name: "interact"},
 				},
 			},
 			want: false,
@@ -2168,3 +2167,25 @@ func TestClaudeCommandGlobalConfig(t *testing.T) {
 		t.Errorf("expected claude.default_args [--verbose], got %v", cfg.Claude.DefaultArgs)
 	}
 }
+
+// TestLoadProjectConfig_LegacyTmuxFieldRejected verifies the production load
+// path (not just ValidateFile) refuses configs that still use the removed
+// `tmux:` field, with an error that names both the removed and replacement
+// fields so the user can migrate without consulting docs.
+func TestLoadProjectConfig_LegacyTmuxFieldRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".sortie.yml")
+	yaml := "workflows:\n  tasks:\n    - name: w\n      tmux: true\n      steps:\n        - name: s\n          prompt: do\n"
+	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	err := loadProjectConfig(path, cfg)
+	if err == nil {
+		t.Fatal("expected error when loading config with legacy `tmux:` field")
+	}
+	if !contains(err.Error(), "tmux") || !contains(err.Error(), "print") {
+		t.Errorf("error must mention both `tmux` and `print` for migration clarity, got: %v", err)
+	}
+}
+

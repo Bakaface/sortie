@@ -225,11 +225,11 @@ type WorkflowStepSummary struct {
 
 // WorkflowSummary describes a single workflow available in a project.
 type WorkflowSummary struct {
-	Name             string                `json:"name"`
-	Description      string                `json:"description,omitempty"`
-	Tmux             bool                  `json:"tmux,omitempty"`              // workflow-level default
-	FirstStepIsTmux  bool                  `json:"first_step_is_tmux,omitempty"` // derived; useful for picking interactive workflows
-	Steps            []WorkflowStepSummary `json:"steps,omitempty"`
+	Name            string                `json:"name"`
+	Description     string                `json:"description,omitempty"`
+	Print           bool                  `json:"print,omitempty"`              // workflow-level default (true = headless claude -p)
+	FirstStepIsTmux bool                  `json:"first_step_is_tmux,omitempty"` // derived; useful for picking interactive workflows
+	Steps           []WorkflowStepSummary `json:"steps,omitempty"`
 }
 
 // ListWorkflowsResponse groups workflows by kind. Kinds match the keys in

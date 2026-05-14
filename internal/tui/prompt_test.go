@@ -806,17 +806,18 @@ func TestPromptView_SwitchFocusBackwardWithWorktree(t *testing.T) {
 // TestModel_SelectedWorkflowAllowsEmptyDescription verifies that the prompt
 // validation is bypassed when the chosen workflow's first step uses tmux.
 func TestModel_SelectedWorkflowAllowsEmptyDescription(t *testing.T) {
-	tr := true
-
 	tmuxFirst := config.WorkflowConfig{
+		// Default mode is tmux — no explicit `print` needed.
 		Name: "interact",
 		Steps: []config.StepConfig{
-			{Name: "shell", Tmux: &tr},
+			{Name: "shell"},
 			{Name: "review"},
 		},
 	}
 	plain := config.WorkflowConfig{
-		Name: "default",
+		// print=true forces headless mode, so empty descriptions are not allowed.
+		Name:  "default",
+		Print: true,
 		Steps: []config.StepConfig{
 			{Name: "implement"},
 		},
@@ -834,9 +835,9 @@ func TestModel_SelectedWorkflowAllowsEmptyDescription(t *testing.T) {
 		want     bool
 	}{
 		{name: "nil cfg never allows empty", cfg: nil, workflow: "anything", want: false},
-		{name: "plain workflow rejects empty", cfg: cfg, workflow: "default", want: false},
+		{name: "headless workflow rejects empty", cfg: cfg, workflow: "default", want: false},
 		{name: "tmux-first workflow allows empty", cfg: cfg, workflow: "interact", want: true},
-		{name: "empty workflow resolves to first (plain)", cfg: cfg, workflow: "", want: false},
+		{name: "empty workflow resolves to first (headless)", cfg: cfg, workflow: "", want: false},
 	}
 
 	for _, tt := range tests {

@@ -262,7 +262,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 
 		// Spawn Claude process (tmux or direct)
-		useTmux := step.UseTmux(wf.Tmux)
+		useTmux := step.UseTmux(wf.Print)
 		var exitCode int
 		var resultText string
 		var outputTail string
@@ -413,7 +413,7 @@ func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	if wf != nil && t.StepIndex > 0 && t.StepIndex <= len(wf.Steps) {
 		prevStep := wf.Steps[t.StepIndex-1]
-		if prevStep.UseTmux(wf.Tmux) && prevStep.EffectiveSummarizationStrategy() == config.SummarizationStrategySummarizeChat {
+		if prevStep.UseTmux(wf.Print) && prevStep.EffectiveSummarizationStrategy() == config.SummarizationStrategySummarizeChat {
 			chat, err := e.loadStepChatContent(t, prevStep.Name, true)
 			if err != nil {
 				log.Printf("Warning: failed to load chat for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)

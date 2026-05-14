@@ -140,6 +140,43 @@ workflows:
 	}
 }
 
+func TestValidateFile_LegacyWorkflowTmuxFieldFails(t *testing.T) {
+	// The legacy `tmux:` field at the workflow level was removed in favour of
+	// the inverted `print:` field; loading an old config should surface a clear
+	// migration error rather than silently dropping the setting.
+	path := writeTempConfig(t, `
+workflows:
+  tasks:
+    - name: w
+      tmux: true
+      steps:
+        - name: s
+          prompt: "do"
+`)
+	err := ValidateFile(path)
+	if err == nil || !strings.Contains(err.Error(), "tmux") || !strings.Contains(err.Error(), "print") {
+		t.Fatalf("expected migration error mentioning tmux and print, got: %v", err)
+	}
+}
+
+func TestValidateFile_LegacyStepTmuxFieldFails(t *testing.T) {
+	// The legacy step-level `tmux:` field is also removed; surface the same
+	// migration guidance from the step decoder.
+	path := writeTempConfig(t, `
+workflows:
+  tasks:
+    - name: w
+      steps:
+        - name: s
+          prompt: "do"
+          tmux: false
+`)
+	err := ValidateFile(path)
+	if err == nil || !strings.Contains(err.Error(), "tmux") || !strings.Contains(err.Error(), "print") {
+		t.Fatalf("expected migration error mentioning tmux and print, got: %v", err)
+	}
+}
+
 func TestValidateFile_DuplicateStepName(t *testing.T) {
 	path := writeTempConfig(t, `
 workflows:

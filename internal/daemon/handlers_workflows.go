@@ -56,7 +56,7 @@ func summarizeWorkflows(workflows []config.WorkflowConfig) []WorkflowSummary {
 		summary := WorkflowSummary{
 			Name:            wf.Name,
 			Description:     wf.Description,
-			Tmux:            wf.Tmux,
+			Print:           wf.Print,
 			FirstStepIsTmux: wf.FirstStepIsTmux(),
 			Steps:           make([]WorkflowStepSummary, 0, len(wf.Steps)),
 		}
@@ -64,7 +64,7 @@ func summarizeWorkflows(workflows []config.WorkflowConfig) []WorkflowSummary {
 			summary.Steps = append(summary.Steps, WorkflowStepSummary{
 				Name:  step.Name,
 				Mode:  step.Mode,
-				Tmux:  step.UseTmux(wf.Tmux),
+				Tmux:  step.UseTmux(wf.Print),
 				Human: step.Human,
 				Loop:  step.Loop != nil,
 			})
