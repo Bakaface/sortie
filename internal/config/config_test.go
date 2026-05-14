@@ -783,6 +783,32 @@ func TestValidateLoopsNoLoop(t *testing.T) {
 	}
 }
 
+func TestEffectiveSummarizationStrategy(t *testing.T) {
+	tests := []struct {
+		name     string
+		strategy string
+		want     string
+	}{
+		{"empty falls back to default", "", DefaultSummarizationStrategy},
+		{"explicit last_message preserved", SummarizationStrategyLastMessage, SummarizationStrategyLastMessage},
+		{"explicit summarize_chat preserved", SummarizationStrategySummarizeChat, SummarizationStrategySummarizeChat},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			step := &StepConfig{SummarizationStrategy: tt.strategy}
+			if got := step.EffectiveSummarizationStrategy(); got != tt.want {
+				t.Errorf("EffectiveSummarizationStrategy() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	if DefaultSummarizationStrategy != SummarizationStrategySummarizeChat {
+		t.Errorf("DefaultSummarizationStrategy = %q, want %q (default flipped without updating tests/docs?)",
+			DefaultSummarizationStrategy, SummarizationStrategySummarizeChat)
+	}
+}
+
 func TestValidateStepsSummarizationStrategy(t *testing.T) {
 	tests := []struct {
 		name     string

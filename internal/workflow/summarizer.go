@@ -254,6 +254,26 @@ func (e *Engine) loadStepChatContent(t *task.Task, stepName string, useTmux bool
 	return strings.TrimSpace(string(data)), nil
 }
 
+// smallChatBytes is the threshold below which a non-tmux step skips the haiku
+// summarization pass and keeps the Claude result-event text as step context.
+// Roughly equates to "a handful of NDJSON events" — too short to be worth
+// paying a haiku round trip for.
+const smallChatBytes = 4096
+
+// shouldSummarizeChat returns true when the chat log is worth running a haiku
+// summarization pass over. For non-tmux steps with a non-empty result text and
+// a tiny chat log, the result text is kept and haiku is skipped. Tmux steps
+// always summarize because they have no result-event fallback.
+func shouldSummarizeChat(chat, resultText string, useTmux bool) bool {
+	if useTmux {
+		return true
+	}
+	if strings.TrimSpace(resultText) == "" {
+		return true
+	}
+	return len(chat) >= smallChatBytes
+}
+
 // summarizeChatLog runs Claude haiku to summarise the given chat content.
 // customPrompt is a template that may reference the chat via a {{chat}} placeholder;
 // task template variables ({{task.id}}, {{task.title}}, etc.) are also resolved.
@@ -289,8 +309,11 @@ func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, c
 	} else {
 		prompt = fmt.Sprintf(
 			"Summarize the following Claude Code conversation log from step %q of task #%d: %s\n\n"+
-				"Focus on: what was accomplished, key decisions made, files changed, and any issues encountered.\n"+
-				"Be concise but comprehensive. This summary will be passed as context to subsequent workflow steps.\n\n"+
+				"Output requirements:\n"+
+				"- Under 200 words.\n"+
+				"- Preserve file paths, function/symbol names, command lines, and error strings VERBATIM — do not paraphrase identifiers.\n"+
+				"- Cover what was accomplished, key decisions, files changed, and any blockers or unresolved issues.\n"+
+				"- Prioritise actionable detail over narrative; this summary becomes context for later workflow steps.\n\n"+
 				"--- CONVERSATION LOG ---\n%s",
 			stepName, t.ID, t.Title, chatContent,
 		)

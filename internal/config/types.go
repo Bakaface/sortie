@@ -285,19 +285,36 @@ const (
 	// defaultOutputBufferLines is the default size of the per-agent output ring buffer.
 	defaultOutputBufferLines = 10000
 
-	// SummarizationStrategyLastMessage uses the Claude result event text as step context (default).
+	// SummarizationStrategyLastMessage uses the Claude result event text as step context.
+	// Cheap (no extra Claude call) but often misleading — the final assistant message is
+	// frequently a one-liner ("Done!") that loses decisions, file changes, and blockers.
+	// Not usable for tmux steps because they have no NDJSON result event.
 	SummarizationStrategyLastMessage = "last_message"
 
-	// SummarizationStrategySummarizeChat spins up a background haiku process to
-	// summarize the full chat log and stores the summary as step context.
+	// SummarizationStrategySummarizeChat runs a haiku pass over the full chat log and
+	// stores the summary as step context. Default for new steps when unset.
 	SummarizationStrategySummarizeChat = "summarize_chat"
+
+	// DefaultSummarizationStrategy is the strategy used when StepConfig.SummarizationStrategy
+	// is left empty. See EffectiveSummarizationStrategy().
+	DefaultSummarizationStrategy = SummarizationStrategySummarizeChat
 )
 
 // ValidSummarizationStrategies enumerates accepted values for StepConfig.SummarizationStrategy.
 var ValidSummarizationStrategies = map[string]bool{
-	"":                                 true, // empty means default (last_message)
+	"":                                 true, // empty means default (DefaultSummarizationStrategy)
 	SummarizationStrategyLastMessage:   true,
 	SummarizationStrategySummarizeChat: true,
+}
+
+// EffectiveSummarizationStrategy returns the configured strategy, substituting the
+// default when the field is empty. Use this instead of comparing SummarizationStrategy
+// directly so the default can evolve without touching every callsite.
+func (s *StepConfig) EffectiveSummarizationStrategy() string {
+	if s.SummarizationStrategy == "" {
+		return DefaultSummarizationStrategy
+	}
+	return s.SummarizationStrategy
 }
 
 // GlobalConfig from ~/.config/sortie/config.yaml

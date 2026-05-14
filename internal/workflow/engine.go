@@ -313,11 +313,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			log.Printf("Warning: failed to complete task step record: %v", err)
 		}
 
-		if step.SummarizationStrategy == config.SummarizationStrategySummarizeChat {
+		if step.EffectiveSummarizationStrategy() == config.SummarizationStrategySummarizeChat {
 			chat, chatErr := e.loadStepChatContent(t, step.Name, useTmux)
 			if chatErr != nil {
 				log.Printf("Warning: failed to load chat content for step %q of task #%d: %v", step.Name, t.ID, chatErr)
-			} else if chat != "" {
+			} else if chat != "" && shouldSummarizeChat(chat, resultText, useTmux) {
 				summary, sumErr := e.summarizeChatLog(ctx, t, step.Name, step.SummarizationPrompt, chat)
 				if sumErr != nil {
 					log.Printf("Warning: summarize_chat failed for step %q of task #%d: %v", step.Name, t.ID, sumErr)
@@ -404,7 +404,7 @@ func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	if wf != nil && t.StepIndex > 0 && t.StepIndex <= len(wf.Steps) {
 		prevStep := wf.Steps[t.StepIndex-1]
-		if prevStep.UseTmux(wf.Tmux) && prevStep.SummarizationStrategy == config.SummarizationStrategySummarizeChat {
+		if prevStep.UseTmux(wf.Tmux) && prevStep.EffectiveSummarizationStrategy() == config.SummarizationStrategySummarizeChat {
 			chat, err := e.loadStepChatContent(t, prevStep.Name, true)
 			if err != nil {
 				log.Printf("Warning: failed to load chat for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)

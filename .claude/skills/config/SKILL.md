@@ -124,7 +124,7 @@ type StepConfig struct {
 }
 ```
 
-**Summarization strategies**: `last_message` (default) uses the Claude result event text; `summarize_chat` runs a background haiku process to summarize the full chat log. Validated at config load via `ValidateSteps()`.
+**Summarization strategies**: `summarize_chat` (default when unset) runs a haiku pass over the full chat log; `last_message` uses the Claude result event text — cheaper but often misleading and unusable for tmux steps (which have no result event). The default is resolved via `StepConfig.EffectiveSummarizationStrategy()` and lives in `DefaultSummarizationStrategy`. Validated at config load via `ValidateSteps()`.
 
 **Loop validation**: goto must reference earlier step, max_iterations >= 1, no human/tmux on looped steps, no overlapping ranges.
 
