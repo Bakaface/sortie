@@ -7,23 +7,17 @@ import (
 	"log"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aface/sortie/internal/config"
 	"github.com/aface/sortie/internal/db"
 	gitpkg "github.com/aface/sortie/internal/git"
+	"github.com/aface/sortie/internal/merge"
 	"github.com/aface/sortie/internal/notify"
 	"github.com/aface/sortie/internal/task"
 )
 
 const (
-	// maxMergeAttempts is the number of times to retry a merge before failing.
-	maxMergeAttempts = 3
-
-	// mergeBlockedPollInterval is how often to re-check whether the target branch is clean.
-	mergeBlockedPollInterval = 10 * time.Second
-
 	// processExitPollInterval is how often to check whether a Claude subprocess has exited.
 	processExitPollInterval = 500 * time.Millisecond
 )
@@ -34,29 +28,44 @@ type Engine struct {
 	notifier *notify.Notifier
 	repoRoot string
 	dataDir  string
-	mergeMu  *sync.Mutex // serializes merge operations to prevent concurrent git merge conflicts
+	coord    *merge.Coordinator // owns merge serialization, retry, and cleanup-on-failure
 }
 
-// NewEngine creates a new workflow engine. The mergeMu parameter is an optional
-// externally-owned mutex that serializes merge operations for this repo. When
-// non-nil, the mutex survives config reloads (the daemon owns it). When nil, a
-// fresh mutex is created (for standalone/test usage).
-func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, repoRoot string, mergeMu ...*sync.Mutex) *Engine {
-	var mu *sync.Mutex
-	if len(mergeMu) > 0 && mergeMu[0] != nil {
-		mu = mergeMu[0]
+// NewEngine creates a new workflow engine. The optional Lock parameter is an
+// externally-owned per-repo merge serializer; when non-nil, the lock survives
+// config reloads (the daemon owns it via merge.Locks). When nil, a fresh lock
+// is created for standalone/test usage.
+func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, repoRoot string, lock ...*merge.Lock) *Engine {
+	var lk *merge.Lock
+	if len(lock) > 0 && lock[0] != nil {
+		lk = lock[0]
 	} else {
-		mu = &sync.Mutex{}
+		lk = &merge.Lock{}
 	}
-	return &Engine{
+	e := &Engine{
 		cfg:      cfg,
 		database: database,
 		notifier: notifier,
 		repoRoot: repoRoot,
 		dataDir:  filepath.Join(repoRoot, ".sortie"),
-		mergeMu:  mu,
 	}
+	e.coord = merge.NewCoordinator(
+		repoRoot,
+		lk,
+		merge.Config{
+			OnComplete: cfg.Git.OnComplete,
+		},
+		e.bindConflictResolver(),
+		database.UpdateTaskStatus,
+		database.AppendTaskCommit,
+	)
+	return e
 }
+
+// Coord returns the engine's merge coordinator. The daemon uses it to take the
+// per-repo lock for ad-hoc operations (revert, worktree teardown) that must
+// serialize against merges.
+func (e *Engine) Coord() *merge.Coordinator { return e.coord }
 
 // findStepIndex returns the index of a step by name, or -1 if not found.
 func findStepIndex(steps []config.StepConfig, name string) int {

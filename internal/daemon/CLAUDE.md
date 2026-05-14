@@ -5,5 +5,5 @@ Unix socket server, request handlers, task polling, agent lifecycle. Load `/daem
 ## Critical Invariants
 
 - **Project context is lazy-loaded and cached** — use `getProjectContext()`, never re-load per-operation
-- **Merge mutexes are per-repo, not per-task** — `mergeMus` keyed by `repoRoot` serializes concurrent merges in the same repo
+- **Per-repo merge serialization is owned by `internal/merge`** — the daemon hands out `*merge.Lock` instances via `s.mergeLocks` (a `*merge.Locks` registry) to each Engine; handlers must never reach for raw mutexes
 - **Broadcasting happens outside locks** — agent state change callbacks fire after releasing mutexes to prevent deadlocks

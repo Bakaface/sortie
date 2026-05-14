@@ -298,12 +298,14 @@ func (s *Server) handleRevertTask(conn net.Conn, req RevertTaskRequest) {
 		return
 	}
 
-	// Acquire merge mutex to prevent concurrent merge/revert operations
-	pc.engine.AcquireMergeLock()
-	defer pc.engine.ReleaseMergeLock()
-
-	if err := gitpkg.RevertCommits(pc.repoRoot, commits); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to revert commits: %v", err))
+	// Serialize against in-progress merges via the per-repo merge coordinator —
+	// revert mutates the base repo so it must not race with MergeBranch.
+	var revertErr error
+	pc.engine.Coord().Lock().WithLock(func() {
+		revertErr = gitpkg.RevertCommits(pc.repoRoot, commits)
+	})
+	if revertErr != nil {
+		s.sendError(conn, fmt.Sprintf("failed to revert commits: %v", revertErr))
 		return
 	}
 

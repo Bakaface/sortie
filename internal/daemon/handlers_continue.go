@@ -368,29 +368,30 @@ func (s *Server) ensureWorktree(t *task.Task, pc *projectContext) error {
 	return nil
 }
 
-// cleanupWorktreeAndBranch removes the worktree and branch for a task while holding the merge lock.
-// It logs warnings on errors rather than returning them, since cleanup is best-effort.
+// cleanupWorktreeAndBranch removes the worktree and branch for a task while
+// holding the per-repo merge serializer (so it cannot race with an in-progress
+// merge). It logs warnings on errors rather than returning them, since cleanup
+// is best-effort.
 func (s *Server) cleanupWorktreeAndBranch(pc *projectContext, t *task.Task) {
-	pc.engine.AcquireMergeLock()
-	defer pc.engine.ReleaseMergeLock()
-
-	if t.WorktreePath != "" {
-		if err := gitpkg.RemoveWorktree(pc.repoRoot, t.WorktreePath); err != nil {
-			log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+	pc.engine.Coord().Lock().WithLock(func() {
+		if t.WorktreePath != "" {
+			if err := gitpkg.RemoveWorktree(pc.repoRoot, t.WorktreePath); err != nil {
+				log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			}
+			gitpkg.CleanupWorktrees(pc.repoRoot)
 		}
-		gitpkg.CleanupWorktrees(pc.repoRoot)
-	}
-	// Only delete branches that sortie created; preserve user-provided branches
-	if t.Branch != "" && t.CheckoutBranch == "" {
-		if err := gitpkg.ForceDeleteBranch(pc.repoRoot, t.Branch); err != nil {
-			log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		// Only delete branches that sortie created; preserve user-provided branches
+		if t.Branch != "" && t.CheckoutBranch == "" {
+			if err := gitpkg.ForceDeleteBranch(pc.repoRoot, t.Branch); err != nil {
+				log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			}
 		}
-	}
-	if t.WorktreePath != "" {
-		if err := s.database.ClearWorktreePath(t.ID); err != nil {
-			log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		if t.WorktreePath != "" {
+			if err := s.database.ClearWorktreePath(t.ID); err != nil {
+				log.Printf("%sWarning: failed to clear worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			}
 		}
-	}
+	})
 }
 
 // setupTmuxDirect creates a tmux session for a task that should go directly into tmux state,

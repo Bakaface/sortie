@@ -6,173 +6,30 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/aface/sortie/internal/config"
 	gitpkg "github.com/aface/sortie/internal/git"
 	"github.com/aface/sortie/internal/task"
 )
 
-// executeOnComplete runs the configured on_complete action after all steps finish.
-// logFn is optional; when provided, progress messages are written to it (e.g. finalize log).
-func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, outputFn func([]string), logFn func(string, ...any)) error {
-	action := e.cfg.Git.OnComplete
-
-	logf := func(format string, args ...any) {
-		if logFn != nil {
-			logFn(format, args...)
-		}
-	}
-
-	switch action {
-	case "", "none":
-		logf("No on_complete action configured, skipping")
-		return nil
-	}
-
-	// No-worktree mode shares the working tree with the user's environment, so
-	// auto-committing would scoop up unrelated changes. Always skip on_complete
-	// in that mode and let the user (or the agent) commit explicitly.
-	if !t.Worktree {
-		logf("No-worktree mode: leaving working tree as-is, skipping on_complete=%q", action)
-		return nil
-	}
-
-	switch action {
-	case "commit":
-		logf("Committing changes in worktree...")
-		if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
-			return err
-		}
-		logf("Commit completed")
-		if commitHash, err := gitpkg.GetLastCommitHash(t.WorktreePath); err == nil {
-			if dbErr := e.database.AppendTaskCommit(t.ID, commitHash); dbErr != nil {
-				log.Printf("Warning: failed to record commit for task #%d: %v", t.ID, dbErr)
-			}
-		} else {
-			log.Printf("Warning: failed to get commit hash for task #%d: %v", t.ID, err)
-		}
-		return nil
-
-	case "merge":
-		return e.executeMerge(ctx, t, outputFn, logf)
-
-	default:
-		log.Printf("Unknown on_complete action: %s", action)
-		return nil
-	}
+// executeOnComplete runs the configured on_complete action after all steps
+// finish. All the locality of the merge invariant — serialization, retry on
+// conflict, cleanup-on-failure, waiting for a clean target branch — lives in
+// internal/merge. This wrapper exists only because the engine still needs to
+// resolve the effective base branch and forward a log function; both are
+// engine-level concerns.
+func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, _ func([]string), logFn func(string, ...any)) error {
+	return e.coord.Finalize(ctx, t, e.effectiveBaseBranch(t), logFn)
 }
 
-// executeMerge handles the merge on_complete action: commits changes, merges
-// the task branch into the base branch with `--no-ff` (preserving the task
-// branch's individual commits), retries on conflicts, and cleans up.
-func (e *Engine) executeMerge(ctx context.Context, t *task.Task, outputFn func([]string), logf func(string, ...any)) error {
-	if t.Branch == "" {
-		return fmt.Errorf("cannot merge: task branch name is empty")
+// bindConflictResolver returns a merge.ConflictResolver closure that spawns a
+// Claude agent to fix conflict markers in the task worktree. The closure is
+// captured once at Engine construction so the merge package never has to
+// import workflow or claude.
+func (e *Engine) bindConflictResolver() func(ctx context.Context, t *task.Task, conflictFiles []string) error {
+	return func(ctx context.Context, t *task.Task, conflictFiles []string) error {
+		return e.resolveConflicts(ctx, t, conflictFiles, nil)
 	}
-	// Commit any uncommitted changes first (operates on the worktree, safe to do concurrently)
-	logf("Committing changes in worktree before merge...")
-	if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
-		return fmt.Errorf("commit failed: %w", err)
-	}
-	baseBranch := e.effectiveBaseBranch(t)
-
-	// Wait for the target branch to be clean (no staged or unstaged changes)
-	logf("Checking target branch %s for pending changes...", baseBranch)
-	if err := e.waitForCleanTarget(ctx, t); err != nil {
-		return fmt.Errorf("waiting for clean target branch: %w", err)
-	}
-
-	// The merge commit subject is derived deterministically from the task title
-	// so the envelope commit reflects the user's stated intent — the agent's
-	// intermediate commits remain visible via the merge's second parent.
-	commitMsg := gitpkg.ConventionalCommitFromTitle(t.Title)
-	logf("Merging branch %s into %s (--no-ff)...", t.Branch, baseBranch)
-
-	var mergeErr error
-
-	for attempt := 1; attempt <= maxMergeAttempts; attempt++ {
-		if attempt > 1 {
-			logf("Merge attempt %d/%d...", attempt, maxMergeAttempts)
-		}
-
-		// Lock only for the merge on the shared repoRoot
-		e.mergeMu.Lock()
-		mergeErr = gitpkg.MergeBranch(e.repoRoot, t.Branch, baseBranch, commitMsg)
-		e.mergeMu.Unlock()
-
-		if mergeErr == nil {
-			logf("Merge successful")
-			// Track the merge commit hash
-			if commitHash, err := gitpkg.GetLastCommitHash(e.repoRoot); err == nil {
-				if dbErr := e.database.AppendTaskCommit(t.ID, commitHash); dbErr != nil {
-					log.Printf("Warning: failed to record merge commit for task #%d: %v", t.ID, dbErr)
-				}
-			} else {
-				log.Printf("Warning: failed to get merge commit hash for task #%d: %v", t.ID, err)
-			}
-			break
-		}
-
-		log.Printf("Merge attempt %d/%d failed for task #%d: %v", attempt, maxMergeAttempts, t.ID, mergeErr)
-		logf("Merge attempt %d/%d failed: %v", attempt, maxMergeAttempts, mergeErr)
-
-		if attempt == maxMergeAttempts {
-			break
-		}
-
-		// Update branch outside mutex: merge baseBranch into the worktree branch
-		logf("Updating branch from %s...", baseBranch)
-		if err := gitpkg.MergeInto(t.WorktreePath, baseBranch); err != nil {
-			// Merge produced conflicts — try to resolve with Claude
-			conflictFiles, cfErr := gitpkg.GetConflictedFiles(t.WorktreePath)
-			if cfErr != nil {
-				gitpkg.AbortMerge(t.WorktreePath)
-				return fmt.Errorf("merge failed and could not list conflicts: merge: %w; conflict-check: %v", mergeErr, cfErr)
-			}
-
-			if len(conflictFiles) == 0 {
-				// Merge failed but no conflicted files — something unexpected happened
-				gitpkg.AbortMerge(t.WorktreePath)
-				return fmt.Errorf("merge into worktree failed with no conflicted files: %w", err)
-			}
-
-			log.Printf("Task #%d has %d conflicted files, spawning Claude to resolve", t.ID, len(conflictFiles))
-			logf("Found %d conflicted files, spawning Claude to resolve...", len(conflictFiles))
-
-			if resolveErr := e.resolveConflicts(ctx, t, conflictFiles, outputFn); resolveErr != nil {
-				gitpkg.AbortMerge(t.WorktreePath)
-				return fmt.Errorf("merge conflict resolution failed: %w", resolveErr)
-			}
-
-			// Verify all conflicts are resolved
-			remaining, cfErr := gitpkg.GetConflictedFiles(t.WorktreePath)
-			if cfErr != nil {
-				gitpkg.AbortMerge(t.WorktreePath)
-				return fmt.Errorf("failed to verify conflict resolution: %w", cfErr)
-			}
-			if len(remaining) > 0 {
-				gitpkg.AbortMerge(t.WorktreePath)
-				return fmt.Errorf("claude failed to resolve all conflicts, %d files still conflicted: %v", len(remaining), remaining)
-			}
-
-			// Complete the merge commit
-			if err := gitpkg.CompleteMerge(t.WorktreePath); err != nil {
-				gitpkg.AbortMerge(t.WorktreePath)
-				return fmt.Errorf("failed to complete merge after conflict resolution: %w", err)
-			}
-
-			log.Printf("Task #%d conflicts resolved, retrying merge", t.ID)
-			logf("Conflicts resolved, retrying merge...")
-		}
-		// If MergeInto succeeded cleanly (no error), the branch is updated — retry the merge
-	}
-
-	if mergeErr != nil {
-		return fmt.Errorf("merge failed after %d attempts: %w", maxMergeAttempts, mergeErr)
-	}
-
-	return nil
 }
 
 // resolveConflicts spawns a Claude Code agent to resolve merge conflicts in the worktree.
@@ -243,52 +100,4 @@ func (e *Engine) cleanupMergedWorktree(t *task.Task, logf func(string, ...any)) 
 		log.Printf("Warning: failed to clear worktree path: %v", err)
 	}
 	logf("Cleanup completed")
-}
-
-// waitForCleanTarget polls the repo root until it has no pending changes (staged or unstaged).
-// If changes are detected, it sets the task to merge-blocked and retries every 10 seconds.
-func (e *Engine) waitForCleanTarget(ctx context.Context, t *task.Task) error {
-	dirty, err := gitpkg.HasChanges(e.repoRoot)
-	if err != nil {
-		return fmt.Errorf("failed to check target branch: %w", err)
-	}
-	if !dirty {
-		return nil
-	}
-
-	log.Printf("Task #%d: target branch has pending changes, entering merge-blocked state", t.ID)
-	if err := e.database.UpdateTaskStatus(t.ID, task.StatusMergeBlocked); err != nil {
-		log.Printf("Warning: failed to set merge-blocked status for task #%d: %v", t.ID, err)
-	}
-
-	ticker := time.NewTicker(mergeBlockedPollInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			dirty, err := gitpkg.HasChanges(e.repoRoot)
-			if err != nil {
-				log.Printf("Task #%d: failed to check target branch: %v", t.ID, err)
-				continue
-			}
-			if !dirty {
-				log.Printf("Task #%d: target branch is clean, proceeding with merge", t.ID)
-				return nil
-			}
-			log.Printf("Task #%d: target branch still has pending changes, retrying in 10s", t.ID)
-		}
-	}
-}
-
-// AcquireMergeLock acquires the merge mutex for operations that modify the base branch.
-func (e *Engine) AcquireMergeLock() {
-	e.mergeMu.Lock()
-}
-
-// ReleaseMergeLock releases the merge mutex.
-func (e *Engine) ReleaseMergeLock() {
-	e.mergeMu.Unlock()
 }
