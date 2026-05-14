@@ -63,6 +63,13 @@ type Server struct {
 	subscribers  map[net.Conn]bool
 	tmuxActivity map[int64]string
 
+	// tmuxAutoState tracks per-task auto-advance bookkeeping for tasks
+	// in StatusTmux. Lives behind mu. Entries are populated as the tmux
+	// monitor observes activity / sentinels and cleared when the task
+	// leaves StatusTmux (the daemon kills the session, or the user
+	// finalizes the task manually).
+	tmuxAutoState map[int64]*tmuxAutoEntry
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -70,21 +77,39 @@ type Server struct {
 	shutdownOnce sync.Once
 }
 
+// tmuxAutoEntry holds the daemon's per-task state for tmux auto-advance.
+//
+// firstIdleAt is the timestamp at which the tmux pane was first observed
+// in the ActivityIdle state since the most recent WIP transition. It is
+// cleared on every transition back to WIP. The fallback path advances
+// the workflow when (now - firstIdleAt) exceeds tmuxIdleFallbackDuration
+// and no Stop-hook sentinel has shown up.
+//
+// advancing is set true the moment the daemon decides to advance the
+// task, so re-entrant ticks of the monitor loop don't fire StartAgent
+// twice while ResumeAfterApproval is still spinning up. Cleared when
+// the task leaves StatusTmux.
+type tmuxAutoEntry struct {
+	firstIdleAt time.Time
+	advancing   bool
+}
+
 func NewServer(cfg *config.Config, database *db.DB) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	notifier := notify.New(&cfg.Notifications)
 	return &Server{
-		cfg:          cfg,
-		database:     database,
-		manager:      agent.NewManager(cfg.Agents.MaxConcurrent, cfg.Agents.OutputBufferLines),
-		notifier:     notifier,
-		projects:     make(map[int64]*projectContext),
-		mergeLocks:   merge.NewLocks(),
-		clients:      make(map[net.Conn]bool),
-		subscribers:  make(map[net.Conn]bool),
-		tmuxActivity: make(map[int64]string),
-		ctx:          ctx,
-		cancel:       cancel,
+		cfg:           cfg,
+		database:      database,
+		manager:       agent.NewManager(cfg.Agents.MaxConcurrent, cfg.Agents.OutputBufferLines),
+		notifier:      notifier,
+		projects:      make(map[int64]*projectContext),
+		mergeLocks:    merge.NewLocks(),
+		clients:       make(map[net.Conn]bool),
+		subscribers:   make(map[net.Conn]bool),
+		tmuxActivity:  make(map[int64]string),
+		tmuxAutoState: make(map[int64]*tmuxAutoEntry),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 

@@ -17,6 +17,21 @@ import (
 	"github.com/aface/sortie/internal/tmux"
 )
 
+// mergedTmuxEnv returns a copy of envVars with CLAUDE_CONFIG_DIR set to point
+// at the worktree-scoped Claude settings directory. A caller-supplied value
+// (e.g. from a test stub) wins over the auto-injected one so we don't clobber
+// intentional overrides.
+func mergedTmuxEnv(envVars map[string]string, settingsDir string) map[string]string {
+	merged := make(map[string]string, len(envVars)+1)
+	for k, v := range envVars {
+		merged[k] = v
+	}
+	if _, ok := merged["CLAUDE_CONFIG_DIR"]; !ok && settingsDir != "" {
+		merged["CLAUDE_CONFIG_DIR"] = settingsDir
+	}
+	return merged
+}
+
 // buildTmuxClaudeCmd returns the claude command-line fragment used inside the
 // generated tmux wrapper script. The binary path is shell-quoted via %q so paths
 // with spaces don't break the script.
@@ -192,14 +207,25 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 		return 1, "", fmt.Errorf("failed to create log dir: %w", err)
 	}
 
+	// Install the Claude Code Stop hook so the daemon can detect turn-end
+	// events and auto-advance the workflow. The daemon falls back to the
+	// hash-stability monitor if the hook never fires (e.g. user disabled
+	// hooks via managed-settings policy). Failure here is non-fatal.
+	if err := InstallStopHook(t.WorktreePath, step.Name); err != nil {
+		log.Printf("Warning: failed to install Claude Stop hook for task #%d step %q: %v", t.ID, step.Name, err)
+	}
+
 	// Write prompt to file (avoids shell quoting issues)
 	if err := os.WriteFile(promptFile, []byte(prompt), 0644); err != nil {
 		return 1, "", fmt.Errorf("failed to write prompt file: %w", err)
 	}
 
-	// Build env exports for the wrapper script
+	// Build env exports for the wrapper script. CLAUDE_CONFIG_DIR points
+	// Claude Code at the worktree-scoped settings.json that registers our
+	// Stop hook, while still composing with the user's global hooks.
+	envVarsWithHook := mergedTmuxEnv(envVars, SortieSettingsDir(t.WorktreePath))
 	var envExports strings.Builder
-	for k, v := range envVars {
+	for k, v := range envVarsWithHook {
 		envExports.WriteString(fmt.Sprintf("export %s=%q\n", k, v))
 	}
 

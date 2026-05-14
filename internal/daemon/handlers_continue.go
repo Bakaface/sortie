@@ -198,15 +198,40 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 		return
 	}
 
-	if t.Status != task.StatusTmux {
-		s.sendError(conn, fmt.Sprintf("task is not in tmux state (status: %s)", t.Status))
+	outcome, err := s.advanceTmuxTask(t)
+	if err != nil {
+		s.sendError(conn, err.Error())
 		return
+	}
+	s.sendMessage(conn, MsgOK, OKResponse{Message: outcome.message})
+}
+
+// tmuxAdvanceOutcome describes the action taken by advanceTmuxTask. The
+// `message` field is used as the OKResponse body for socket callers and as
+// a log line for the auto-advance path. The `advanced` flag distinguishes
+// "moved to next step" from "fully finalized".
+type tmuxAdvanceOutcome struct {
+	advanced bool
+	message  string
+}
+
+// advanceTmuxTask kills the task's tmux session and either resumes the engine
+// (when more workflow steps remain) or kicks off the full finalization
+// pipeline (merge + summarizer + cleanup). It is the shared implementation for
+// both the user-driven Finalize/Continue handler and the daemon's
+// auto-advance pathway triggered by the Claude Stop hook sentinel.
+//
+// The caller is responsible for verifying that t was loaded from the DB
+// recently enough that the status check is meaningful, and for surfacing the
+// returned message to whoever requested the advance.
+func (s *Server) advanceTmuxTask(t *task.Task) (tmuxAdvanceOutcome, error) {
+	if t.Status != task.StatusTmux {
+		return tmuxAdvanceOutcome{}, fmt.Errorf("task is not in tmux state (status: %s)", t.Status)
 	}
 
 	pc, err := s.getProjectContext(t.ProjectID)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to get project context: %v", err))
-		return
+		return tmuxAdvanceOutcome{}, fmt.Errorf("failed to get project context: %v", err)
 	}
 
 	// Kill tmux sessions
@@ -224,12 +249,11 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 
 	if hasMoreSteps {
 		// Advance to the next step: resume the engine. ResumeAfterApproval will
-		// run summarise_chat for the just-completed tmux step (Sub-feature D) and
-		// then continue with the remaining workflow steps.
+		// run summarise_chat for the just-completed tmux step and then continue
+		// with the remaining workflow steps.
 		origStatus := t.Status
 		if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
-			s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
-			return
+			return tmuxAdvanceOutcome{}, fmt.Errorf("failed to update task status: %v", err)
 		}
 
 		engine := pc.engine
@@ -243,14 +267,12 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 		}
 		if _, err := s.manager.StartAgent(t, t.WorktreePath, runner); err != nil {
 			_ = s.database.UpdateTaskStatus(t.ID, origStatus)
-			s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
-			return
+			return tmuxAdvanceOutcome{}, fmt.Errorf("failed to start agent: %v", err)
 		}
 
 		s.broadcastTaskUpdate(t.ID)
 		log.Printf("%sTask #%d: tmux step done, advancing to step %d of %d", s.projectLogPrefix(t.ProjectID), t.ID, t.StepIndex, len(wf.Steps))
-		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d advancing to next step", t.ID)})
-		return
+		return tmuxAdvanceOutcome{advanced: true, message: fmt.Sprintf("task #%d advancing to next step", t.ID)}, nil
 	}
 
 	// Last step: run full finalization (on_complete merge + summarizer + cleanup).
@@ -268,8 +290,7 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 				log.Printf("%sError: failed to mark task #%d as completed: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			}
 			s.broadcastTaskUpdate(t.ID)
-			s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d fast-tracked to completed (no changes)", t.ID)})
-			return
+			return tmuxAdvanceOutcome{message: fmt.Sprintf("task #%d fast-tracked to completed (no changes)", t.ID)}, nil
 		}
 	}
 
@@ -279,11 +300,9 @@ func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
 	}
 	s.broadcastTaskUpdate(t.ID)
 
-	// Respond immediately so the TUI is unblocked and can refresh
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d finalizing", t.ID)})
-
-	// Run summarizer + on_complete asynchronously
+	// Run summarizer + on_complete asynchronously so the caller doesn't block.
 	go s.runFinalization(t, pc)
+	return tmuxAdvanceOutcome{message: fmt.Sprintf("task #%d finalizing", t.ID)}, nil
 }
 
 func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
