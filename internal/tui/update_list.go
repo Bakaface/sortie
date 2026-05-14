@@ -6,7 +6,25 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/aface/sortie/internal/config"
+	"github.com/aface/sortie/internal/daemon"
 )
+
+// tmuxContinueAction returns "advance" when the tmux step has more workflow
+// steps after it, "finalize" otherwise. Both dispatch to the same FinalizeTask
+// RPC — the daemon does the smart routing. The label affects only the
+// confirmation prompt the user sees.
+func tmuxContinueAction(cfg *config.Config, task *daemon.TaskInfo) string {
+	if cfg == nil || task == nil {
+		return "finalize"
+	}
+	wf := cfg.GetWorkflow(task.Workflow)
+	if wf != nil && task.StepIndex < len(wf.Steps) {
+		return "advance"
+	}
+	return "finalize"
+}
 
 // deleteWordBackward removes the last word from s, mimicking ctrl+backspace behavior.
 // It first strips trailing whitespace, then removes non-whitespace characters.
@@ -193,7 +211,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if task.Status == "tmux" {
-				m.confirmAction = "finalize"
+				m.confirmAction = tmuxContinueAction(m.cfg, task)
 				m.confirmTaskID = task.ID
 				return m, nil
 			}
@@ -616,7 +634,7 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch action {
 		case "continue":
 			return m, m.continueTask(taskID, "", "")
-		case "finalize":
+		case "advance", "finalize":
 			return m, m.finalizeTask(taskID)
 		case "delete":
 			return m, m.deleteTask(taskID)
