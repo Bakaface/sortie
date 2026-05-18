@@ -236,7 +236,17 @@ var commands = []command{
 	{
 		match: matchRunTask,
 		exec:  execRunTask,
-		help:  "run a predefined task",
+		help:  "run a tasks-category workflow (opens new-task prompt with workflow preselected)",
+	},
+	{
+		match: matchRunOneOff,
+		exec:  execRunOneOff,
+		help:  "run a one-off workflow",
+	},
+	{
+		match: matchRunInit,
+		exec:  execRunInit,
+		help:  "run an init workflow",
 	},
 	{
 		match: matchSetOption,
@@ -317,19 +327,36 @@ func execNoh(m Model, _ string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// matchRunTask matches "RunTask <name>" commands.
+// matchRunTask matches "RunTask" / "RunTask <name>" commands.
 func matchRunTask(input string) (string, bool) {
+	return matchRunCommand("RunTask", input)
+}
+
+// matchRunOneOff matches "RunOneOff" / "RunOneOff <name>" commands.
+func matchRunOneOff(input string) (string, bool) {
+	return matchRunCommand("RunOneOff", input)
+}
+
+// matchRunInit matches "RunInit" / "RunInit <name>" commands.
+func matchRunInit(input string) (string, bool) {
+	return matchRunCommand("RunInit", input)
+}
+
+// matchRunCommand is the shared matcher: accepts the bare name and "name arg".
+func matchRunCommand(name, input string) (string, bool) {
 	input = strings.TrimSpace(input)
-	if input == "RunTask" {
+	if input == name {
 		return "", true
 	}
-	if strings.HasPrefix(input, "RunTask ") {
-		return strings.TrimSpace(input[len("RunTask "):]), true
+	if strings.HasPrefix(input, name+" ") {
+		return strings.TrimSpace(input[len(name)+1:]), true
 	}
 	return "", false
 }
 
-// execRunTask runs a predefined task by name.
+// execRunTask opens a fuzzy picker over the tasks-category workflows. On
+// select (or when a name is passed as argument), opens the new-task prompt
+// with the workflow preselected (cycler hidden).
 func execRunTask(m Model, args string) (tea.Model, tea.Cmd) {
 	if m.client == nil || m.projectPath == "" {
 		m.err = fmt.Errorf("not connected to daemon")
@@ -339,63 +366,203 @@ func execRunTask(m Model, args string) (tea.Model, tea.Cmd) {
 		m.err = fmt.Errorf("no config loaded")
 		return m, nil
 	}
-	if args == "" {
-		m.err = fmt.Errorf("usage: RunTask <name>")
+
+	allNames := m.cfg.ListAllWorkflowNames()
+	if args != "" {
+		// Direct invocation with workflow name — preselect immediately.
+		if !contains(allNames, args) {
+			m.err = fmt.Errorf("unknown workflow: %s", args)
+			return m, nil
+		}
+		m.selectedWorkflow = args
+		m.view = viewPrompt
+		m.prompt.defaultWorkflow = m.defaultWorkflow
+		m.prompt.Reset()
+		m.prompt.preselectedWorkflow = args
+		m.prompt.workflowName = args
+		m.prompt.workflows = []string{args}
+		m.prompt.workflowCursor = 0
+		m.prompt.SetSize(m.width, m.height)
+		m.prompt.Focus()
 		return m, nil
 	}
-	taskCfg := m.cfg.GetPredefinedTask(args)
-	if taskCfg == nil {
-		m.err = fmt.Errorf("unknown task: %s", args)
+
+	if len(allNames) == 0 {
+		m.err = fmt.Errorf("no task workflows configured")
 		return m, nil
 	}
-	m.selectedWorkflow = "oneoff:" + taskCfg.Name
-	description := taskCfg.Description
-	if description == "" {
-		description = taskCfg.Name
+	descs := make([]string, len(allNames))
+	for i, name := range allNames {
+		if wf := m.cfg.GetTaskWorkflow(name); wf != nil {
+			descs[i] = wf.Description
+		}
 	}
-	return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
+	m.selector = selector{
+		kind:            selectorTaskWorkflow,
+		title:           "Run Task",
+		items:           append([]string(nil), allNames...),
+		descriptions:    append([]string(nil), descs...),
+		filterable:      true,
+		allItems:        allNames,
+		allDescriptions: descs,
+	}
+	return m, nil
 }
 
-// completeRunTask returns tab-completed command input for RunTask.
-// It matches task names (including unlisted) against the partial input after "RunTask ".
+// execRunOneOff runs a one-off workflow by name, or opens a picker.
+func execRunOneOff(m Model, args string) (tea.Model, tea.Cmd) {
+	if m.client == nil || m.projectPath == "" {
+		m.err = fmt.Errorf("not connected to daemon")
+		return m, nil
+	}
+	if m.cfg == nil {
+		m.err = fmt.Errorf("no config loaded")
+		return m, nil
+	}
+	if args != "" {
+		taskCfg := m.cfg.GetPredefinedTask(args)
+		if taskCfg == nil {
+			m.err = fmt.Errorf("unknown one-off: %s", args)
+			return m, nil
+		}
+		m.selectedWorkflow = "oneoff:" + taskCfg.Name
+		description := taskCfg.Description
+		if description == "" {
+			description = taskCfg.Name
+		}
+		return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
+	}
+
+	allNames := m.cfg.ListAllPredefinedTaskNames()
+	if len(allNames) == 0 {
+		m.err = fmt.Errorf("no one-off workflows configured")
+		return m, nil
+	}
+	descs := make([]string, len(allNames))
+	for i, name := range allNames {
+		if tc := m.cfg.GetPredefinedTask(name); tc != nil {
+			descs[i] = tc.Description
+		}
+	}
+	m.selector = selector{
+		kind:            selectorTask,
+		title:           "Run One-off",
+		items:           append([]string(nil), allNames...),
+		descriptions:    append([]string(nil), descs...),
+		filterable:      true,
+		allItems:        allNames,
+		allDescriptions: descs,
+	}
+	return m, nil
+}
+
+// execRunInit runs an init workflow by name, or opens a picker.
+func execRunInit(m Model, args string) (tea.Model, tea.Cmd) {
+	if m.client == nil || m.projectPath == "" {
+		m.err = fmt.Errorf("not connected to daemon")
+		return m, nil
+	}
+	if m.cfg == nil {
+		m.err = fmt.Errorf("no config loaded")
+		return m, nil
+	}
+	if args != "" {
+		initCfg := m.cfg.GetInitWorkflow(args)
+		if initCfg == nil {
+			m.err = fmt.Errorf("unknown init workflow: %s", args)
+			return m, nil
+		}
+		m.selectedWorkflow = "init:" + initCfg.Name
+		description := initCfg.Description
+		if description == "" {
+			description = initCfg.Name
+		}
+		return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
+	}
+
+	allNames := m.cfg.ListAllInitWorkflowNames()
+	if len(allNames) == 0 {
+		m.err = fmt.Errorf("no init workflows configured")
+		return m, nil
+	}
+	descs := make([]string, len(allNames))
+	for i, name := range allNames {
+		if ic := m.cfg.GetInitWorkflow(name); ic != nil {
+			descs[i] = ic.Description
+		}
+	}
+	m.selector = selector{
+		kind:            selectorInit,
+		title:           "Run Init Workflow",
+		items:           append([]string(nil), allNames...),
+		descriptions:    append([]string(nil), descs...),
+		filterable:      true,
+		allItems:        allNames,
+		allDescriptions: descs,
+	}
+	return m, nil
+}
+
+// contains reports whether names contains s.
+func contains(names []string, s string) bool {
+	for _, n := range names {
+		if n == s {
+			return true
+		}
+	}
+	return false
+}
+
+// completeRunTask returns tab-completed command input for RunTask/RunOneOff/RunInit.
+// It matches workflow names (including hidden) against the partial input after the command.
 func completeRunTask(m Model, input string) (string, bool) {
 	if m.cfg == nil {
 		return "", false
 	}
-	if !strings.HasPrefix(input, "RunTask") {
+	// Try each Run* command in order — the first whose prefix matches wins.
+	candidates := []struct {
+		cmd   string
+		names func() []string
+	}{
+		{"RunTask", m.cfg.ListAllWorkflowNames},
+		{"RunOneOff", m.cfg.ListAllPredefinedTaskNames},
+		{"RunInit", m.cfg.ListAllInitWorkflowNames},
+	}
+	for _, c := range candidates {
+		if completed, ok := completeRunCommand(input, c.cmd, c.names()); ok {
+			return completed, true
+		}
+	}
+	return "", false
+}
+
+// completeRunCommand handles tab-completion for a single "RunFoo [name]" command.
+func completeRunCommand(input, name string, allNames []string) (string, bool) {
+	// "RunFo" → complete to "RunFoo "
+	if input == name {
+		return name + " ", true
+	}
+	if !strings.HasPrefix(input, name+" ") {
 		return "", false
 	}
-	// Complete "RunTask" itself if user typed a prefix like "Run" or "RunT"
-	if len(input) < len("RunTask") {
-		return "", false
-	}
-	// If exactly "RunTask" with no space yet, add the space
-	if input == "RunTask" {
-		return "RunTask ", true
-	}
-	if !strings.HasPrefix(input, "RunTask ") {
-		return "", false
-	}
-	partial := input[len("RunTask "):]
+	partial := input[len(name)+1:]
 	partialLower := strings.ToLower(partial)
-	allTasks := m.cfg.ListPredefinedTaskNames()
 	var matches []string
-	for _, name := range allTasks {
-		if strings.HasPrefix(strings.ToLower(name), partialLower) {
-			matches = append(matches, name)
+	for _, n := range allNames {
+		if strings.HasPrefix(strings.ToLower(n), partialLower) {
+			matches = append(matches, n)
 		}
 	}
 	if len(matches) == 1 {
-		return "RunTask " + matches[0], true
+		return name + " " + matches[0], true
 	}
 	if len(matches) > 1 {
-		// Find longest common prefix among matches
 		prefix := matches[0]
 		for _, m := range matches[1:] {
 			prefix = commonPrefix(prefix, m)
 		}
 		if len(prefix) > len(partial) {
-			return "RunTask " + prefix, true
+			return name + " " + prefix, true
 		}
 	}
 	return "", false

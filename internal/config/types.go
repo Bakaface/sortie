@@ -97,13 +97,52 @@ type ProjectConfig struct {
 	AllowedSummarizationModels []string `yaml:"allowed_summarization_models,omitempty"`
 }
 
+// WorkflowEntry is a single item in a workflows.<category>: list. It is either
+// a string referencing a workflow file under .sortie/workflows/<category>/<name>.yml
+// or an inline WorkflowConfig definition. Exactly one of Ref / Inline is set.
+type WorkflowEntry struct {
+	// Ref, when non-empty, is the name of a file-based workflow under
+	// .sortie/workflows/<category>/. The file must exist at config-load time
+	// (missing files surface a hard error).
+	Ref string
+
+	// Inline, when non-nil, is an inline workflow definition.
+	Inline *WorkflowConfig
+}
+
+// UnmarshalYAML accepts either a scalar (string ref) or a mapping (inline def).
+func (e *WorkflowEntry) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		// String form: "- task-name"
+		var s string
+		if err := value.Decode(&s); err != nil {
+			return err
+		}
+		e.Ref = s
+		return nil
+	case yaml.MappingNode:
+		// Inline form: "- name: ...\n  steps: [...]"
+		var wf WorkflowConfig
+		if err := value.Decode(&wf); err != nil {
+			return err
+		}
+		e.Inline = &wf
+		return nil
+	default:
+		return fmt.Errorf("workflow entry must be a string (ref) or mapping (inline), got %v", value.Kind)
+	}
+}
+
 // ProjectWorkflows is the consolidated workflows section in .sortie.yml.
 // Supports both the new structured format (map with one-off/tasks/init keys)
-// and the legacy list format ([]WorkflowConfig).
+// and the legacy list format ([]WorkflowConfig). Each category accepts a mix
+// of string refs (resolved against .sortie/workflows/<category>/) and inline
+// workflow definitions.
 type ProjectWorkflows struct {
-	OneOff []WorkflowConfig `yaml:"one-off"`
-	Tasks  []WorkflowConfig `yaml:"tasks"`
-	Init   []WorkflowConfig `yaml:"init"`
+	OneOff []WorkflowEntry `yaml:"one-off"`
+	Tasks  []WorkflowEntry `yaml:"tasks"`
+	Init   []WorkflowEntry `yaml:"init"`
 
 	// legacy holds workflows parsed from the old list format
 	legacy []WorkflowConfig
@@ -158,6 +197,18 @@ type WorkflowConfig struct {
 	WorktreeSetupCommand  string                  `yaml:"worktree-setup-command,omitempty"`
 	WorktreeSetupCommands []string                `yaml:"worktree-setup-commands,omitempty"`
 	TmuxSetupCommand      string                  `yaml:"tmux-setup-command,omitempty"`
+
+	// Hidden marks workflows loaded from .sortie/workflows/<cat>/ that are NOT
+	// referenced from .sortie.yml. Hidden workflows remain engine-reachable
+	// (CLI flags, pickers, DB-persisted refs) but do not appear in TUI menus.
+	// Not serialized to YAML — populated by the loader.
+	Hidden bool `yaml:"-"`
+
+	// Source records where this workflow definition originated:
+	//   "inline"           — defined inline in .sortie.yml
+	//   "<path>"           — file path under .sortie/workflows/<cat>/
+	// Not serialized to YAML — populated by the loader.
+	Source string `yaml:"-"`
 }
 
 // UnmarshalYAML decodes a WorkflowConfig and rejects the legacy `tmux:` field

@@ -68,6 +68,12 @@ type promptView struct {
 	validationError   string // shown after failed submit attempt
 	activePane        promptPane
 	workflowCursor    int
+
+	// preselectedWorkflow, when non-empty, indicates the workflow was picked
+	// up-front by :RunTask. The workflows slice is sized to 1 (just this name),
+	// so the cycler is naturally hidden — the field exists only as a flag for
+	// callers that need to know the prompt is locked.
+	preselectedWorkflow string
 }
 
 func newPromptView(defaultWorktree bool, defaultBranchMode branchMode, defaultBaseBranch string) promptView {

@@ -72,7 +72,7 @@ func newKeyMap() keyMap {
 		),
 		RunTask: key.NewBinding(
 			key.WithKeys("x"),
-			key.WithHelp("x", "run task"),
+			key.WithHelp("x", "run one-off"),
 		),
 		InitWorkflow: key.NewBinding(
 			key.WithKeys("i"),

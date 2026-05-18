@@ -12,10 +12,11 @@ type selectorKind int
 
 const (
 	selectorNone selectorKind = iota
-	selectorTask
-	selectorInit
+	selectorTask     // one-off picker (legacy "x" shortcut behavior)
+	selectorInit     // init picker
 	selectorPriority
 	selectorArtifact
+	selectorTaskWorkflow // tasks-category picker: opens new-task prompt with workflow preselected
 )
 
 // selectionResult is returned by selector.HandleKey to signal what happened.
@@ -42,6 +43,15 @@ type selector struct {
 	// Auxiliary data for the on-select callback
 	taskID int64  // for priority, artifact
 	action string // for artifact ("view"/"edit") — may be mutated mid-flow (e.g. pressing 'e' overrides to "edit")
+
+	// Filtering — when filterable is true, printable characters typed by the
+	// user append to filter (substring matching, case-insensitive). The
+	// original items list is preserved in allItems / allDescriptions so the
+	// filter can be reset without re-rendering.
+	filterable      bool
+	filter          string
+	allItems        []string
+	allDescriptions []string
 }
 
 func (s *selector) IsActive() bool {
@@ -61,6 +71,12 @@ func (s *selector) Selected() string {
 
 // HandleKey processes a key press and returns the result.
 func (s *selector) HandleKey(keyStr string) selectionResult {
+	// In filterable mode, navigation uses arrow keys and ctrl+j/k; printable
+	// characters append to the filter rather than triggering letter shortcuts.
+	if s.filterable {
+		return s.handleFilterableKey(keyStr)
+	}
+
 	// Handle "gg" sequence for go-to-top
 	if keyStr == "g" {
 		if s.pendingG {
@@ -116,6 +132,86 @@ func (s *selector) HandleKey(keyStr string) selectionResult {
 		}
 	}
 	return selNone
+}
+
+// handleFilterableKey is the input handler for filterable selectors.
+// j/k become filter chars; navigation uses arrow keys and ctrl+j/k.
+func (s *selector) handleFilterableKey(keyStr string) selectionResult {
+	switch keyStr {
+	case "up", "ctrl+p", "ctrl+k":
+		s.cursor = s.stepCursor(s.cursor, -1)
+		return selNone
+	case "down", "ctrl+n", "ctrl+j":
+		s.cursor = s.stepCursor(s.cursor, 1)
+		return selNone
+	case "ctrl+d", "pgdown":
+		half := max(1, len(s.items)/2)
+		s.cursor = s.snapActionable(min(s.cursor+half, len(s.items)-1), 1)
+		return selNone
+	case "ctrl+u", "pgup":
+		half := max(1, len(s.items)/2)
+		s.cursor = s.snapActionable(max(s.cursor-half, 0), -1)
+		return selNone
+	case "enter":
+		if len(s.items) == 0 || s.isDisabled(s.cursor) {
+			return selNone
+		}
+		return selChosen
+	case "esc":
+		// Esc clears a non-empty filter; if filter already empty, cancel.
+		if s.filter != "" {
+			s.filter = ""
+			s.applyFilter()
+			return selNone
+		}
+		return selCancelled
+	case "backspace":
+		if len(s.filter) > 0 {
+			s.filter = s.filter[:len(s.filter)-1]
+			s.applyFilter()
+		}
+		return selNone
+	case "ctrl+w":
+		s.filter = ""
+		s.applyFilter()
+		return selNone
+	default:
+		// Single printable characters append to filter. Anything else is ignored.
+		if len(keyStr) == 1 && keyStr[0] >= ' ' && keyStr[0] <= '~' {
+			s.filter += keyStr
+			s.applyFilter()
+		}
+	}
+	return selNone
+}
+
+// applyFilter substring-matches s.allItems against s.filter (case-insensitive)
+// and replaces s.items/s.descriptions with the filtered subset. The cursor is
+// reset to the first actionable row.
+func (s *selector) applyFilter() {
+	if s.filter == "" {
+		s.items = append([]string(nil), s.allItems...)
+		if s.allDescriptions != nil {
+			s.descriptions = append([]string(nil), s.allDescriptions...)
+		}
+	} else {
+		needle := strings.ToLower(s.filter)
+		s.items = s.items[:0]
+		if s.allDescriptions != nil {
+			s.descriptions = s.descriptions[:0]
+		}
+		for i, item := range s.allItems {
+			if strings.Contains(strings.ToLower(item), needle) {
+				s.items = append(s.items, item)
+				if s.allDescriptions != nil && i < len(s.allDescriptions) {
+					s.descriptions = append(s.descriptions, s.allDescriptions[i])
+				}
+			}
+		}
+	}
+	if s.cursor >= len(s.items) {
+		s.cursor = 0
+	}
 }
 
 // isDisabled reports whether the row at idx is non-actionable.
@@ -186,8 +282,22 @@ func (s *selector) View() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(" "+s.title+" ") + "\n\n")
 
+	if s.filterable {
+		b.WriteString("  " + dimStyle.Render("filter: ") + s.filter + "█\n\n")
+	}
+
+	if s.filterable && len(s.items) == 0 {
+		b.WriteString("  " + dimStyle.Render("(no matches)") + "\n")
+	}
+
 	for i, name := range s.items {
-		label := fmt.Sprintf("  %d. %s", i+1, name)
+		var label string
+		if s.filterable {
+			// No numeric quick-select in filterable mode — drop the leading number.
+			label = "  " + name
+		} else {
+			label = fmt.Sprintf("  %d. %s", i+1, name)
+		}
 		if i == s.cursor {
 			b.WriteString(selectedStyle.Render("> "+label) + "\n")
 			if s.descriptions != nil && i < len(s.descriptions) && s.descriptions[i] != "" {
@@ -202,9 +312,14 @@ func (s *selector) View() string {
 		}
 	}
 
-	hint := "j/k: navigate | enter: select | 1-9: quick select | esc: cancel"
-	if s.hint != "" {
+	var hint string
+	switch {
+	case s.hint != "":
 		hint = s.hint
+	case s.filterable:
+		hint = "type to filter | ↑/↓: navigate | enter: select | esc: clear/cancel"
+	default:
+		hint = "j/k: navigate | enter: select | 1-9: quick select | esc: cancel"
 	}
 	b.WriteString("\n" + dimStyle.Render("  "+hint))
 	return b.String()
