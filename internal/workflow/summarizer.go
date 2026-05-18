@@ -180,18 +180,7 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 		logMsg("%s", summarizationDescription(t.ID, false, contextNames, false))
 	} else {
 		// No artifacts — use git diff stat and instruct Claude to read the actual changes
-		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("Summarize the progress made on task #%d: %s\n\n", t.ID, t.Title))
-		sb.WriteString("The task description was:\n")
-		sb.WriteString(t.Description)
-		sb.WriteString("\n\nThe following files were changed:\n\n```\n")
-		sb.WriteString(diffStat)
-		sb.WriteString("\n```\n\n")
-		sb.WriteString("Read the changed files listed above and review the actual code to understand what was implemented. ")
-		sb.WriteString("Do NOT guess or assume — base your summary on the actual file contents and git changes in this repository. ")
-		sb.WriteString("Provide a concise summary of what was accomplished. ")
-		sb.WriteString("This summary will be used as context for future work on this task.")
-		prompt = sb.String()
+		prompt = BuildDiffStatSummaryPrompt(t.ID, t.Title, t.Description, diffStat)
 		logMsg("%s", summarizationDescription(t.ID, false, nil, true))
 	}
 
@@ -221,6 +210,25 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 	t.Context = summary
 	logMsg("Summarizer completed for task #%d (%d chars)", t.ID, len(summary))
 	return nil
+}
+
+// BuildDiffStatSummaryPrompt constructs the diff-stat-fallback summarizer
+// prompt: the prompt used when no step contexts are available and only the
+// list of changed files is known. Exported so the backfill CLI can reuse the
+// exact prompt shape used by live finalization.
+func BuildDiffStatSummaryPrompt(taskID int64, title, description, diffStat string) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Summarize the progress made on task #%d: %s\n\n", taskID, title))
+	sb.WriteString("The task description was:\n")
+	sb.WriteString(description)
+	sb.WriteString("\n\nThe following files were changed:\n\n```\n")
+	sb.WriteString(diffStat)
+	sb.WriteString("\n```\n\n")
+	sb.WriteString("Read the changed files listed above and review the actual code to understand what was implemented. ")
+	sb.WriteString("Do NOT guess or assume — base your summary on the actual file contents and git changes in this repository. ")
+	sb.WriteString("Provide a concise summary of what was accomplished. ")
+	sb.WriteString("This summary will be used as context for future work on this task.")
+	return sb.String()
 }
 
 // encodeClaudeProjectDir encodes a workdir path to the directory name format used by
