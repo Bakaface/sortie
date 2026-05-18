@@ -306,6 +306,12 @@ type TaskInfo struct {
 	StartedAt    *time.Time `json:"started_at,omitempty"`
 	CompletedAt  *time.Time `json:"completed_at,omitempty"`
 	TmuxActivity string     `json:"tmux_activity,omitempty"`
+	// StepHuman reflects the Human flag on the workflow step that the task is
+	// currently paused at (when Status is "tmux" or "awaiting-approval").
+	// Used by the TUI to surface the "real" underlying state of a tmux task —
+	// human steps render as awaiting-approval with a [wip] postfix, non-human
+	// tmux steps render as running with a [T] postfix.
+	StepHuman    bool       `json:"step_human,omitempty"`
 	LatestChat   *ChatInfo  `json:"latest_chat,omitempty"`
 }
 

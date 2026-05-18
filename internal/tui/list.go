@@ -590,11 +590,21 @@ func (l *listView) renderHeader() string {
 }
 
 // statusText returns the formatted status string for a task (icon + label with annotations).
+//
+// Tmux tasks render with their *real* underlying status rather than a generic
+// "tmux" — the engine pauses at every tmux step, so a non-human tmux step is
+// effectively still "running" (Claude is working in the pane) and a human
+// tmux step is "awaiting-approval" (the user has been handed the wheel).
+// The fact that there's a tmux session attached is communicated by the
+// trailing postfix: [T] for non-human, [wip] for human. Same mechanism the
+// engine uses (`step.Human`) drives both the real-status mapping and the
+// postfix, so the two never disagree.
 func (l *listView) statusText(task daemon.TaskInfo) string {
-	statusIcon := statusIconFor(task.Status)
-	statusLabel := task.Status
-	switch task.Status {
-	case "running", "awaiting-approval", "tmux", "failed", "stopped":
+	effectiveStatus := effectiveStatusFor(task)
+	statusIcon := statusIconFor(effectiveStatus)
+	statusLabel := effectiveStatus
+	switch effectiveStatus {
+	case "running", "awaiting-approval", "failed", "stopped":
 		if task.CurrentStep != "" {
 			statusLabel = task.CurrentStep
 		}
@@ -620,17 +630,28 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 	}
 	if task.WorktreeDetached {
 		statusLabel += " [detached]"
-	} else if l.tmuxSessions[task.ID] {
-		switch task.TmuxActivity {
-		case "idle":
-			statusLabel += " [idle]"
-		case "wip":
+	} else if task.Status == "tmux" || l.tmuxSessions[task.ID] {
+		if task.StepHuman {
 			statusLabel += " [wip]"
-		default:
+		} else {
 			statusLabel += " [T]"
 		}
 	}
 	return fmt.Sprintf("%s %s", statusIcon, statusLabel)
+}
+
+// effectiveStatusFor maps a task's stored status to the status it should
+// render as. The only mapping today is tmux → awaiting-approval/running
+// (driven by StepHuman) so the icon and label reflect what the workflow
+// engine is actually doing rather than the transport-level "tmux".
+func effectiveStatusFor(task daemon.TaskInfo) string {
+	if task.Status != "tmux" {
+		return task.Status
+	}
+	if task.StepHuman {
+		return "awaiting-approval"
+	}
+	return "running"
 }
 
 func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) string {
@@ -706,7 +727,9 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	// onto a new line, which corrupts the table layout.
 	idCol := lipgloss.NewStyle().Render(truncateOrPad(taskID, l.cw.id))
 	priCol := priorityStyle(task.Priority).Render(truncateOrPad(priBadge, 2))
-	statusSt := stateStyle(task.Status)
+	// Color from the effective status so tmux tasks adopt the running /
+	// awaiting-approval palette that matches their rendered icon and label.
+	statusSt := stateStyle(effectiveStatusFor(task))
 	if strings.Contains(status, "(deadlocked)") {
 		statusSt = stateStyle("failed")
 	}

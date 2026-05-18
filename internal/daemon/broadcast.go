@@ -227,13 +227,40 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		info.ProjectPath = proj.Path
 	}
 
-	// Populate TargetBranch with effective base branch when task doesn't have an override
-	if info.TargetBranch == "" && info.Worktree {
+	// Populate TargetBranch with effective base branch (and StepHuman / a
+	// best-effort CurrentStep for paused tmux tasks) by peeking the cached
+	// project config. We intentionally do not trigger a load here — the
+	// serializer must not issue DB queries; missing cache simply means these
+	// optional fields stay at their defaults.
+	if info.Worktree || t.Status == task.StatusTmux {
 		s.projectsMu.RLock()
-		if pc, ok := s.projects[t.ProjectID]; ok && pc.cfg.Git.BaseBranch != "" {
-			info.TargetBranch = pc.cfg.Git.BaseBranch
+		if pc, ok := s.projects[t.ProjectID]; ok {
+			if info.TargetBranch == "" && info.Worktree && pc.cfg.Git.BaseBranch != "" {
+				info.TargetBranch = pc.cfg.Git.BaseBranch
+			}
+			if t.Status == task.StatusTmux && t.Workflow != "" {
+				if wf := pc.cfg.GetWorkflow(t.Workflow); wf != nil {
+					// The engine clears CurrentStep and bumps StepIndex past
+					// the tmux step before pausing, so the step that owns the
+					// tmux session is at StepIndex-1.
+					idx := t.StepIndex - 1
+					if idx >= 0 && idx < len(wf.Steps) {
+						step := wf.Steps[idx]
+						info.StepHuman = step.Human
+						if info.CurrentStep == "" {
+							info.CurrentStep = step.Name
+						}
+					}
+				}
+			}
 		}
 		s.projectsMu.RUnlock()
+	}
+
+	// tmux_direct tasks have no workflow step but are inherently interactive
+	// (the user is driving the tmux session), so treat them as human.
+	if t.Status == task.StatusTmux && t.Workflow == "" {
+		info.StepHuman = true
 	}
 
 	s.mu.RLock()
