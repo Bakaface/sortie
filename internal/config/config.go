@@ -4,11 +4,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+// workflowCategories lists the supported on-disk workflow categories under
+// .sortie/workflows/<category>/. The order matters for flat-list assembly
+// (tasks first, then oneoff, then init) and matches the engine prefix scheme.
+var workflowCategories = []string{"tasks", "one-off", "init"}
+
+// validWorkflowFilename matches kebab-case workflow filenames.
+// File extension is checked separately (.yml or .yaml).
+var validWorkflowFilename = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 func defaultConfig() *Config {
 	animEnabled := true
@@ -211,6 +222,13 @@ func loadProjectConfig(path string, cfg *Config) error {
 		return err
 	}
 
+	// Discover file-based workflows under <dir>/.sortie/workflows/<category>/
+	baseDir := filepath.Dir(path)
+	filePool, err := loadWorkflowFilePool(baseDir)
+	if err != nil {
+		return err
+	}
+
 	if proj.MaxWorkers > 0 {
 		cfg.MaxWorkers = proj.MaxWorkers
 	}
@@ -302,34 +320,218 @@ func loadProjectConfig(path string, cfg *Config) error {
 		}
 	}
 
-	return resolveWorkflows(cfg, &proj)
+	return resolveWorkflows(cfg, &proj, filePool)
+}
+
+// workflowFilePool holds workflow definitions discovered on disk under
+// .sortie/workflows/<category>/, keyed by category → name → loaded workflow.
+// Files that haven't been referenced from .sortie.yml at the end of resolution
+// are appended to their category's slice as Hidden=true.
+type workflowFilePool struct {
+	// byCategory[category][name] → WorkflowConfig (with Source set, Hidden=false).
+	byCategory map[string]map[string]WorkflowConfig
+	// order[category] preserves alphabetical iteration order over files for
+	// stable Hidden appending.
+	order map[string][]string
+}
+
+func newWorkflowFilePool() *workflowFilePool {
+	return &workflowFilePool{
+		byCategory: make(map[string]map[string]WorkflowConfig, len(workflowCategories)),
+		order:      make(map[string][]string, len(workflowCategories)),
+	}
+}
+
+// lookup returns the file-based workflow for category/name and reports whether
+// it was found.
+func (p *workflowFilePool) lookup(category, name string) (WorkflowConfig, bool) {
+	if p == nil {
+		return WorkflowConfig{}, false
+	}
+	m, ok := p.byCategory[category]
+	if !ok {
+		return WorkflowConfig{}, false
+	}
+	wf, ok := m[name]
+	return wf, ok
+}
+
+// remove deletes a workflow from the pool (used to mark a file as "claimed"
+// by an active string ref so we can identify unreferenced files at the end).
+func (p *workflowFilePool) remove(category, name string) {
+	if p == nil {
+		return
+	}
+	if m, ok := p.byCategory[category]; ok {
+		delete(m, name)
+	}
+}
+
+// remainingNames returns the alphabetically-ordered names left in the pool for
+// category. Used to append hidden workflows in stable order.
+func (p *workflowFilePool) remainingNames(category string) []string {
+	if p == nil {
+		return nil
+	}
+	var names []string
+	for _, n := range p.order[category] {
+		if _, ok := p.byCategory[category][n]; ok {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
+// loadWorkflowFilePool scans <baseDir>/.sortie/workflows/<category>/ for each
+// known category and returns the discovered workflows. Returns an empty pool
+// when the .sortie/workflows directory doesn't exist (not an error).
+func loadWorkflowFilePool(baseDir string) (*workflowFilePool, error) {
+	pool := newWorkflowFilePool()
+	if baseDir == "" {
+		return pool, nil
+	}
+	root := filepath.Join(baseDir, ".sortie", "workflows")
+	info, err := os.Stat(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return pool, nil
+		}
+		return nil, err
+	}
+	if !info.IsDir() {
+		return pool, nil
+	}
+
+	for _, category := range workflowCategories {
+		dir := filepath.Join(root, category)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read %s: %w", dir, err)
+		}
+		// Deterministic order — os.ReadDir already sorts by name, but make it explicit.
+		sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				return nil, fmt.Errorf("workflows.%s: subdirectories not supported (found %q)", category, entry.Name())
+			}
+			fname := entry.Name()
+			ext := filepath.Ext(fname)
+			if ext != ".yml" && ext != ".yaml" {
+				return nil, fmt.Errorf("workflows.%s: invalid file extension %q (must be .yml or .yaml)", category, fname)
+			}
+			base := strings.TrimSuffix(fname, ext)
+			if !validWorkflowFilename.MatchString(base) {
+				return nil, fmt.Errorf("workflows.%s: invalid filename %q (must be kebab-case: [a-z0-9-]+)", category, fname)
+			}
+
+			path := filepath.Join(dir, fname)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil, fmt.Errorf("read %s: %w", path, err)
+			}
+
+			// Reject any `name:` field in file-based workflows — filename is the name.
+			if err := assertNoNameField(data); err != nil {
+				return nil, fmt.Errorf("%s: %w", path, err)
+			}
+
+			var wf WorkflowConfig
+			if err := yaml.Unmarshal(data, &wf); err != nil {
+				return nil, fmt.Errorf("parse %s: %w", path, err)
+			}
+			wf.Name = base
+			wf.Source = path
+
+			if pool.byCategory[category] == nil {
+				pool.byCategory[category] = make(map[string]WorkflowConfig)
+			}
+			if _, dup := pool.byCategory[category][base]; dup {
+				return nil, fmt.Errorf("workflows.%s: duplicate file-based workflow %q", category, base)
+			}
+			pool.byCategory[category][base] = wf
+			pool.order[category] = append(pool.order[category], base)
+		}
+	}
+
+	return pool, nil
+}
+
+// assertNoNameField rejects file-based workflow definitions that set a `name:`
+// field. The filename is authoritative; allowing `name:` invites name/file
+// drift.
+func assertNoNameField(data []byte) error {
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		return nil // surface the parse error from the main decode path
+	}
+	// The top of a document is a DocumentNode containing one MappingNode.
+	root := &node
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		root = root.Content[0]
+	}
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		key := root.Content[i]
+		if key.Kind == yaml.ScalarNode && key.Value == "name" {
+			return fmt.Errorf("file-based workflows must not set `name:` (filename is the name)")
+		}
+	}
+	return nil
 }
 
 // resolveWorkflows processes raw project workflows into the Config's flat and categorized lists.
-// It handles three input formats (structured, legacy list, ancient singular) and ensures
-// all workflows have names and valid loop configurations.
-func resolveWorkflows(cfg *Config, proj *ProjectConfig) error {
+// It handles three input formats (structured, legacy list, ancient singular), merges in
+// file-based workflows from filePool, ensures all workflows have names, and validates them.
+//
+// File-based workflows referenced via string entries in .sortie.yml become active (in listing
+// order). Files in the pool not referenced from .sortie.yml are appended to their category's
+// slice as Hidden=true (alphabetical order for stability). Inline + file collision is a hard
+// error.
+func resolveWorkflows(cfg *Config, proj *ProjectConfig, filePool *workflowFilePool) error {
 	// Handle workflows section: supports three formats:
 	// 1. New structured: workflows: { one-off: [...], tasks: [...], init: [...] }
 	// 2. Legacy list:    workflows: [{ name: ..., steps: [...] }, ...]
 	// 3. Ancient singular: workflow: { steps: [...] }
 	hasNewFormat := len(proj.Workflows.OneOff) > 0 || len(proj.Workflows.Tasks) > 0 || len(proj.Workflows.Init) > 0
 
-	if hasNewFormat {
-		// New structured format - only override categories that are actually defined
-		// so that e.g. global init workflows are preserved when project config
-		// only defines tasks and one-off workflows.
-		if len(proj.Workflows.Tasks) > 0 {
-			cfg.TaskWorkflows = proj.Workflows.Tasks
+	// Track whether the file pool was consulted at all so we can append hidden
+	// workflows even when .sortie.yml has no entries for that category.
+	hasFilePool := filePool != nil && len(filePool.byCategory) > 0
+
+	if hasNewFormat || hasFilePool {
+		// New structured format — only override categories actually defined in
+		// proj.Workflows so global init workflows persist when project config
+		// only defines a subset of categories. The file pool is consulted only
+		// for categories whose pool is non-empty.
+		if len(proj.Workflows.Tasks) > 0 || hasCategoryFiles(filePool, "tasks") {
+			resolved, err := resolveCategory("tasks", proj.Workflows.Tasks, filePool)
+			if err != nil {
+				return err
+			}
+			cfg.TaskWorkflows = resolved
 		}
-		if len(proj.Workflows.OneOff) > 0 {
-			cfg.OneOff = proj.Workflows.OneOff
+		if len(proj.Workflows.OneOff) > 0 || hasCategoryFiles(filePool, "one-off") {
+			resolved, err := resolveCategory("one-off", proj.Workflows.OneOff, filePool)
+			if err != nil {
+				return err
+			}
+			cfg.OneOff = resolved
 		}
-		if len(proj.Workflows.Init) > 0 {
-			cfg.InitWorkflows = proj.Workflows.Init
+		if len(proj.Workflows.Init) > 0 || hasCategoryFiles(filePool, "init") {
+			resolved, err := resolveCategory("init", proj.Workflows.Init, filePool)
+			if err != nil {
+				return err
+			}
+			cfg.InitWorkflows = resolved
 		}
 
-		// Build flat list for engine resolution from the merged categories
+		// Build flat list for engine resolution from the merged categories.
 		cfg.Workflows = nil
 		for _, wf := range cfg.TaskWorkflows {
 			cfg.Workflows = append(cfg.Workflows, wf)
@@ -345,7 +547,8 @@ func resolveWorkflows(cfg *Config, proj *ProjectConfig) error {
 			cfg.Workflows = append(cfg.Workflows, engineWf)
 		}
 	} else if len(proj.Workflows.legacy) > 0 {
-		// Legacy list format: all items are task workflows
+		// Legacy list format: all items are task workflows. No file-pool merge —
+		// callers using the legacy format opt out of the new mechanism.
 		cfg.TaskWorkflows = proj.Workflows.legacy
 		cfg.Workflows = proj.Workflows.legacy
 	} else if len(proj.Workflow.Steps) > 0 {
@@ -396,6 +599,7 @@ func resolveWorkflows(cfg *Config, proj *ProjectConfig) error {
 				Description:      task.Description,
 				Steps:            task.Steps,
 				SummarizerPrompt: task.SummarizerPrompt,
+				Source:           "inline",
 			}
 			cfg.OneOff = append(cfg.OneOff, wf)
 			// Register for engine resolution with oneoff: prefix
@@ -416,6 +620,70 @@ func resolveWorkflows(cfg *Config, proj *ProjectConfig) error {
 	}
 
 	return nil
+}
+
+// hasCategoryFiles reports whether filePool has any workflows for category.
+func hasCategoryFiles(pool *workflowFilePool, category string) bool {
+	if pool == nil {
+		return false
+	}
+	return len(pool.byCategory[category]) > 0
+}
+
+// resolveCategory expands a single category's entries (string refs + inline
+// defs) into a flat slice of WorkflowConfig. Active workflows come first in
+// listing order; any files in the pool not referenced are appended as Hidden.
+func resolveCategory(category string, entries []WorkflowEntry, filePool *workflowFilePool) ([]WorkflowConfig, error) {
+	// Track names seen so we can flag duplicates and inline/file collisions.
+	seen := make(map[string]bool, len(entries))
+	out := make([]WorkflowConfig, 0, len(entries))
+
+	for _, entry := range entries {
+		switch {
+		case entry.Ref != "":
+			name := entry.Ref
+			if seen[name] {
+				return nil, fmt.Errorf("workflows.%s: duplicate workflow name %q", category, name)
+			}
+			wf, ok := filePool.lookup(category, name)
+			if !ok {
+				return nil, fmt.Errorf("workflows.%s: referenced workflow %q has no file at .sortie/workflows/%s/%s.yml", category, name, category, name)
+			}
+			wf.Hidden = false
+			out = append(out, wf)
+			filePool.remove(category, name)
+			seen[name] = true
+		case entry.Inline != nil:
+			wf := *entry.Inline
+			if wf.Name == "" {
+				return nil, fmt.Errorf("workflows.%s: inline workflow is missing a name", category)
+			}
+			if seen[wf.Name] {
+				return nil, fmt.Errorf("workflows.%s: duplicate workflow name %q", category, wf.Name)
+			}
+			if _, dup := filePool.lookup(category, wf.Name); dup {
+				return nil, fmt.Errorf("workflows.%s: inline workflow %q collides with file at .sortie/workflows/%s/%s.yml — define it in one place only", category, wf.Name, category, wf.Name)
+			}
+			wf.Source = "inline"
+			wf.Hidden = false
+			out = append(out, wf)
+			seen[wf.Name] = true
+		default:
+			return nil, fmt.Errorf("workflows.%s: empty entry", category)
+		}
+	}
+
+	// Append unreferenced file-based workflows as hidden, alphabetical order.
+	for _, name := range filePool.remainingNames(category) {
+		wf, ok := filePool.lookup(category, name)
+		if !ok {
+			continue
+		}
+		wf.Hidden = true
+		out = append(out, wf)
+	}
+
+	return out, nil
 }
 
 func (c *Config) computePaths() {

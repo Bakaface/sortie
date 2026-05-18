@@ -94,9 +94,64 @@ Workflows are organized into three categories under `workflows:`:
 
 | Category | Key | TUI Key | User Prompt? | Description |
 |---|---|---|---|---|
-| **Tasks** | `workflows.tasks` | `n` | Yes | For user-created tasks. User provides title + description. |
-| **One-Off** | `workflows.one-off` | `r` | No | Predefined jobs with built-in descriptions. Run directly. |
-| **Init** | `workflows.init` | `i` | No | Initialization pipelines (e.g., spin up from PRD). |
+| **Tasks** | `workflows.tasks` | `n` (`:RunTask`) | Yes | For user-created tasks. User provides title + description. `:RunTask` opens a picker, then the new-task prompt with the workflow preselected. |
+| **One-Off** | `workflows.one-off` | `x` (`:RunOneOff`) | No | Predefined jobs with built-in descriptions. Run directly. |
+| **Init** | `workflows.init` | `i` (`:RunInit`) | No | Initialization pipelines (e.g., spin up from PRD). |
+
+## Inline vs. File-Based Workflows
+
+Workflows can be defined two ways. The `workflows:` section in `.sortie.yml`
+controls which workflows are **active** (visible in TUI menus) and what order
+they appear in. Each category's list accepts a mix of:
+
+- **String refs** → resolved against `.sortie/workflows/<category>/<name>.yml`
+- **Inline maps** → full workflow definition embedded directly in `.sortie.yml`
+
+```yaml
+workflows:
+  tasks:
+    - implement            # → .sortie/workflows/tasks/implement.yml (file-based)
+    - review               # → .sortie/workflows/tasks/review.yml (file-based)
+    - name: quick-fix      # inline
+      steps:
+        - name: do
+          prompt: "fix it"
+```
+
+A workflow file at `.sortie/workflows/<category>/<name>.yml` contains the same
+fields as an inline workflow body — minus the `name:` field, which is always
+the filename. Use kebab-case filenames (`[a-z0-9-]+\.yml`).
+
+**Files not referenced from `.sortie.yml` are loaded as hidden.** Hidden
+workflows are:
+
+- **Not** shown in TUI menus (the `n` / `x` / `i` shortcuts)
+- **Reachable** via `:RunTask <name>`, `:RunOneOff <name>`, `:RunInit <name>` (and tab completion)
+- **Reachable** via CLI: `sortie create -w <name>` accepts hidden workflows
+- **Returned** by the MCP `list_workflows` tool with `"hidden": true`
+
+### When to split a workflow into a file
+
+Default to inline. Split when any of the following holds:
+
+- The resulting `.sortie.yml` would exceed ~200 lines
+- A single workflow body exceeds ~40 lines
+- The category has more than five workflows
+
+Splitting trades single-file readability for per-workflow editability. For tiny
+projects, inline beats file-sprawl.
+
+### Hard errors at config load
+
+- String ref points to a missing file (`.sortie/workflows/<cat>/<name>.yml`).
+- Same `<category>/<name>` is both inlined in `.sortie.yml` and present as a file.
+- A file-based workflow sets a `name:` field (filename is authoritative).
+- A workflow file uses a non-kebab-case filename or lives in a subdirectory of `.sortie/workflows/<cat>/`.
+
+### Warnings (non-fatal — surfaced by `sortie validate`)
+
+- File present under `.sortie/workflows/<cat>/` but not referenced in `.sortie.yml` (it's hidden).
+- A category has files on disk but no `<cat>:` listing in `.sortie.yml` (everything in that category is hidden).
 
 ## Workflow Structure
 
@@ -221,6 +276,8 @@ sortie validate path/to/.sortie.yml   # validates an explicit file
 - Invalid `default_priority` (must be `low`, `medium`, `high`, or `urgent`)
 - Invalid `tmux_nested_attach_behavior` (must be `switch` or `nest`)
 - Duplicate workflow names within a category and duplicate step names within a workflow
+- File-based workflow errors: missing string ref, inline+file collision, invalid filename, `name:` field in file
+- File-based workflow warnings: unreferenced files (hidden), category with files but no listing
 
 Exit code is `0` on success and non-zero on the first error. Run it before reporting completion — never declare a config "done" until `sortie validate` exits cleanly.
 

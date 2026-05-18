@@ -177,6 +177,49 @@ workflows:
 	}
 }
 
+func TestValidateFile_MissingFileRefIsError(t *testing.T) {
+	// String ref to a non-existent file should be a hard error.
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".sortie.yml")
+	if err := os.WriteFile(path, []byte(`
+workflows:
+  tasks:
+    - phantom
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := ValidateFile(path)
+	if err == nil || !strings.Contains(err.Error(), "phantom") {
+		t.Fatalf("expected missing-ref error, got %v", err)
+	}
+}
+
+func TestValidateFile_InlineFileCollisionIsError(t *testing.T) {
+	dir := t.TempDir()
+	wf := filepath.Join(dir, ".sortie", "workflows", "tasks")
+	if err := os.MkdirAll(wf, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wf, "foo.yml"), []byte("steps:\n  - name: a\n    prompt: a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ymlPath := filepath.Join(dir, ".sortie.yml")
+	if err := os.WriteFile(ymlPath, []byte(`
+workflows:
+  tasks:
+    - name: foo
+      steps:
+        - name: a
+          prompt: "a"
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := ValidateFile(ymlPath)
+	if err == nil || !strings.Contains(err.Error(), "collides") {
+		t.Fatalf("expected collision error, got %v", err)
+	}
+}
+
 func TestValidateFile_DuplicateStepName(t *testing.T) {
 	path := writeTempConfig(t, `
 workflows:

@@ -38,30 +38,65 @@ func (c *Config) GetWorkflow(name string) *WorkflowConfig {
 	return &def
 }
 
-// ListWorkflowNames returns the names of all configured task workflows
-// (the "tasks" kind used for new task creation). If none configured, returns ["default"].
+// ListWorkflowNames returns the names of active (non-hidden) task workflows
+// (the "tasks" kind used for new task creation menus). If none configured,
+// returns ["default"]. Use ListAllWorkflowNames for picker surfaces that
+// should expose hidden workflows too.
 func (c *Config) ListWorkflowNames() []string {
+	return c.listTaskNames(false)
+}
+
+// ListAllWorkflowNames returns the names of all task workflows including
+// hidden ones. Used by pickers and tab completion where every reachable
+// workflow should be selectable.
+func (c *Config) ListAllWorkflowNames() []string {
+	return c.listTaskNames(true)
+}
+
+func (c *Config) listTaskNames(includeHidden bool) []string {
 	if len(c.TaskWorkflows) == 0 {
 		return []string{"default"}
 	}
-	names := make([]string, len(c.TaskWorkflows))
-	for i, w := range c.TaskWorkflows {
-		names[i] = w.Name
+	names := make([]string, 0, len(c.TaskWorkflows))
+	for _, w := range c.TaskWorkflows {
+		if !includeHidden && w.Hidden {
+			continue
+		}
+		names = append(names, w.Name)
+	}
+	if len(names) == 0 && !includeHidden {
+		// All workflows hidden — fall back to default so menu surfaces still
+		// have something to display.
+		return []string{"default"}
 	}
 	return names
 }
 
-// ListPredefinedTaskNames returns the names of all one-off workflows
-// (the "one-off" kind shown in the "r" run menu).
+// ListPredefinedTaskNames returns the names of active one-off workflows
+// (the "one-off" kind shown in the "x" / :RunOneOff menu).
 func (c *Config) ListPredefinedTaskNames() []string {
-	names := make([]string, len(c.OneOff))
-	for i, t := range c.OneOff {
-		names[i] = t.Name
+	return c.listOneOffNames(false)
+}
+
+// ListAllPredefinedTaskNames returns the names of all one-off workflows
+// including hidden ones. Used by the :RunOneOff picker.
+func (c *Config) ListAllPredefinedTaskNames() []string {
+	return c.listOneOffNames(true)
+}
+
+func (c *Config) listOneOffNames(includeHidden bool) []string {
+	names := make([]string, 0, len(c.OneOff))
+	for _, t := range c.OneOff {
+		if !includeHidden && t.Hidden {
+			continue
+		}
+		names = append(names, t.Name)
 	}
 	return names
 }
 
 // GetPredefinedTask returns the one-off workflow config with the given name, or nil.
+// Returns hidden workflows too — callers wanting active-only must filter.
 func (c *Config) GetPredefinedTask(name string) *WorkflowConfig {
 	for i := range c.OneOff {
 		if c.OneOff[i].Name == name {
@@ -71,21 +106,46 @@ func (c *Config) GetPredefinedTask(name string) *WorkflowConfig {
 	return nil
 }
 
-// ListInitWorkflowNames returns the names of all init workflows
-// (the "init" kind shown in the "i" init menu).
+// ListInitWorkflowNames returns the names of active init workflows
+// (the "init" kind shown in the "i" / :RunInit menu).
 func (c *Config) ListInitWorkflowNames() []string {
-	names := make([]string, len(c.InitWorkflows))
-	for i, w := range c.InitWorkflows {
-		names[i] = w.Name
+	return c.listInitNames(false)
+}
+
+// ListAllInitWorkflowNames returns the names of all init workflows including
+// hidden ones. Used by the :RunInit picker.
+func (c *Config) ListAllInitWorkflowNames() []string {
+	return c.listInitNames(true)
+}
+
+func (c *Config) listInitNames(includeHidden bool) []string {
+	names := make([]string, 0, len(c.InitWorkflows))
+	for _, w := range c.InitWorkflows {
+		if !includeHidden && w.Hidden {
+			continue
+		}
+		names = append(names, w.Name)
 	}
 	return names
 }
 
 // GetInitWorkflow returns the init workflow config with the given name, or nil.
+// Returns hidden workflows too — callers wanting active-only must filter.
 func (c *Config) GetInitWorkflow(name string) *WorkflowConfig {
 	for i := range c.InitWorkflows {
 		if c.InitWorkflows[i].Name == name {
 			return &c.InitWorkflows[i]
+		}
+	}
+	return nil
+}
+
+// GetTaskWorkflow returns the task-category workflow config with the given
+// name, or nil. Returns hidden workflows too.
+func (c *Config) GetTaskWorkflow(name string) *WorkflowConfig {
+	for i := range c.TaskWorkflows {
+		if c.TaskWorkflows[i].Name == name {
+			return &c.TaskWorkflows[i]
 		}
 	}
 	return nil

@@ -58,6 +58,8 @@ func summarizeWorkflows(workflows []config.WorkflowConfig) []WorkflowSummary {
 			Description:     wf.Description,
 			Print:           wf.Print,
 			FirstStepIsTmux: wf.FirstStepIsTmux(),
+			Hidden:          wf.Hidden,
+			Source:          wf.Source,
 			Steps:           make([]WorkflowStepSummary, 0, len(wf.Steps)),
 		}
 		for _, step := range wf.Steps {

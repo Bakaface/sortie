@@ -26,8 +26,13 @@ With no argument, validates ./.sortie.yml. Otherwise validates the given path.`,
 			return err
 		}
 
-		if err := config.ValidateFile(path); err != nil {
+		diagnostics, err := config.Diagnose(path)
+		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
+		}
+
+		for _, d := range diagnostics {
+			fmt.Fprintf(os.Stderr, "%s: %s: %s\n", path, d.Severity, d.Message)
 		}
 
 		fmt.Printf("%s is valid\n", path)

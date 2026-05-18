@@ -229,6 +229,8 @@ type WorkflowSummary struct {
 	Description     string                `json:"description,omitempty"`
 	Print           bool                  `json:"print,omitempty"`              // workflow-level default (true = headless claude -p)
 	FirstStepIsTmux bool                  `json:"first_step_is_tmux,omitempty"` // derived; useful for picking interactive workflows
+	Hidden          bool                  `json:"hidden,omitempty"`             // file-based workflow not referenced from .sortie.yml
+	Source          string                `json:"source,omitempty"`             // "inline" or path to defining file
 	Steps           []WorkflowStepSummary `json:"steps,omitempty"`
 }
 

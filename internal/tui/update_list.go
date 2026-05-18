@@ -141,9 +141,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, m.keys.RunTask):
-		// Show predefined task selection if tasks are configured
+		// Show predefined one-off selection (active + hidden) if any are configured.
 		if m.client != nil && m.projectPath != "" {
-			tasks := m.cfg.ListPredefinedTaskNames()
+			tasks := m.cfg.ListAllPredefinedTaskNames()
 			if len(tasks) > 0 {
 				var descs []string
 				for _, name := range tasks {
@@ -154,10 +154,13 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 				m.selector = selector{
-					kind:         selectorTask,
-					title:        "Run Predefined Task",
-					items:        tasks,
-					descriptions: descs,
+					kind:            selectorTask,
+					title:           "Run One-off",
+					items:           append([]string(nil), tasks...),
+					descriptions:    append([]string(nil), descs...),
+					filterable:      true,
+					allItems:        tasks,
+					allDescriptions: descs,
 				}
 				return m, nil
 			}
@@ -233,9 +236,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.InitWorkflow):
-		// Show init workflow selection if init workflows are configured
+		// Show init workflow selection (active + hidden) if any are configured.
 		if m.client != nil && m.projectPath != "" {
-			inits := m.cfg.ListInitWorkflowNames()
+			inits := m.cfg.ListAllInitWorkflowNames()
 			if len(inits) > 0 {
 				var descs []string
 				for _, name := range inits {
@@ -246,10 +249,13 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				}
 				m.selector = selector{
-					kind:         selectorInit,
-					title:        "Run Init Workflow",
-					items:        inits,
-					descriptions: descs,
+					kind:            selectorInit,
+					title:           "Run Init Workflow",
+					items:           append([]string(nil), inits...),
+					descriptions:    append([]string(nil), descs...),
+					filterable:      true,
+					allItems:        inits,
+					allDescriptions: descs,
 				}
 				return m, nil
 			}
@@ -543,6 +549,24 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 
 	case selectorArtifact:
 		return m.performArtifactAction(taskID, item, action)
+
+	case selectorTaskWorkflow:
+		// Open the new-task prompt with the workflow preselected and the
+		// cycler hidden (workflows slice contains just this one name).
+		if m.client == nil || m.projectPath == "" {
+			return m, nil
+		}
+		m.selectedWorkflow = item
+		m.view = viewPrompt
+		m.prompt.defaultWorkflow = m.defaultWorkflow
+		m.prompt.Reset()
+		m.prompt.preselectedWorkflow = item
+		m.prompt.workflowName = item
+		m.prompt.workflows = []string{item}
+		m.prompt.workflowCursor = 0
+		m.prompt.SetSize(m.width, m.height)
+		m.prompt.Focus()
+		return m, nil
 	}
 
 	return m, nil
