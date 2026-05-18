@@ -17,31 +17,27 @@ import (
 	"github.com/aface/sortie/internal/tmux"
 )
 
-// mergedTmuxEnv returns a copy of envVars with CLAUDE_CONFIG_DIR set to point
-// at the worktree-scoped Claude settings directory. A caller-supplied value
-// (e.g. from a test stub) wins over the auto-injected one so we don't clobber
-// intentional overrides.
-func mergedTmuxEnv(envVars map[string]string, settingsDir string) map[string]string {
-	merged := make(map[string]string, len(envVars)+1)
-	for k, v := range envVars {
-		merged[k] = v
-	}
-	if _, ok := merged["CLAUDE_CONFIG_DIR"]; !ok && settingsDir != "" {
-		merged["CLAUDE_CONFIG_DIR"] = settingsDir
-	}
-	return merged
-}
-
 // buildTmuxClaudeCmd returns the claude command-line fragment used inside the
 // generated tmux wrapper script. The binary path is shell-quoted via %q so paths
 // with spaces don't break the script.
-func buildTmuxClaudeCmd(claudeBin string, yolo bool) string {
+//
+// settingsPath, if non-empty, is appended as `--settings <path>` so the
+// worktree-scoped Stop hook (see InstallStopHook) is layered on top of the
+// user's global config. We deliberately do NOT set CLAUDE_CONFIG_DIR here:
+// that env var is a full redirection of the entire Claude Code config
+// directory, which would hide ~/.claude/.credentials.json and ~/.claude.json
+// (OAuth, onboarding state, per-project trust acceptance) from the spawned
+// agent and force re-onboarding on every launch.
+func buildTmuxClaudeCmd(claudeBin string, yolo bool, settingsPath string) string {
 	if claudeBin == "" {
 		claudeBin = "claude"
 	}
 	cmd := fmt.Sprintf("%q", claudeBin)
 	if yolo {
 		cmd += " --dangerously-skip-permissions"
+	}
+	if settingsPath != "" {
+		cmd += fmt.Sprintf(" --settings %q", settingsPath)
 	}
 	return cmd
 }
@@ -220,18 +216,20 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 		return 1, "", fmt.Errorf("failed to write prompt file: %w", err)
 	}
 
-	// Build env exports for the wrapper script. CLAUDE_CONFIG_DIR points
-	// Claude Code at the worktree-scoped settings.json that registers our
-	// Stop hook, while still composing with the user's global hooks.
-	envVarsWithHook := mergedTmuxEnv(envVars, SortieSettingsDir(t.WorktreePath))
+	// Build env exports for the wrapper script. We do NOT inject
+	// CLAUDE_CONFIG_DIR — that env var is a full config-dir redirection that
+	// would hide the user's OAuth/onboarding state and trigger re-auth prompts.
+	// The Stop-hook settings.json is wired in via `--settings` on the claude
+	// command line instead (see buildTmuxClaudeCmd).
 	var envExports strings.Builder
-	for k, v := range envVarsWithHook {
+	for k, v := range envVars {
 		envExports.WriteString(fmt.Sprintf("export %s=%q\n", k, v))
 	}
 
 	// Write wrapper script: run Claude interactively, then drop to bash for inspection.
 	// Honor cfg.Claude.Command so e2e tests / custom installs route through a stub.
-	claudeCmd := buildTmuxClaudeCmd(e.cfg.Claude.Command, e.cfg.Claude.Yolo)
+	sortieSettingsFile := filepath.Join(SortieSettingsDir(t.WorktreePath), "settings.json")
+	claudeCmd := buildTmuxClaudeCmd(e.cfg.Claude.Command, e.cfg.Claude.Yolo, sortieSettingsFile)
 	if len(systemPrompt) > 0 && systemPrompt[0] != "" {
 		// Write system prompt to file to avoid shell quoting issues
 		sysPromptFile := filepath.Join(sortieDir, fmt.Sprintf("step-sysprompt-%s.txt", step.Name))

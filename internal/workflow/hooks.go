@@ -20,9 +20,13 @@ import (
 //   <worktree>/.sortie/step-done/<step>-<turn>.json   ← sentinel per turn end
 //
 // Both live under .sortie/ which is gitignored project-wide. The settings
-// directory is surfaced to claude via CLAUDE_CONFIG_DIR, which Claude Code
-// merges *on top of* the user's global ~/.claude/settings.json — so any
-// global hooks the user has continue to fire.
+// file is layered onto the running Claude Code process via the `--settings`
+// CLI flag (see buildTmuxClaudeCmd) so the worktree's Stop hook merges on top
+// of the user's global ~/.claude/ config. We deliberately avoid
+// CLAUDE_CONFIG_DIR, which is a *full* redirection of the entire config
+// directory — using it would hide OAuth credentials, onboarding state, and
+// per-project trust acceptance from the spawned agent and trigger re-auth on
+// every launch.
 //
 // The hook itself is a tiny POSIX shell command that catches the JSON
 // payload on stdin and dumps it to a uniquely-named file. Claude Code
@@ -30,7 +34,8 @@ import (
 // that payload, which is exactly what we need to advance the workflow.
 
 // SortieSettingsDirName is the directory name (relative to a worktree's
-// .sortie/) that holds the Claude Code settings consumed via CLAUDE_CONFIG_DIR.
+// .sortie/) that holds the Claude Code settings.json layered onto the
+// spawned agent via the `--settings` CLI flag.
 const SortieSettingsDirName = "claude-settings"
 
 // StepDoneDirName is the directory name (relative to a worktree's .sortie/)
@@ -38,7 +43,8 @@ const SortieSettingsDirName = "claude-settings"
 const StepDoneDirName = "step-done"
 
 // SortieSettingsDir returns the absolute path to the Claude settings directory
-// inside a worktree. The Stop hook is installed at <dir>/settings.json.
+// inside a worktree. The Stop hook is installed at <dir>/settings.json and
+// loaded via `claude --settings <dir>/settings.json`.
 func SortieSettingsDir(worktreePath string) string {
 	return filepath.Join(worktreePath, ".sortie", SortieSettingsDirName)
 }

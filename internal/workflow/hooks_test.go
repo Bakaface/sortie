@@ -163,24 +163,3 @@ func TestInstallStopHook_EndToEndDropsSentinel(t *testing.T) {
 	}
 }
 
-// TestMergedTmuxEnv_AddsClaudeConfigDir verifies the env-merge helper injects
-// CLAUDE_CONFIG_DIR when absent.
-func TestMergedTmuxEnv_AddsClaudeConfigDir(t *testing.T) {
-	got := mergedTmuxEnv(map[string]string{"SORTIE_TASK_ID": "42"}, "/tmp/settings")
-	if got["CLAUDE_CONFIG_DIR"] != "/tmp/settings" {
-		t.Errorf("CLAUDE_CONFIG_DIR not injected, got %q", got["CLAUDE_CONFIG_DIR"])
-	}
-	if got["SORTIE_TASK_ID"] != "42" {
-		t.Errorf("caller env dropped")
-	}
-}
-
-// TestMergedTmuxEnv_RespectsExistingValue ensures a caller-supplied
-// CLAUDE_CONFIG_DIR isn't overwritten — useful for tests that point Claude
-// at a stub directory.
-func TestMergedTmuxEnv_RespectsExistingValue(t *testing.T) {
-	got := mergedTmuxEnv(map[string]string{"CLAUDE_CONFIG_DIR": "/explicit"}, "/auto")
-	if got["CLAUDE_CONFIG_DIR"] != "/explicit" {
-		t.Errorf("expected caller value to win, got %q", got["CLAUDE_CONFIG_DIR"])
-	}
-}
