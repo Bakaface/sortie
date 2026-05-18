@@ -101,6 +101,15 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		return
 	}
 
+	// Validate any {{tasks.<id>.<field>}} references and collect auto-blockers.
+	// selfID is 0 — the task row doesn't exist yet, so no self-references are
+	// possible (any future cycle would have to be in req.BlockedBy explicitly).
+	autoBlockedBy, refErr := s.validateTaskRefs(description, proj.ID, 0, "description")
+	if refErr != nil {
+		s.sendError(conn, refErr.Error())
+		return
+	}
+
 	// Caller-supplied title wins. Otherwise: branch-derived for checkout-only,
 	// workflow-derived for tmux-first with no description, else sanitized description.
 	var title string
@@ -149,9 +158,13 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 		return
 	}
 
-	// Set task dependencies if provided
-	if len(req.BlockedBy) > 0 {
-		if err := s.database.SetTaskDependencies(t.ID, req.BlockedBy); err != nil {
+	// Merge auto-blockers (from {{tasks.<id>.<field>}} refs) into req.BlockedBy,
+	// deduplicating so an explicit --blocked-by overlap doesn't double-insert.
+	blockedBy := mergeBlockedBy(req.BlockedBy, autoBlockedBy)
+
+	// Set task dependencies if provided (explicit or auto-collected)
+	if len(blockedBy) > 0 {
+		if err := s.database.SetTaskDependencies(t.ID, blockedBy); err != nil {
 			log.Printf("%sFailed to set dependencies for task #%d: %v", s.projectLogPrefix(proj.ID), t.ID, err)
 		} else {
 			// Re-fetch task to include dependencies in response
@@ -249,6 +262,24 @@ func (s *Server) handleUpdatePriority(conn net.Conn, req UpdatePriorityRequest) 
 }
 
 func (s *Server) handleUpdateField(conn net.Conn, req UpdateFieldRequest) {
+	// For description/context edits, validate any {{tasks.<id>.<field>}} refs
+	// against the new value and collect newly active references as auto-blockers.
+	// Validation runs before the mutation so a bad ref leaves the field untouched.
+	var autoBlockedBy []int64
+	if req.Field == "description" || req.Field == "context" {
+		t, err := s.database.GetTask(req.TaskID)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+			return
+		}
+		auto, refErr := s.validateTaskRefs(req.Value, t.ProjectID, req.TaskID, req.Field)
+		if refErr != nil {
+			s.sendError(conn, refErr.Error())
+			return
+		}
+		autoBlockedBy = auto
+	}
+
 	var err error
 	switch req.Field {
 	case "title":
@@ -265,6 +296,16 @@ func (s *Server) handleUpdateField(conn net.Conn, req UpdateFieldRequest) {
 		s.sendError(conn, fmt.Sprintf("failed to update %s: %v", req.Field, err))
 		return
 	}
+
+	// Additive only — never remove existing edges (user may have added some
+	// manually). AddTaskDependency is an INSERT OR IGNORE so duplicates are
+	// harmless.
+	for _, dep := range autoBlockedBy {
+		if err := s.database.AddTaskDependency(req.TaskID, dep); err != nil {
+			log.Printf("Warning: failed to auto-add dependency %d -> %d: %v", req.TaskID, dep, err)
+		}
+	}
+
 	s.broadcastTaskUpdate(req.TaskID)
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("%s updated", req.Field)})
 }
@@ -503,4 +544,85 @@ func (s *Server) generateTitle(ctx context.Context, description string, claude *
 	}
 
 	return title, nil
+}
+
+// validateTaskRefs scans value for {{tasks.<id>.<field>}} references and
+// classifies each by referenced-task status, returning a deduped list of
+// referenced tasks that are currently active (and so should be merged into the
+// task's BlockedBy edges). Returns an error for any of the disallowed cases:
+//   - unsupported field name
+//   - referenced task missing
+//   - cross-project reference
+//   - referenced task in failed status
+//
+// fieldLabel is used in error messages ("description" / "context") to identify
+// where the offending reference lives. selfID is the ID of the task being
+// validated (0 at create time, since no row exists yet); refs to selfID are
+// never auto-added as blockers — a task cannot block itself.
+func (s *Server) validateTaskRefs(value string, projectID, selfID int64, fieldLabel string) ([]int64, error) {
+	refs := workflow.ExtractTaskRefs(value)
+	if len(refs) == 0 {
+		return nil, nil
+	}
+	if err := workflow.ValidateTaskRefs(refs); err != nil {
+		return nil, err
+	}
+
+	seenAny := make(map[int64]bool) // avoid hitting the DB twice for repeated ids
+	var autoBlockedBy []int64
+	for _, r := range refs {
+		if seenAny[r.ID] {
+			continue
+		}
+		seenAny[r.ID] = true
+		// A task referencing itself is fine (the lookup resolves it at runtime),
+		// but it must never become its own blocker — that would deadlock the
+		// claim filter on this task forever.
+		if r.ID == selfID {
+			continue
+		}
+		ref, err := s.database.GetTask(r.ID)
+		if err != nil || ref == nil {
+			return nil, fmt.Errorf("task #%d referenced in %s does not exist", r.ID, fieldLabel)
+		}
+		if ref.ProjectID != projectID {
+			return nil, fmt.Errorf("task #%d referenced in %s belongs to another project", r.ID, fieldLabel)
+		}
+		switch {
+		case ref.Status == task.StatusFailed:
+			return nil, fmt.Errorf("task #%d referenced in %s is failed", r.ID, fieldLabel)
+		case ref.Status == task.StatusCompleted:
+			// Already resolved — value will be available at run time.
+		default:
+			// Active (pending, init, running, awaiting-approval, tmux,
+			// finalizing, summarizing, merge-blocked) — auto-add as dep.
+			autoBlockedBy = append(autoBlockedBy, r.ID)
+		}
+	}
+	return autoBlockedBy, nil
+}
+
+// mergeBlockedBy returns the union of explicit and auto-collected BlockedBy
+// task IDs, preserving the order of explicit IDs first.
+func mergeBlockedBy(explicit, auto []int64) []int64 {
+	if len(explicit) == 0 && len(auto) == 0 {
+		return nil
+	}
+	seen := make(map[int64]bool, len(explicit)+len(auto))
+	merged := make([]int64, 0, len(explicit)+len(auto))
+	for _, id := range explicit {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		merged = append(merged, id)
+	}
+	for _, id := range auto {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		merged = append(merged, id)
+	}
+	return merged
 }

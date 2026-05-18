@@ -67,6 +67,23 @@ func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, r
 // serialize against merges.
 func (e *Engine) Coord() *merge.Coordinator { return e.coord }
 
+// buildTemplateContext constructs a TemplateContext wired to the engine's
+// database for {{tasks.X.field}} lookups. Centralised so engine + summarizer
+// call sites don't drift.
+func (e *Engine) buildTemplateContext(t *task.Task, taskVars TaskVars, stepContexts map[string]string, loopVars LoopVars) *TemplateContext {
+	return &TemplateContext{
+		Task:  taskVars,
+		Steps: stepContexts,
+		Git: GitVars{
+			BaseBranch:   e.cfg.Git.BaseBranch,
+			TargetBranch: e.effectiveBaseBranch(t),
+			RepoRoot:     e.repoRoot,
+		},
+		Loop:       loopVars,
+		TaskLookup: e.database.GetTask,
+	}
+}
+
 // findStepIndex returns the index of a step by name, or -1 if not found.
 func findStepIndex(steps []config.StepConfig, name string) int {
 	for i, s := range steps {
@@ -236,23 +253,22 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 				}
 			}
 		}
-		tmplCtx := &TemplateContext{
-			Task: TaskVars{
-				ID:          t.ID,
-				Title:       t.Title,
-				Description: t.Description,
-				Slug:        t.Slug,
-				Branch:      t.Branch,
-				Images:      imageRelPaths,
-			},
-			Steps: stepContexts,
-			Git: GitVars{
-				BaseBranch:   e.cfg.Git.BaseBranch,
-				TargetBranch: e.effectiveBaseBranch(t),
-				RepoRoot:     e.repoRoot,
-			},
-			Loop: loopVars,
-		}
+		// Pre-resolve any {{tasks.X.field}} refs inside this task's own
+		// description / context so step prompts that inline {{task.description}}
+		// or {{task.context}} see the expanded text. Single-pass — nested refs
+		// in the looked-up task's fields remain verbatim.
+		resolvedDescription := ResolveTaskRefs(t.Description, e.database.GetTask)
+		resolvedContext := ResolveTaskRefs(t.Context, e.database.GetTask)
+
+		tmplCtx := e.buildTemplateContext(t, TaskVars{
+			ID:          t.ID,
+			Title:       t.Title,
+			Description: resolvedDescription,
+			Context:     resolvedContext,
+			Slug:        t.Slug,
+			Branch:      t.Branch,
+			Images:      imageRelPaths,
+		}, stepContexts, loopVars)
 
 		resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
 
