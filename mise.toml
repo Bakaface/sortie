@@ -34,3 +34,8 @@ run = "go test -tags integration ./..."
 [tasks.e2e-test]
 description = "Run end-to-end test via Claude Code"
 run = "claude --dangerously-skip-permissions 'Run the /e2e-test command'"
+
+[tasks.claude]
+alias = "c"
+description = "Launch Claude Code with the local sortie plugin live-loaded from source"
+run = "claude --dangerously-skip-permissions --plugin-dir ./claude-code-plugin"
