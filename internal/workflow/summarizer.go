@@ -50,6 +50,27 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 		t.Branch = e.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
 	}
 
+	// If the workflow's last step was a tmux step with summarize_chat, capture
+	// its chat summary now — RunTask cannot do this synchronously (the chat is
+	// still being written when the step pauses) and advanceTmuxTask bypasses
+	// ResumeAfterApproval when there are no more steps, so this is the only
+	// remaining hook.
+	e.summarizePreviousTmuxStep(ctx, t, logFn)
+
+	// Capture the diff stat BEFORE on_complete runs. After a --no-ff merge into
+	// main, the task branch is fully reachable from main, which makes
+	// post-merge DiffStat return empty — the summarizer would then see no
+	// changes and abort. Computing it here preserves the fallback signal.
+	var preMergeDiffStat string
+	if t.Worktree && t.WorktreePath != "" {
+		baseBranch := e.effectiveBaseBranch(t)
+		var diffErr error
+		preMergeDiffStat, diffErr = gitpkg.DiffStat(t.WorktreePath, baseBranch)
+		if diffErr != nil {
+			logFn("Warning: failed to compute pre-merge diff stat for task #%d: %v", t.ID, diffErr)
+		}
+	}
+
 	// Run on_complete action first (merge to unblock user)
 	action := e.cfg.Git.OnComplete
 	if action == "" {
@@ -68,7 +89,7 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 			logFn("Warning: failed to set summarizing status: %v", err)
 		}
 		logFn("Running summarizer...")
-		if err := e.runSummarizer(ctx, t, wf, logFn); err != nil {
+		if err := e.runSummarizer(ctx, t, wf, preMergeDiffStat, logFn); err != nil {
 			logFn("Warning: summarizer failed: %v", err)
 		} else {
 			logFn("Summarizer completed")
@@ -85,8 +106,11 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 }
 
 // runSummarizer generates a summary of all artifacts and stores it as the task's context.
+// preMergeDiffStat is the `git diff --stat` output captured BEFORE on_complete ran;
+// the post-merge worktree has no diff against the base branch, so the caller must
+// pass the pre-merge value (empty when unavailable).
 // logFn is optional; when provided, progress messages are written to it (e.g. finalize log).
-func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.WorkflowConfig, logFn func(string, ...any)) error {
+func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.WorkflowConfig, preMergeDiffStat string, logFn func(string, ...any)) error {
 	logMsg := func(format string, args ...any) {
 		log.Printf(format, args...)
 		if logFn != nil {
@@ -106,22 +130,11 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 		stepContexts = make(map[string]string)
 	}
 
-	// Get git diff stat as fallback context when no step contexts are available
-	var diffStat string
-	if len(stepContexts) == 0 {
-		baseBranch := e.cfg.Git.BaseBranch
-		if baseBranch == "" {
-			baseBranch = "main"
-		}
-		var diffErr error
-		diffStat, diffErr = gitpkg.DiffStat(t.WorktreePath, baseBranch)
-		if diffErr != nil {
-			logMsg("Warning: failed to get diff stat for task #%d: %v", t.ID, diffErr)
-		}
-		if diffStat == "" {
-			logMsg("No step contexts or changes found for task #%d, skipping summarizer", t.ID)
-			return nil
-		}
+	// Use pre-merge diff stat as fallback context when no step contexts are available
+	diffStat := strings.TrimSpace(preMergeDiffStat)
+	if len(stepContexts) == 0 && diffStat == "" {
+		logMsg("No step contexts or changes found for task #%d, skipping summarizer", t.ID)
+		return nil
 	}
 
 	// Build the prompt and log the summarization approach

@@ -417,26 +417,55 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 // summarisation runs synchronously here (it could not run during the step itself
 // because tmux steps return early and pause the engine).
 func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn func([]string)) error {
-	wf := e.cfg.GetWorkflow(t.Workflow)
-	if wf != nil && t.StepIndex > 0 && t.StepIndex <= len(wf.Steps) {
-		prevStep := wf.Steps[t.StepIndex-1]
-		if prevStep.UseTmux(wf.Print) && prevStep.EffectiveSummarizationStrategy() == config.SummarizationStrategySummarizeChat {
-			chat, err := e.loadStepChatContent(t, prevStep.Name, true)
-			if err != nil {
-				log.Printf("Warning: failed to load chat for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
-			} else if chat != "" {
-				summary, err := e.summarizeChatLog(ctx, t, prevStep.Name, prevStep.SummarizationPrompt, chat, prevStep.EffectiveAllowedSummarizationModels(e.cfg.AllowedSummarizationModels))
-				if err != nil {
-					log.Printf("Warning: summarize_chat failed for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
-				} else if summary != "" {
-					if err := e.database.UpdateTaskStepContext(t.ID, prevStep.Name, summary); err != nil {
-						log.Printf("Warning: failed to write step context for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
-					} else {
-						log.Printf("summarize_chat updated step context for tmux step %q of task #%d (%d chars)", prevStep.Name, t.ID, len(summary))
-					}
-				}
-			}
+	e.summarizePreviousTmuxStep(ctx, t, nil)
+	return e.RunTask(ctx, t, outputFn)
+}
+
+// summarizePreviousTmuxStep runs summarize_chat for the step at t.StepIndex-1
+// when that step is tmux with the summarize_chat strategy. No-op otherwise.
+// This is the shared hook for capturing tmux step context after the engine
+// has paused (since tmux steps return before their chat is meaningful):
+//   - ResumeAfterApproval calls it when the user advances to the next step
+//   - FinalizeTask calls it when the last step is a tmux step
+//
+// Failures are logged but never returned: the surrounding finalization or
+// resume flow should proceed even if the summary cannot be produced.
+func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, logFn func(string, ...any)) {
+	logMsg := func(format string, args ...any) {
+		log.Printf(format, args...)
+		if logFn != nil {
+			logFn(format, args...)
 		}
 	}
-	return e.RunTask(ctx, t, outputFn)
+
+	wf := e.cfg.GetWorkflow(t.Workflow)
+	if wf == nil || t.StepIndex <= 0 || t.StepIndex > len(wf.Steps) {
+		return
+	}
+	prevStep := wf.Steps[t.StepIndex-1]
+	if !prevStep.UseTmux(wf.Print) || prevStep.EffectiveSummarizationStrategy() != config.SummarizationStrategySummarizeChat {
+		return
+	}
+
+	chat, err := e.loadStepChatContent(t, prevStep.Name, true)
+	if err != nil {
+		logMsg("Warning: failed to load chat for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
+		return
+	}
+	if chat == "" {
+		return
+	}
+	summary, err := e.summarizeChatLog(ctx, t, prevStep.Name, prevStep.SummarizationPrompt, chat, prevStep.EffectiveAllowedSummarizationModels(e.cfg.AllowedSummarizationModels))
+	if err != nil {
+		logMsg("Warning: summarize_chat failed for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
+		return
+	}
+	if summary == "" {
+		return
+	}
+	if err := e.database.UpdateTaskStepContext(t.ID, prevStep.Name, summary); err != nil {
+		logMsg("Warning: failed to write step context for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
+		return
+	}
+	logMsg("summarize_chat updated step context for tmux step %q of task #%d (%d chars)", prevStep.Name, t.ID, len(summary))
 }

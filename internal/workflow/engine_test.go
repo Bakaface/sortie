@@ -584,7 +584,7 @@ func TestSummarizerLogFnCalledWithArtifacts(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err = engine.runSummarizer(ctx, taskObj, wf, logFn)
+	err = engine.runSummarizer(ctx, taskObj, wf, "", logFn)
 	if err != nil {
 		t.Fatalf("runSummarizer failed: %v", err)
 	}
@@ -641,7 +641,7 @@ func TestSummarizerLogFnCalledWithNilLogFn(t *testing.T) {
 
 	ctx := context.Background()
 	// Should not panic with nil logFn
-	err = engine.runSummarizer(ctx, taskObj, wf, nil)
+	err = engine.runSummarizer(ctx, taskObj, wf, "", nil)
 	if err != nil {
 		t.Fatalf("runSummarizer with nil logFn failed: %v", err)
 	}
