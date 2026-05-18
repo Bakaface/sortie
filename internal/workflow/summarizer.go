@@ -57,8 +57,8 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	// remaining hook.
 	e.summarizePreviousTmuxStep(ctx, t, logFn)
 
-	// Capture the diff stat BEFORE on_complete runs. After a --no-ff merge into
-	// main, the task branch is fully reachable from main, which makes
+	// Capture the diff stat BEFORE on_complete runs. After the task branch
+	// is merged into main, it's fully reachable from main, which makes
 	// post-merge DiffStat return empty — the summarizer would then see no
 	// changes and abort. Computing it here preserves the fallback signal.
 	var preMergeDiffStat string

@@ -87,8 +87,8 @@ func TestFinalizeNoneIsNoOp(t *testing.T) {
 	}
 }
 
-// TestFinalizeMergeHappyPath confirms a clean merge produces a merge commit on
-// the base branch and the commit recorder fires.
+// TestFinalizeMergeHappyPath confirms a clean merge fast-forwards the base
+// branch to the feature tip and the commit recorder fires.
 func TestFinalizeMergeHappyPath(t *testing.T) {
 	dir := initRepoWithBranch(t, "feature-2", "feature.txt", "feature\n")
 	wt := makeWorktree(t, dir, "feature-2")
@@ -114,13 +114,13 @@ func TestFinalizeMergeHappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Expect 3 commits: init, feature commit, merge commit.
-	if got := strings.Count(string(out), "\n"); got != 3 {
-		t.Errorf("expected 3 commits on main after merge, got %d:\n%s", got, out)
+	// Expect 2 commits: init + feature commit (fast-forwarded into main).
+	if got := strings.Count(string(out), "\n"); got != 2 {
+		t.Errorf("expected 2 commits on main after fast-forward merge, got %d:\n%s", got, out)
 	}
 
 	if hash, _ := recordedHash.Load().(string); hash == "" {
-		t.Error("expected RecordCommit callback to fire with the merge commit hash")
+		t.Error("expected RecordCommit callback to fire with the merged commit hash")
 	}
 }
 

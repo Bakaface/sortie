@@ -373,16 +373,15 @@ func TestMergeBranch_PreservesHistory(t *testing.T) {
 		t.Fatalf("MergeBranch failed: %v", err)
 	}
 
-	// The merge commit on main must have two parents (--no-ff produced a real merge).
+	// main hasn't advanced since feature branched off, so the merge fast-forwards:
+	// HEAD has a single parent and points at the original feature tip.
 	parentsOut := runGitOutput(t, repo, "rev-list", "--parents", "-n", "1", "HEAD")
 	parents := strings.Fields(strings.TrimSpace(parentsOut))
-	if len(parents) != 3 {
-		t.Fatalf("expected merge commit with 2 parents (3 fields incl. self), got %d: %v", len(parents)-1, parents)
+	if len(parents) != 2 {
+		t.Fatalf("expected fast-forward (1 parent, 2 fields incl. self), got %d: %v", len(parents)-1, parents)
 	}
-
-	// The second parent must be the original tip of the feature branch.
-	if parents[2] != featureTip {
-		t.Errorf("expected second parent to be feature tip %s, got %s", featureTip, parents[2])
+	if parents[0] != featureTip {
+		t.Errorf("expected main HEAD to be feature tip %s after fast-forward, got %s", featureTip, parents[0])
 	}
 
 	// All individual feature commits must be reachable from main.
@@ -390,14 +389,6 @@ func TestMergeBranch_PreservesHistory(t *testing.T) {
 	for _, c := range commits {
 		if !strings.Contains(logOut, c.msg) {
 			t.Errorf("expected commit %q to be reachable from main, log was:\n%s", c.msg, logOut)
-		}
-	}
-
-	// Sanity: --first-parent only shows the merge envelope, not the inner commits.
-	firstParentOut := runGitOutput(t, repo, "log", "--first-parent", "--format=%s", "main")
-	for _, c := range commits {
-		if strings.Contains(firstParentOut, c.msg) {
-			t.Errorf("--first-parent should hide inner commit %q, but log was:\n%s", c.msg, firstParentOut)
 		}
 	}
 }

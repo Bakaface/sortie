@@ -228,7 +228,7 @@ func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string
 	}
 
 	commitMsg := gitpkg.ConventionalCommitFromTitle(t.Title)
-	logf("Merging branch %s into %s (--no-ff)...", t.Branch, baseBranch)
+	logf("Merging branch %s into %s...", t.Branch, baseBranch)
 
 	var mergeErr error
 	for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
@@ -370,19 +370,20 @@ func (c *Coordinator) waitForCleanTarget(ctx context.Context, t *task.Task) erro
 	}
 }
 
-// recordBaseCommit appends the just-created merge commit (HEAD of the base
-// repo) to the task's commit history.
+// recordBaseCommit appends the new HEAD of the base repo (the fast-forward
+// target, or the merge commit when fast-forward wasn't possible) to the
+// task's commit history.
 func (c *Coordinator) recordBaseCommit(t *task.Task) {
 	if c.recordCommit == nil {
 		return
 	}
 	hash, err := gitpkg.GetLastCommitHash(c.repoRoot)
 	if err != nil {
-		log.Printf("Warning: failed to get merge commit hash for task #%d: %v", t.ID, err)
+		log.Printf("Warning: failed to get base HEAD hash for task #%d: %v", t.ID, err)
 		return
 	}
 	if err := c.recordCommit(t.ID, hash); err != nil {
-		log.Printf("Warning: failed to record merge commit for task #%d: %v", t.ID, err)
+		log.Printf("Warning: failed to record base commit for task #%d: %v", t.ID, err)
 	}
 }
 

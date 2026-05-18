@@ -104,10 +104,11 @@ func CleanRepoState(repoRoot string) error {
 	return nil
 }
 
-// MergeBranch merges the task branch into baseBranch with `--no-ff`, preserving
-// the task branch's individual commits in the base branch's history. The merge
-// always produces a merge commit (even when a fast-forward would be possible)
-// so the task's commit lineage stays addressable via the second parent.
+// MergeBranch merges the task branch into baseBranch, fast-forwarding when
+// possible to keep history linear. When the base branch has advanced and a
+// fast-forward isn't possible, git falls back to a merge commit using
+// commitMsg. The task's individual commits remain reachable from the base
+// branch in both cases.
 func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 	// Safety net: if we exit without a successful commit, ensure we don't
 	// leave staged changes on the base branch (the root cause of the race
@@ -130,18 +131,19 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 		return fmt.Errorf("git checkout %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
 	}
 
-	// Merge the task branch as-is, forcing a merge commit so individual
-	// commits from the task branch remain reachable from the base branch.
+	// Fast-forward when possible; fall back to a merge commit when the base
+	// branch has advanced. commitMsg is only used for the fallback merge
+	// commit — a clean fast-forward leaves the task commit message intact.
 	if commitMsg == "" {
 		commitMsg = fmt.Sprintf("Merge %s into %s", branch, baseBranch)
 	}
-	mergeCmd := exec.Command("git", "merge", "--no-ff", "-m", commitMsg, branch)
+	mergeCmd := exec.Command("git", "merge", "--ff", "-m", commitMsg, branch)
 	mergeCmd.Dir = repoRoot
 	stderr.Reset()
 	mergeCmd.Stderr = &stderr
 
 	if err := mergeCmd.Run(); err != nil {
-		return fmt.Errorf("git merge --no-ff failed: %w (stderr: %s)", err, stderr.String())
+		return fmt.Errorf("git merge failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	committed = true
