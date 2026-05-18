@@ -530,7 +530,7 @@ func (s *Server) handleDetachBranch(conn net.Conn, req DetachBranchRequest) {
 		return
 	}
 
-	if t.Status == task.StatusRunning || t.Status == task.StatusInit || t.Status == task.StatusPending || t.Status == task.StatusFinalizing || t.Status == task.StatusSummarizing {
+	if t.Status == task.StatusRunning || t.Status == task.StatusInit || t.Status == task.StatusPending || t.Status == task.StatusFinalizing || t.Status == task.StatusSummarizing || t.Status == task.StatusSummarizingStep {
 		s.sendError(conn, fmt.Sprintf("cannot detach while agent is active (status: %s)", t.Status))
 		return
 	}

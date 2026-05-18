@@ -109,7 +109,7 @@ func (s *Server) recoverOrphanedTasks() error {
 	cleanedRepos := make(map[string]bool)
 	for _, t := range allTasks {
 		switch t.Status {
-		case task.StatusRunning, task.StatusFinalizing, task.StatusMergeBlocked:
+		case task.StatusRunning, task.StatusSummarizingStep, task.StatusFinalizing, task.StatusMergeBlocked:
 		default:
 			continue
 		}
@@ -131,8 +131,8 @@ func (s *Server) recoverOrphanedTasks() error {
 	for _, t := range allTasks {
 		prefix := s.projectLogPrefix(t.ProjectID)
 		switch t.Status {
-		case task.StatusRunning:
-			log.Printf("%sRecovering orphaned task #%d, resetting to pending", prefix, t.ID)
+		case task.StatusRunning, task.StatusSummarizingStep:
+			log.Printf("%sRecovering orphaned task #%d (status: %s), resetting to pending", prefix, t.ID, t.Status)
 			if err := s.database.ResetTaskForRetry(t.ID); err != nil {
 				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
 			}

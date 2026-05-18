@@ -17,6 +17,7 @@ func TestStatus_IsActive(t *testing.T) {
 		{StatusTmux, true},
 		{StatusFinalizing, true},
 		{StatusSummarizing, true},
+		{StatusSummarizingStep, true},
 		{StatusCompleted, false},
 		{StatusFailed, false},
 	}
@@ -40,6 +41,7 @@ func TestStatus_IsTerminal(t *testing.T) {
 		{StatusTmux, false},
 		{StatusFinalizing, false},
 		{StatusSummarizing, false},
+		{StatusSummarizingStep, false},
 		{StatusCompleted, true},
 		{StatusFailed, true},
 	}
@@ -213,6 +215,7 @@ func TestStatusValues(t *testing.T) {
 		{StatusTmux, "tmux"},
 		{StatusFinalizing, "finalizing"},
 		{StatusSummarizing, "summarizing"},
+		{StatusSummarizingStep, "summarizing_step"},
 		{StatusCompleted, "completed"},
 		{StatusFailed, "failed"},
 	}
