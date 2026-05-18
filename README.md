@@ -129,6 +129,16 @@ Loops must point to an earlier step, can't be `human:` or run in tmux (set `prin
 Available in any step `prompt`:
 
 - `{{task.id}}`, `{{task.title}}`, `{{task.description}}`, `{{task.context}}`, `{{task.slug}}`, `{{task.branch}}`
+  — `task.context` is the summary written by the workflow's summarizer after the task completes; empty until then.
+- `{{tasks.<id>.<field>}}` — reference another task's field by ID. Supported fields: `title`, `branch`, `description`, `context`.
+  References inside the task's own `description`/`context` are pre-expanded before being inlined into a step prompt
+  (single-pass; nested refs in the looked-up task's fields remain verbatim).
+  At create or edit time, references are validated:
+  - missing task, cross-project, failed dependency, or unsupported field → request is rejected;
+  - active dependency → added automatically to `blocked_by`;
+  - completed dependency → no edge added (its fields are already resolvable);
+  - self-reference → resolved at runtime, but never added as a `blocked_by` edge.
+  `{{tasks.<id>.context}}` is only populated after the referenced task has been summarized.
 - `{{git.base_branch}}`
 - `{{steps.<step_name>.context}}` — captured output of a prior step
 - `{{loop.iteration}}`, `{{loop.max_iterations}}` (inside a loop body)

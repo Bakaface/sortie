@@ -141,20 +141,14 @@ func (e *Engine) runSummarizer(ctx context.Context, t *task.Task, wf *config.Wor
 	var prompt string
 	if wf.SummarizerPrompt != "" {
 		// Use the configured summarizer prompt with template resolution
-		tmplCtx := &TemplateContext{
-			Task: TaskVars{
-				ID:          t.ID,
-				Title:       t.Title,
-				Description: t.Description,
-				Slug:        t.Slug,
-				Branch:      t.Branch,
-			},
-			Steps: stepContexts,
-			Git: GitVars{
-				BaseBranch: e.cfg.Git.BaseBranch,
-				RepoRoot:   e.repoRoot,
-			},
-		}
+		tmplCtx := e.buildTemplateContext(t, TaskVars{
+			ID:          t.ID,
+			Title:       t.Title,
+			Description: ResolveTaskRefs(t.Description, e.database.GetTask),
+			Context:     ResolveTaskRefs(t.Context, e.database.GetTask),
+			Slug:        t.Slug,
+			Branch:      t.Branch,
+		}, stepContexts, LoopVars{})
 		prompt = ResolveTemplate(wf.SummarizerPrompt, tmplCtx)
 		var names []string
 		for name := range stepContexts {
@@ -429,19 +423,14 @@ func (e *Engine) summarizeChatLog(ctx context.Context, t *task.Task, stepName, c
 // or a sensible default otherwise.
 func (e *Engine) buildSummarizePrompt(t *task.Task, stepName, customPrompt, chatContent string) string {
 	if customPrompt != "" {
-		tmplCtx := &TemplateContext{
-			Task: TaskVars{
-				ID:          t.ID,
-				Title:       t.Title,
-				Description: t.Description,
-				Slug:        t.Slug,
-				Branch:      t.Branch,
-			},
-			Git: GitVars{
-				BaseBranch: e.cfg.Git.BaseBranch,
-				RepoRoot:   e.repoRoot,
-			},
-		}
+		tmplCtx := e.buildTemplateContext(t, TaskVars{
+			ID:          t.ID,
+			Title:       t.Title,
+			Description: ResolveTaskRefs(t.Description, e.database.GetTask),
+			Context:     ResolveTaskRefs(t.Context, e.database.GetTask),
+			Slug:        t.Slug,
+			Branch:      t.Branch,
+		}, nil, LoopVars{})
 		resolved := ResolveTemplate(customPrompt, tmplCtx)
 
 		if strings.Contains(resolved, "{{chat}}") {
