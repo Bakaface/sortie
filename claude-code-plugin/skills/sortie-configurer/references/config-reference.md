@@ -181,8 +181,9 @@ By default, the step's captured context is the agent's final output message. Two
     - Numbered list, each item: question + paraphrased user answer.
     - Skip small-talk and detours.
 
-    --- TRANSCRIPT ---
+    <chat>
     {{chat}}
+    </chat>
   prompt: |
     Interview the user until shared understanding is reached...
 ```
@@ -203,15 +204,23 @@ Example multi-step with step context:
 ```yaml
 steps:
   - name: analyzing
-    prompt: "Analyze the requirements: {{task.description}}"
+    prompt: |
+      Analyze the requirements:
+      <task-description>
+      {{task.description}}
+      </task-description>
   - name: implementing
     prompt: |
       Implement based on the analysis:
+      <step-context name="analyzing">
       {{steps.analyzing.context}}
+      </step-context>
   - name: reviewing
     prompt: |
       Review the implementation:
+      <step-context name="implementing">
       {{steps.implementing.context}}
+      </step-context>
     human: true
 ```
 
@@ -239,12 +248,24 @@ Loops allow iterative refinement (e.g., implement → review → fix → review 
 ```yaml
 steps:
   - name: implementing
-    prompt: "Implement {{task.description}}"
+    prompt: |
+      Implement the following:
+      <task-description>
+      {{task.description}}
+      </task-description>
   - name: reviewing
-    prompt: "Review: {{steps.implementing.context}}"
+    prompt: |
+      Review the implementation:
+      <step-context name="implementing">
+      {{steps.implementing.context}}
+      </step-context>
     human: true
   - name: fixing
-    prompt: "Fix issues: {{steps.reviewing.context}}"
+    prompt: |
+      Fix the issues found during review:
+      <step-context name="reviewing">
+      {{steps.reviewing.context}}
+      </step-context>
     loop:
       goto: reviewing
       max_iterations: 3
@@ -367,19 +388,26 @@ workflows:
           prompt: |
             Implement task #{{task.id}}: {{task.title}}
 
+            <task-description>
             {{task.description}}
+            </task-description>
           timeout: 45m
         - name: reviewing
           prompt: |
             Review the implementation for task #{{task.id}}.
+
             Implementation summary:
+            <step-context name="implementing">
             {{steps.implementing.context}}
+            </step-context>
           human: true
           timeout: 20m
         - name: fixing
           prompt: |
             Fix the issues found during review:
+            <step-context name="reviewing">
             {{steps.reviewing.context}}
+            </step-context>
           timeout: 30m
           loop:
             goto: reviewing
@@ -394,7 +422,9 @@ workflows:
           prompt: |
             Implement task #{{task.id}}: {{task.title}}
 
+            <task-description>
             {{task.description}}
+            </task-description>
 
   one-off:
     - name: housekeeping
@@ -406,7 +436,9 @@ workflows:
         - name: cleaning
           prompt: |
             Apply the following cleanups:
+            <step-context name="auditing">
             {{steps.auditing.context}}
+            </step-context>
           timeout: 30m
 
   init:

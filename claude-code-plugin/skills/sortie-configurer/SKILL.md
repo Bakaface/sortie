@@ -38,7 +38,9 @@ workflows:
           prompt: |
             Implement task #{{task.id}}: {{task.title}}
 
+            <task-description>
             {{task.description}}
+            </task-description>
 ```
 
 ## Top-Level Fields
@@ -186,30 +188,65 @@ Set `summarization_strategy: none` to skip context capture entirely for the step
 
 Prompt fields (`prompt`, `summarization_prompt`, `summarizer_prompt`, `system_prompt`) are LLM input, not human reading. Do not hard-wrap prose at ~80 columns — block scalars (`|`) preserve every newline as a token. Keep only the structural newlines: blank lines between paragraphs, one line per list item (continuation text stays on the item line), code fences verbatim. Reflow on contact when editing existing prompts.
 
+### Wrapping multi-line interpolations
+
+Several template variables expand to **multi-line** content at render time (a step's full output, a transcript, a task description). When inlined raw, the boundary between fixed prompt text and interpolated content vanishes — paragraphs of step context blend into the next instruction, and the receiving agent cannot tell where one ends and the other begins.
+
+**Rule: wrap every multi-line interpolation in a semantic XML-style tag named after the variable.** Place the opening tag, the variable, and the closing tag each on their own line so the captured content sits between two clean boundaries:
+
+```yaml
+prompt: |
+  Implement the following:
+  <task-description>
+  {{task.description}}
+  </task-description>
+
+  Earlier review feedback:
+  <step-context name="reviewing">
+  {{steps.reviewing.context}}
+  </step-context>
+```
+
+Canonical tag for each multi-line variable:
+
+| Variable | Wrapping tag |
+|---|---|
+| `{{task.description}}` | `<task-description>...</task-description>` |
+| `{{task.images}}` | `<task-images>...</task-images>` |
+| `{{steps.<name>.context}}` | `<step-context name="<name>">...</step-context>` |
+| `{{artifacts.<name>}}` | `<step-context name="<name>">...</step-context>` (alias of the above) |
+| `{{chat}}` | `<chat>...</chat>` |
+
+Single-line variables (`{{task.id}}`, `{{task.title}}`, `{{task.slug}}`, `{{task.branch}}`, `{{git.base_branch}}`, `{{git.repo_root}}`, `{{loop.iteration}}`, `{{loop.max_iterations}}`) are inlined into surrounding prose **without** wrapping — they fit on one line and a tag would only add noise.
+
+Do **not** use triple-backtick fences for this. Interpolated content (especially `{{chat}}` and summarized step contexts) routinely contains its own code fences, which would break the outer fence. XML-style tags survive arbitrary nested content.
+
 ## Template Variables
 
 **Step prompts** (`prompt:`) and **summarizer prompts** (`summarizer_prompt:`):
+
+Variables marked **multi-line** must be wrapped in a semantic tag — see [Wrapping multi-line interpolations](#wrapping-multi-line-interpolations).
 
 | Variable | Description |
 |---|---|
 | `{{task.id}}` | Numeric task ID |
 | `{{task.title}}` | Task title |
-| `{{task.description}}` | Full task description |
+| `{{task.description}}` | Full task description **(multi-line — wrap in `<task-description>`)** |
 | `{{task.slug}}` | URL-safe slug from title |
 | `{{task.branch}}` | Resolved branch name |
-| `{{task.images}}` | Newline-joined attached image paths |
+| `{{task.images}}` | Newline-joined attached image paths **(multi-line — wrap in `<task-images>`)** |
 | `{{git.base_branch}}` | Configured base branch |
 | `{{git.repo_root}}` | Repository root path |
 | `{{loop.iteration}}` | Current loop iteration (in loops) |
 | `{{loop.max_iterations}}` | Max loop iterations (in loops) |
-| `{{steps.<step_name>.context}}` | Context captured from a prior step's result |
-| `{{artifacts.<step_name>}}` | Backward compat alias for `{{steps.<step_name>.context}}` |
+| `{{steps.<step_name>.context}}` | Context captured from a prior step's result **(multi-line — wrap in `<step-context name="<step_name>">`)** |
+| `{{artifacts.<step_name>}}` | Backward compat alias for `{{steps.<step_name>.context}}` **(multi-line — same wrapping)** |
 
 **Step `summarization_prompt:`** — same variables as above, plus:
 
 | Variable | Description |
 |---|---|
-| `{{chat}}` | Full transcript of the step being summarized (only valid inside `summarization_prompt`) |
+| `{{chat}}` | Full transcript of the step being summarized **(multi-line — wrap in `<chat>`)**. Only valid inside `summarization_prompt`. |
 
 **`tmux-setup-command:`**:
 
