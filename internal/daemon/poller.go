@@ -94,71 +94,81 @@ func (s *Server) startTaskAgent(t *task.Task) error {
 }
 
 func (s *Server) recoverOrphanedTasks() error {
-	runningTasks, err := s.database.GetRunningTasks()
+	allTasks, err := s.database.GetAllTasks()
 	if err != nil {
 		return err
 	}
 
-	// Clean repo state for any projects that had running tasks — a previous
-	// daemon crash may have left staged changes from an interrupted merge.
+	// Clean repo state for any projects whose tasks may have been mid-mutation
+	// when the daemon was killed. Running tasks could have been in any step;
+	// finalizing / merge-blocked tasks were specifically inside the on_complete
+	// pipeline and may have left staged conflict markers on the base branch.
+	// The deferred CleanRepoState in merge.Coordinator only fires on Go-return,
+	// so killed processes need this top-level sweep before any recovery agent
+	// restarts touch the repo.
 	cleanedRepos := make(map[string]bool)
-	for _, t := range runningTasks {
-		if repoRoot := s.getProjectRepoRoot(t); repoRoot != "" && !cleanedRepos[repoRoot] {
-			cleanedRepos[repoRoot] = true
-			if dirty, err := gitpkg.HasChanges(repoRoot); err == nil && dirty {
-				log.Printf("Cleaning up dirty repo state at %s from previous run", repoRoot)
-				if err := gitpkg.CleanRepoState(repoRoot); err != nil {
-					log.Printf("Warning: failed to clean repo state at %s: %v", repoRoot, err)
-				}
+	for _, t := range allTasks {
+		switch t.Status {
+		case task.StatusRunning, task.StatusFinalizing, task.StatusMergeBlocked:
+		default:
+			continue
+		}
+		repoRoot := s.getProjectRepoRoot(t)
+		if repoRoot == "" || cleanedRepos[repoRoot] {
+			continue
+		}
+		cleanedRepos[repoRoot] = true
+		if dirty, err := gitpkg.HasChanges(repoRoot); err == nil && dirty {
+			log.Printf("Cleaning up dirty repo state at %s from previous run", repoRoot)
+			if err := gitpkg.CleanRepoState(repoRoot); err != nil {
+				log.Printf("Warning: failed to clean repo state at %s: %v", repoRoot, err)
 			}
 		}
 	}
 
-	for _, t := range runningTasks {
-		log.Printf("%sRecovering orphaned task #%d, resetting to pending", s.projectLogPrefix(t.ProjectID), t.ID)
-		if err := s.database.ResetTaskForRetry(t.ID); err != nil {
-			log.Printf("%sFailed to reset task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-		}
-	}
-
-	allTasks, err := s.database.GetAllTasks()
-	if err != nil {
-		return nil
-	}
 	var tmuxTasksToRestore []*task.Task
 
 	for _, t := range allTasks {
 		prefix := s.projectLogPrefix(t.ProjectID)
-		if t.Status == task.StatusInit {
+		switch t.Status {
+		case task.StatusRunning:
+			log.Printf("%sRecovering orphaned task #%d, resetting to pending", prefix, t.ID)
+			if err := s.database.ResetTaskForRetry(t.ID); err != nil {
+				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
+			}
+		case task.StatusInit:
 			log.Printf("%sRecovering task #%d stuck in init, resetting to pending", prefix, t.ID)
 			if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
 				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
 			}
-		}
-		if t.Status == task.StatusFinalizing {
-			log.Printf("%sRecovering task #%d stuck in finalizing, resetting to tmux", prefix, t.ID)
-			if err := s.database.UpdateTaskStatus(t.ID, task.StatusTmux); err != nil {
-				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
-			} else {
-				tmuxTasksToRestore = append(tmuxTasksToRestore, t)
+		case task.StatusFinalizing:
+			// Re-enter the finalization pipeline rather than demoting to tmux:
+			// RunTask is a no-op when all steps are complete, and the agent
+			// completion callback re-runs FinalizeTask so an interrupted merge
+			// or conflict resolution retries automatically. The previous
+			// behavior (demote to tmux) silently dropped the in-flight merge.
+			log.Printf("%sRecovering task #%d stuck in finalizing, restarting agent to re-run merge/summarize", prefix, t.ID)
+			if err := s.startTaskAgent(t); err != nil {
+				log.Printf("%sFailed to restart finalizing task #%d: %v", prefix, t.ID, err)
 			}
-		}
-		if t.Status == task.StatusSummarizing {
-			log.Printf("%sRecovering task #%d stuck in %s, resetting to pending", prefix, t.ID, t.Status)
-			if err := s.database.ResetTaskForRetry(t.ID); err != nil {
-				log.Printf("%sFailed to reset task #%d: %v", prefix, t.ID, err)
+		case task.StatusSummarizing:
+			// Same recovery path as Finalizing: re-enter the agent so the
+			// completion callback re-runs FinalizeTask. ResetTaskForRetry
+			// would wipe step_index and re-run the whole workflow from
+			// scratch (including any tmux step) — wrong if the merge has
+			// already happened.
+			log.Printf("%sRecovering task #%d stuck in summarizing, restarting agent to re-run summarize", prefix, t.ID)
+			if err := s.startTaskAgent(t); err != nil {
+				log.Printf("%sFailed to restart summarizing task #%d: %v", prefix, t.ID, err)
 			}
-		}
-		if t.Status == task.StatusMergeBlocked {
+		case task.StatusMergeBlocked:
 			log.Printf("%sRecovering merge-blocked task #%d, restarting merge agent", prefix, t.ID)
 			if err := s.startTaskAgent(t); err != nil {
 				log.Printf("%sFailed to restart merge-blocked task #%d: %v", prefix, t.ID, err)
 			}
-		}
-		if t.Status == task.StatusAwaitingApproval {
+		case task.StatusAwaitingApproval:
 			log.Printf("%sTask #%d is awaiting approval (use 'continue' command)", prefix, t.ID)
-		}
-		if t.Status == task.StatusTmux {
+		case task.StatusTmux:
 			tmuxTasksToRestore = append(tmuxTasksToRestore, t)
 		}
 	}
