@@ -598,6 +598,12 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 		if task.CurrentStep != "" {
 			statusLabel = task.CurrentStep
 		}
+	case "summarizing_step":
+		if task.CurrentStep != "" {
+			statusLabel = "summarizing " + task.CurrentStep
+		} else {
+			statusLabel = "summarizing step"
+		}
 	case "merge-blocked":
 		statusLabel = "merge-blocked"
 	case "pending":
@@ -819,6 +825,8 @@ func statusIconFor(status string) string {
 	case "finalizing":
 		return "◉"
 	case "summarizing":
+		return "◉"
+	case "summarizing_step":
 		return "◉"
 	case "stopped":
 		return "■"
