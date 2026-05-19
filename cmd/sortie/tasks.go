@@ -397,19 +397,14 @@ var continueCmd = &cobra.Command{
 }
 
 var logsCmd = &cobra.Command{
-	Use:               "logs <task_id> [step]",
+	Use:               "logs <task_id>",
 	Short:             "Show logs for a task",
-	Args:              cobra.RangeArgs(1, 2),
+	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeTaskIDs(),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		taskID, err := strconv.ParseInt(args[0], 10, 64)
 		if err != nil {
 			return fmt.Errorf("invalid task ID: %s", args[0])
-		}
-
-		step := ""
-		if len(args) > 1 {
-			step = args[1]
 		}
 
 		tail, _ := cmd.Flags().GetInt("tail")
@@ -420,7 +415,7 @@ var logsCmd = &cobra.Command{
 		}
 		defer c.Close()
 
-		lines, _, err := c.GetLogs(taskID, step, tail, 0)
+		lines, _, err := c.GetLogs(taskID, tail, 0)
 		if err != nil {
 			return fmt.Errorf("failed to get logs: %w", err)
 		}

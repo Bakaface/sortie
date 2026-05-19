@@ -236,3 +236,80 @@ func TestTruncateForLog(t *testing.T) {
 		}
 	})
 }
+
+func TestExtractLatestStepRegion(t *testing.T) {
+	t.Run("returns empty when step header absent", func(t *testing.T) {
+		got := extractLatestStepRegion("[10:00:00] some unrelated line\n", "implement")
+		if got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("returns region between header and footer", func(t *testing.T) {
+		content := "[10:00:00] === Step: implement (task #42) ===\n" +
+			"[10:00:00] Prompt:\n" +
+			"[10:00:01] body line\n" +
+			"[10:00:02] === Step implement finished (exit=0) ===\n"
+		got := extractLatestStepRegion(content, "implement")
+		if !strings.Contains(got, "Prompt:") {
+			t.Errorf("expected prompt line in region, got %q", got)
+		}
+		if !strings.Contains(got, "body line") {
+			t.Errorf("expected body line in region, got %q", got)
+		}
+		if !strings.Contains(got, "implement finished") {
+			t.Errorf("expected footer in region, got %q", got)
+		}
+	})
+
+	t.Run("picks the most recent run on retry", func(t *testing.T) {
+		content := "[10:00:00] === Step: implement (task #42) ===\n" +
+			"[10:00:01] first attempt body\n" +
+			"[10:00:02] === Step implement finished (exit=1) ===\n" +
+			"[10:01:00] === Step: implement (task #42) ===\n" +
+			"[10:01:01] second attempt body\n" +
+			"[10:01:02] === Step implement finished (exit=0) ===\n"
+		got := extractLatestStepRegion(content, "implement")
+		if strings.Contains(got, "first attempt body") {
+			t.Errorf("expected only most recent run, got %q", got)
+		}
+		if !strings.Contains(got, "second attempt body") {
+			t.Errorf("expected second attempt body, got %q", got)
+		}
+	})
+
+	t.Run("ignores other steps", func(t *testing.T) {
+		content := "[10:00:00] === Step: review (task #42) ===\n" +
+			"[10:00:01] review body\n" +
+			"[10:00:02] === Step review finished (exit=0) ===\n" +
+			"[10:01:00] === Step: implement (task #42) ===\n" +
+			"[10:01:01] implement body\n" +
+			"[10:01:02] === Step implement finished (exit=0) ===\n"
+		got := extractLatestStepRegion(content, "implement")
+		if strings.Contains(got, "review body") {
+			t.Errorf("expected no review content, got %q", got)
+		}
+		if !strings.Contains(got, "implement body") {
+			t.Errorf("expected implement body, got %q", got)
+		}
+	})
+
+	t.Run("returns through end of file when footer missing", func(t *testing.T) {
+		content := "[10:00:00] === Step: implement (task #42) ===\n" +
+			"[10:00:01] streaming body\n"
+		got := extractLatestStepRegion(content, "implement")
+		if !strings.Contains(got, "streaming body") {
+			t.Errorf("expected body through EOF, got %q", got)
+		}
+	})
+
+	t.Run("handles iteration suffix in header", func(t *testing.T) {
+		content := "[10:00:00] === Step: implement (task #42) [iteration 2] ===\n" +
+			"[10:00:01] iteration body\n" +
+			"[10:00:02] === Step implement finished (exit=0) ===\n"
+		got := extractLatestStepRegion(content, "implement")
+		if !strings.Contains(got, "iteration body") {
+			t.Errorf("expected iteration body, got %q", got)
+		}
+	})
+}

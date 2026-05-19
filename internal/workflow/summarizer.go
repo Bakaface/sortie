@@ -19,15 +19,16 @@ import (
 // FinalizeTask runs the on_complete action, then the summarizer, then worktree cleanup.
 // Used when finalizing a tmux-continued task.
 func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
-	// Open finalize log file so TUI can show progress
+	// Append finalize progress to the unified task log so the TUI's log view
+	// shows it in chronological order alongside step output.
 	logDir := ProjectLogsDir(e.dataDir, t.ID)
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		log.Printf("Warning: failed to create log dir for task #%d: %v", t.ID, err)
 	}
-	logPath := ProjectLogPath(e.dataDir, t.ID, "finalize")
+	logPath := ProjectLogPath(e.dataDir, t.ID)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		log.Printf("Warning: failed to open finalize log for task #%d: %v", t.ID, err)
+		log.Printf("Warning: failed to open task log for task #%d: %v", t.ID, err)
 	}
 	defer func() {
 		if logFile != nil {
@@ -261,16 +262,47 @@ func (e *Engine) loadStepChatContent(t *task.Task, stepName string, useTmux bool
 		return strings.TrimSpace(string(data)), nil
 	}
 
-	// Headless step: read the per-step log file
-	logPath := ProjectLogPath(e.dataDir, t.ID, stepName)
+	// Headless step: slice the most recent run of this step out of the unified
+	// task log. The step header and footer (written by runClaudeStep) act as
+	// region markers; retries leave multiple header/footer pairs in the file
+	// and we want the most recent.
+	logPath := ProjectLogPath(e.dataDir, t.ID)
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil
 		}
-		return "", fmt.Errorf("failed to read step log for step %q: %w", stepName, err)
+		return "", fmt.Errorf("failed to read task log for step %q: %w", stepName, err)
 	}
-	return strings.TrimSpace(string(data)), nil
+	return extractLatestStepRegion(string(data), stepName), nil
+}
+
+// extractLatestStepRegion returns the slice of the unified task log corresponding
+// to the most recent run of the given step. Returns an empty string if no header
+// for the step is present.
+func extractLatestStepRegion(content, stepName string) string {
+	headerNeedle := fmt.Sprintf("=== Step: %s (task #", stepName)
+	footerNeedle := fmt.Sprintf("=== Step %s finished ", stepName)
+
+	lines := strings.Split(content, "\n")
+	lastHeader := -1
+	lastFooter := -1
+	for i, line := range lines {
+		if strings.Contains(line, headerNeedle) {
+			lastHeader = i
+			lastFooter = -1
+		} else if lastHeader >= 0 && strings.Contains(line, footerNeedle) {
+			lastFooter = i
+		}
+	}
+	if lastHeader < 0 {
+		return ""
+	}
+	end := len(lines)
+	if lastFooter > lastHeader {
+		end = lastFooter + 1
+	}
+	return strings.TrimSpace(strings.Join(lines[lastHeader:end], "\n"))
 }
 
 // smallChatBytes is the threshold below which a non-tmux step skips the haiku

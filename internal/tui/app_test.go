@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -3983,64 +3982,6 @@ func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
 	}
 	if tasks[1] != "Hidden" {
 		t.Errorf("expected second task 'Hidden', got %q", tasks[1])
-	}
-}
-
-func TestFindLogFile_CurrentStep(t *testing.T) {
-	dir := t.TempDir()
-	// Create two log files
-	os.WriteFile(filepath.Join(dir, "implement.log"), []byte("log1"), 0644)
-	os.WriteFile(filepath.Join(dir, "review.log"), []byte("log2"), 0644)
-
-	result, err := findLogFile(dir, "implement")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	expected := filepath.Join(dir, "implement.log")
-	if result != expected {
-		t.Errorf("expected %s, got %s", expected, result)
-	}
-}
-
-func TestFindLogFile_FallbackToNewest(t *testing.T) {
-	dir := t.TempDir()
-	// Create two log files with different modification times
-	old := filepath.Join(dir, "implement.log")
-	os.WriteFile(old, []byte("old"), 0644)
-	os.Chtimes(old, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))
-
-	newest := filepath.Join(dir, "review.log")
-	os.WriteFile(newest, []byte("new"), 0644)
-
-	result, err := findLogFile(dir, "nonexistent")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != newest {
-		t.Errorf("expected %s (newest), got %s", newest, result)
-	}
-}
-
-func TestFindLogFile_NoLogs(t *testing.T) {
-	dir := t.TempDir()
-
-	_, err := findLogFile(dir, "implement")
-	if err == nil {
-		t.Error("expected error for empty logs directory")
-	}
-}
-
-func TestFindLogFile_EmptyCurrentStep(t *testing.T) {
-	dir := t.TempDir()
-	logFile := filepath.Join(dir, "implement.log")
-	os.WriteFile(logFile, []byte("log"), 0644)
-
-	result, err := findLogFile(dir, "")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result != logFile {
-		t.Errorf("expected %s, got %s", logFile, result)
 	}
 }
 

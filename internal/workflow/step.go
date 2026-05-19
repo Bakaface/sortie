@@ -50,14 +50,16 @@ func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.St
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Open per-step log file in project data dir
-	logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
+	// Open the unified task log file. Every step and the finalization phase append
+	// into this single file so the on-disk order matches the chronological order
+	// of events.
+	logPath := ProjectLogPath(e.dataDir, t.ID)
 	if err := os.MkdirAll(ProjectLogsDir(e.dataDir, t.ID), 0755); err != nil {
 		return 1, "", "", "", fmt.Errorf("failed to create log dir: %w", err)
 	}
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return 1, "", "", "", fmt.Errorf("failed to open step log: %w", err)
+		return 1, "", "", "", fmt.Errorf("failed to open task log: %w", err)
 	}
 	defer logFile.Close()
 
@@ -198,7 +200,7 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 	sortieDir := filepath.Join(t.WorktreePath, ".sortie")
 	promptFile := filepath.Join(sortieDir, fmt.Sprintf("step-prompt-%s.txt", step.Name))
 	scriptFile := filepath.Join(sortieDir, fmt.Sprintf("run-step-%s.sh", step.Name))
-	logPath := ProjectLogPath(e.dataDir, t.ID, step.Name)
+	logPath := ProjectLogPath(e.dataDir, t.ID)
 	if err := os.MkdirAll(ProjectLogsDir(e.dataDir, t.ID), 0755); err != nil {
 		return 1, "", fmt.Errorf("failed to create log dir: %w", err)
 	}
@@ -304,8 +306,10 @@ exec bash
 	return 0, "", nil
 }
 
-// writeTmuxLogMessage writes a clean status message to the per-step log file for tmux
-// steps, replacing the raw TUI output that pipe-pane would capture.
+// writeTmuxLogMessage appends a clean status message to the unified task log for tmux
+// steps, replacing the raw TUI output that pipe-pane would capture. Append (rather than
+// truncate) so restarts and retries of the tmux step preserve prior history alongside
+// the new session marker.
 func writeTmuxLogMessage(logPath string, taskID int64, stepName, sessionName, taskIDStr string) []string {
 	ts := time.Now().Format("15:04:05")
 	lines := []string{
@@ -314,7 +318,7 @@ func writeTmuxLogMessage(logPath string, taskID int64, stepName, sessionName, ta
 		fmt.Sprintf("[%s] Attach with: sortie attach %s", ts, taskIDStr),
 	}
 
-	logFile, err := os.Create(logPath)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Printf("Warning: failed to write tmux log message: %v", err)
 		return lines

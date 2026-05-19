@@ -11,11 +11,6 @@ func LogsDir(worktreePath string) string {
 	return filepath.Join(worktreePath, ".sortie", "logs")
 }
 
-// LogPath returns the log file path for a specific step.
-func LogPath(worktreePath, stepName string) string {
-	return filepath.Join(LogsDir(worktreePath), stepName+".log")
-}
-
 // EnsureWorkDirs creates the .sortie/logs directory in a worktree.
 func EnsureWorkDirs(worktreePath string) error {
 	return os.MkdirAll(LogsDir(worktreePath), 0755)
@@ -26,9 +21,11 @@ func ProjectLogsDir(dataDir string, taskID int64) string {
 	return filepath.Join(dataDir, "logs", fmt.Sprintf("%d", taskID))
 }
 
-// ProjectLogPath returns the log file path for a specific step in the project data dir.
-func ProjectLogPath(dataDir string, taskID int64, stepName string) string {
-	return filepath.Join(ProjectLogsDir(dataDir, taskID), stepName+".log")
+// ProjectLogPath returns the path to the unified task log file in the project data dir.
+// All steps and the finalization phase append into this single file so the log preserves
+// chronological order across step boundaries.
+func ProjectLogPath(dataDir string, taskID int64) string {
+	return filepath.Join(ProjectLogsDir(dataDir, taskID), "task.log")
 }
 
 // ImagesDir returns the path to the images directory in a worktree.

@@ -96,12 +96,12 @@ func collectOutput(c *client.Client, taskID int64, tail int) *taskOutput {
 		}
 	}
 
-	lines, total, err := c.GetLogs(taskID, "", tail, 0)
+	lines, total, err := c.GetLogs(taskID, tail, 0)
 	if err != nil {
 		return nil
 	}
 	return &taskOutput{
-		Source:     "step_logs",
+		Source:     "task_log",
 		Lines:      lines,
 		TotalLines: total,
 	}

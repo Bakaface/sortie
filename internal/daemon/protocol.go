@@ -104,10 +104,9 @@ type RetryTaskRequest struct {
 }
 
 type GetLogsRequest struct {
-	TaskID int64  `json:"task_id"`
-	Step   string `json:"step"`
-	Tail   int    `json:"tail"`
-	Offset int    `json:"offset"` // skip first N lines (for incremental loading)
+	TaskID int64 `json:"task_id"`
+	Tail   int   `json:"tail"`
+	Offset int   `json:"offset"` // skip first N lines (for incremental loading)
 }
 
 type ListTasksRequest struct {
@@ -343,7 +342,6 @@ type GetTaskResponse struct {
 
 type GetLogsResponse struct {
 	TaskID     int64    `json:"task_id"`
-	Step       string   `json:"step"`
 	Lines      []string `json:"lines"`
 	TotalLines int      `json:"total_lines"` // total line count before offset/tail
 }

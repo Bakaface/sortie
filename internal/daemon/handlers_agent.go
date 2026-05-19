@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 
 	"github.com/aface/sortie/internal/task"
@@ -60,20 +59,10 @@ func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
 			t, getErr := s.database.GetTask(taskID)
 			if getErr == nil {
 				dataDir := s.getProjectDataDir(t)
-				logsDir := workflow.ProjectLogsDir(dataDir, taskID)
-				entries, readErr := os.ReadDir(logsDir)
-				if readErr == nil {
-					var allLines []string
-					for _, entry := range entries {
-						if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
-							continue
-						}
-						allLines = append(allLines, readLogFile(filepath.Join(logsDir, entry.Name()))...)
-					}
-					total = len(allLines)
-					if req.FromLine < total {
-						lines = allLines[req.FromLine:]
-					}
+				allLines := readLogFile(workflow.ProjectLogPath(dataDir, taskID))
+				total = len(allLines)
+				if req.FromLine < total {
+					lines = allLines[req.FromLine:]
 				}
 			}
 		}
@@ -113,51 +102,7 @@ func (s *Server) handleGetLogs(conn net.Conn, req GetLogsRequest) {
 	}
 
 	dataDir := s.getProjectDataDir(t)
-
-	if req.Step != "" {
-		logPath := workflow.ProjectLogPath(dataDir, req.TaskID, req.Step)
-		lines := readLogFile(logPath)
-		totalLines := len(lines)
-
-		if req.Offset > 0 {
-			if req.Offset >= len(lines) {
-				lines = nil
-			} else {
-				lines = lines[req.Offset:]
-			}
-		}
-
-		if req.Tail > 0 && len(lines) > req.Tail {
-			lines = lines[len(lines)-req.Tail:]
-		}
-
-		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
-			TaskID:     req.TaskID,
-			Step:       req.Step,
-			Lines:      lines,
-			TotalLines: totalLines,
-		})
-		return
-	}
-
-	logsDir := workflow.ProjectLogsDir(dataDir, req.TaskID)
-	entries, err := os.ReadDir(logsDir)
-	if err != nil {
-		s.sendMessage(conn, MsgGetLogs, GetLogsResponse{
-			TaskID: req.TaskID,
-			Lines:  []string{},
-		})
-		return
-	}
-
-	var allLines []string
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".log" {
-			continue
-		}
-		lines := readLogFile(filepath.Join(logsDir, entry.Name()))
-		allLines = append(allLines, lines...)
-	}
+	allLines := readLogFile(workflow.ProjectLogPath(dataDir, req.TaskID))
 	totalLines := len(allLines)
 
 	if req.Offset > 0 {
