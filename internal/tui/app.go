@@ -50,7 +50,7 @@ type Model struct {
 	blockingTaskID int64 // when non-zero, the newly created task will block this task
 
 	// Confirmation state
-	confirmAction string // "continue", "advance", "finalize", "delete", "revert", "stop", or "retry"; empty if no confirmation pending
+	confirmAction string // "continue", "advance", "finalize", "delete", "revert", or "stop"; empty if no confirmation pending
 	confirmTaskID int64
 
 	// Chord sequence state — first key of a pending two-key chord (e.g. "d" for dd, "o" for oa).
@@ -293,6 +293,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case taskStepsLoadedMsg:
 		m.taskSteps = msg.steps
+
+		// Retry path: every step in the workflow is a valid restart target,
+		// not just non-pending ones. Single-step workflows skip the picker
+		// (and the now-removed confirmation) entirely.
+		if msg.action == "retry" {
+			if len(msg.steps) == 1 {
+				return m, m.retryTask(msg.taskID, msg.steps[0].Name)
+			}
+
+			names := make([]string, len(msg.steps))
+			descriptions := make([]string, len(msg.steps))
+			for i, s := range msg.steps {
+				names[i] = retryStepSelectorLabel(s)
+				descriptions[i] = retryStepSelectorDescription(s)
+			}
+
+			// Find the task so we can default the cursor to its last step.
+			var taskRef *daemon.TaskInfo
+			for i := range m.list.allTasks {
+				if m.list.allTasks[i].ID == msg.taskID {
+					t := m.list.allTasks[i]
+					taskRef = &t
+					break
+				}
+			}
+
+			m.selector = selector{
+				kind:         selectorRetryStep,
+				title:        "Retry From Step",
+				items:        names,
+				cursor:       retryStepCursor(taskRef, msg.steps),
+				descriptions: descriptions,
+				itemStyle:    stepSelectorItemStyle,
+				hint:         "j/k: navigate  enter: retry from step  esc: cancel",
+				taskID:       msg.taskID,
+				action:       msg.action,
+			}
+			return m, nil
+		}
 
 		// Build parallel slices for the generic selector.
 		names := make([]string, len(msg.steps))

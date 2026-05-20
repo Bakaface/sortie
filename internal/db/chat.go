@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -120,5 +121,25 @@ func (db *DB) GetChatsByTask(taskID int64) ([]*Chat, error) {
 // DeleteChatsForTask deletes all chat records for a task.
 func (db *DB) DeleteChatsForTask(taskID int64) error {
 	_, err := db.Exec(`DELETE FROM chats WHERE task_id = ?`, taskID)
+	return err
+}
+
+// DeleteChatsForSteps deletes chat records for a task scoped to the given
+// step names. Used by partial retry: chats for steps before the retry point
+// are preserved so {{step_chats.X.session_id}}-style references (if any) and
+// /continue resumes for earlier steps still resolve.
+func (db *DB) DeleteChatsForSteps(taskID int64, stepNames []string) error {
+	if len(stepNames) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(stepNames))
+	args := make([]any, 0, len(stepNames)+1)
+	args = append(args, taskID)
+	for i, name := range stepNames {
+		placeholders[i] = "?"
+		args = append(args, name)
+	}
+	query := `DELETE FROM chats WHERE task_id = ? AND step_name IN (` + strings.Join(placeholders, ",") + `)`
+	_, err := db.Exec(query, args...)
 	return err
 }

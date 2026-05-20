@@ -302,8 +302,13 @@ func (c *Client) GetTask(id int64) (*daemon.TaskInfo, error) {
 	return &resp.Task, nil
 }
 
-func (c *Client) RetryTask(id int64) error {
-	return c.requestOK(daemon.MsgRetryTask, daemon.RetryTaskRequest{TaskID: id})
+// RetryTask resets a task so the daemon will pick it up and re-run it.
+// When stepName is empty, the task is restarted from the beginning (full
+// reset). When non-empty, completed work for earlier steps is preserved and
+// the engine resumes from the named step. The daemon validates that the step
+// exists in the task's workflow.
+func (c *Client) RetryTask(id int64, stepName string) error {
+	return c.requestOK(daemon.MsgRetryTask, daemon.RetryTaskRequest{TaskID: id, StepName: stepName})
 }
 
 func (c *Client) CreateTask(description, workflow, branchName, projectPath string, worktree bool, images []string) (*daemon.TaskInfo, error) {

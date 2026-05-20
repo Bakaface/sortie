@@ -224,26 +224,83 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 }
 
 func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))
+		return
+	}
+
 	// Kill any stale tmux sessions for this task
 	agentID := fmt.Sprintf("%d", req.TaskID)
-	if t, err := s.database.GetTask(req.TaskID); err == nil {
-		if pc, err := s.getProjectContext(t.ProjectID); err == nil {
-			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
-				log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), req.TaskID, err)
-			}
+	if pc, err := s.getProjectContext(t.ProjectID); err == nil {
+		if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
+			log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), req.TaskID, err)
 		}
 	}
 
 	// Stop any running agent for this task
 	_ = s.manager.StopAgent(agentID)
 
-	if err := s.database.ResetTaskForRetry(req.TaskID); err != nil {
+	// Full retry (legacy path) when no specific step is requested or the
+	// chosen step is the first step in the workflow — both are semantically
+	// equivalent and the legacy reset is simpler.
+	if req.StepName == "" {
+		if err := s.database.ResetTaskForRetry(req.TaskID); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
+			return
+		}
+		s.broadcastTaskUpdate(req.TaskID)
+		s.sendMessage(conn, MsgOK, OKResponse{Message: "task reset for retry"})
+		return
+	}
+
+	// Per-step retry: look up the workflow, find the chosen step, and reset
+	// state only from that step onward. Earlier completed work is preserved.
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get project context: %v", err))
+		return
+	}
+	wf := pc.cfg.GetWorkflow(t.Workflow)
+	if wf == nil {
+		s.sendError(conn, fmt.Sprintf("workflow %q not found", t.Workflow))
+		return
+	}
+	stepIdx := -1
+	for i, st := range wf.Steps {
+		if st.Name == req.StepName {
+			stepIdx = i
+			break
+		}
+	}
+	if stepIdx < 0 {
+		s.sendError(conn, fmt.Sprintf("step %q not found in workflow %q", req.StepName, t.Workflow))
+		return
+	}
+
+	// First step → full retry (avoids the from-step delete dance when there's
+	// nothing prior to preserve).
+	if stepIdx == 0 {
+		if err := s.database.ResetTaskForRetry(req.TaskID); err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
+			return
+		}
+		s.broadcastTaskUpdate(req.TaskID)
+		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task reset for retry from step %q", req.StepName)})
+		return
+	}
+
+	stepsFromIdx := make([]string, 0, len(wf.Steps)-stepIdx)
+	for _, st := range wf.Steps[stepIdx:] {
+		stepsFromIdx = append(stepsFromIdx, st.Name)
+	}
+	if err := s.database.ResetTaskForRetryAtStep(req.TaskID, stepIdx, stepsFromIdx); err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
 		return
 	}
 
 	s.broadcastTaskUpdate(req.TaskID)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: "task reset for retry"})
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task reset for retry from step %q", req.StepName)})
 }
 
 func (s *Server) handleUpdatePriority(conn net.Conn, req UpdatePriorityRequest) {

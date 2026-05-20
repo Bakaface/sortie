@@ -888,18 +888,16 @@ func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// Should request retry confirmation, not show task selection
+	// Retry flow now dispatches a command to load workflow steps; no
+	// confirmation prompt is shown until the user picks a step.
 	if updated.selector.kind == selectorTask {
 		t.Error("expected selector kind not to be selectorTask when retrying failed task")
 	}
-	if updated.confirmAction != "retry" {
-		t.Errorf("expected confirmAction to be 'retry', got %q", updated.confirmAction)
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction (retry now opens step picker), got %q", updated.confirmAction)
 	}
-	if updated.confirmTaskID != 5 {
-		t.Errorf("expected confirmTaskID to be 5, got %d", updated.confirmTaskID)
-	}
-	if cmd != nil {
-		t.Error("expected no command (confirmation pending), got non-nil")
+	if cmd == nil {
+		t.Error("expected command to load workflow steps for retry, got nil")
 	}
 }
 
@@ -925,18 +923,14 @@ func TestHandleListKey_RRetriesTmuxTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// Should request retry confirmation, not show task selection
 	if updated.selector.kind == selectorTask {
 		t.Error("expected selector kind not to be selectorTask when retrying tmux task")
 	}
-	if updated.confirmAction != "retry" {
-		t.Errorf("expected confirmAction to be 'retry', got %q", updated.confirmAction)
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction (retry now opens step picker), got %q", updated.confirmAction)
 	}
-	if updated.confirmTaskID != 3 {
-		t.Errorf("expected confirmTaskID to be 3, got %d", updated.confirmTaskID)
-	}
-	if cmd != nil {
-		t.Error("expected no command (confirmation pending), got non-nil")
+	if cmd == nil {
+		t.Error("expected command to load workflow steps for retry, got nil")
 	}
 }
 
@@ -962,18 +956,14 @@ func TestHandleListKey_RRetriesCompletedTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	// Should request retry confirmation, not show task selection
 	if updated.selector.kind == selectorTask {
 		t.Error("expected selector kind not to be selectorTask when retrying completed task")
 	}
-	if updated.confirmAction != "retry" {
-		t.Errorf("expected confirmAction to be 'retry', got %q", updated.confirmAction)
+	if updated.confirmAction != "" {
+		t.Errorf("expected no confirmAction (retry now opens step picker), got %q", updated.confirmAction)
 	}
-	if updated.confirmTaskID != 7 {
-		t.Errorf("expected confirmTaskID to be 7, got %d", updated.confirmTaskID)
-	}
-	if cmd != nil {
-		t.Error("expected no command (confirmation pending), got non-nil")
+	if cmd == nil {
+		t.Error("expected command to load workflow steps for retry, got nil")
 	}
 }
 

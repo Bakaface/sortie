@@ -574,3 +574,108 @@ func TestResetTaskForRetryFromStep(t *testing.T) {
 		t.Errorf("expected completed_at to be nil, got %v", *updated.CompletedAt)
 	}
 }
+
+// TestResetTaskForRetryAtStep verifies that the per-step retry reset moves
+// the task back to a specified step while preserving step records and chats
+// for earlier completed steps.
+func TestResetTaskForRetryAtStep(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := database.CreateTask(proj.ID, "Failed task", "Description", "failed-task", "", "", task.StatusFailed, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Three completed steps + one chat per step
+	for _, step := range []string{"plan", "implement", "review"} {
+		if err := database.CreateTaskStep(created.ID, step); err != nil {
+			t.Fatal(err)
+		}
+		ctx := "ctx-" + step
+		if err := database.CompleteTaskStep(created.ID, step, &ctx, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := database.UpsertChat(created.ID, step, "sid-"+step, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := database.UpdateTaskStep(created.ID, 2, "review"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UpdateTaskExitCode(created.ID, 1, "boom"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Retry from "implement" (index 1) — only implement and review records
+	// should be removed; plan must be preserved.
+	if err := database.ResetTaskForRetryAtStep(created.ID, 1, []string{"implement", "review"}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := database.GetTask(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != task.StatusPending {
+		t.Errorf("expected status pending, got %q", updated.Status)
+	}
+	if updated.StepIndex != 1 {
+		t.Errorf("expected step_index 1, got %d", updated.StepIndex)
+	}
+	if updated.CurrentStep != "" {
+		t.Errorf("expected current_step cleared, got %q", updated.CurrentStep)
+	}
+	if updated.ExitCode != nil {
+		t.Errorf("expected exit_code cleared, got %v", *updated.ExitCode)
+	}
+	if updated.ErrorMessage != "" {
+		t.Errorf("expected error_message cleared, got %q", updated.ErrorMessage)
+	}
+
+	// Plan step record + chat must be preserved
+	ctxPlan, err := database.GetTaskStepContext(created.ID, "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctxPlan != "ctx-plan" {
+		t.Errorf("expected plan step context preserved, got %q", ctxPlan)
+	}
+	planChat, err := database.GetChatByStep(created.ID, "plan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planChat == nil || planChat.SessionID != "sid-plan" {
+		t.Errorf("expected plan chat preserved, got %+v", planChat)
+	}
+
+	// Implement and review records must be deleted
+	rows, err := database.GetTaskStepRows(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rows["implement"]; ok {
+		t.Error("expected implement step row to be deleted")
+	}
+	if _, ok := rows["review"]; ok {
+		t.Error("expected review step row to be deleted")
+	}
+	for _, deleted := range []string{"implement", "review"} {
+		c, err := database.GetChatByStep(created.ID, deleted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c != nil {
+			t.Errorf("expected chat for %q to be deleted, got %+v", deleted, c)
+		}
+	}
+}

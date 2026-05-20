@@ -131,12 +131,13 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, m.keys.Retry):
-		// Retry if selected task is failed, completed, or stale tmux
+		// Retry if selected task is failed, completed, or stale tmux.
+		// Instead of asking yes/no, load the workflow steps and let the user
+		// pick which step to restart from. Single-step workflows skip the
+		// picker entirely (handled in the taskStepsLoadedMsg handler).
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "failed" || task.Status == "completed" || task.Status == "tmux" {
-				m.confirmAction = "retry"
-				m.confirmTaskID = task.ID
-				return m, nil
+				return m.openRetryStepSelection(task)
 			}
 		}
 
@@ -512,9 +513,10 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 	action := m.selector.action
 	cursor := m.selector.cursor
 
-	// For artifact selectors items carry decoration (glyphs/state); look up the
-	// bare step name from the parallel taskSteps slice before resetting.
-	if kind == selectorArtifact && cursor >= 0 && cursor < len(m.taskSteps) {
+	// For step-list selectors (artifact view and retry-from-step) the items
+	// carry decoration (glyphs/state); look up the bare step name from the
+	// parallel taskSteps slice before resetting.
+	if (kind == selectorArtifact || kind == selectorRetryStep) && cursor >= 0 && cursor < len(m.taskSteps) {
 		item = m.taskSteps[cursor].Name
 	}
 	m.selector.Reset()
@@ -549,6 +551,9 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 
 	case selectorArtifact:
 		return m.performArtifactAction(taskID, item, action)
+
+	case selectorRetryStep:
+		return m, m.retryTask(taskID, item)
 
 	case selectorTaskWorkflow:
 		// Open the new-task prompt with the workflow preselected and the
@@ -666,8 +671,6 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.revertTask(taskID)
 		case "stop":
 			return m, m.stopTask(taskID)
-		case "retry":
-			return m, m.retryTask(taskID)
 		default:
 			return m, nil
 		}

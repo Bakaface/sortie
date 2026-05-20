@@ -267,7 +267,7 @@ sortie edit <id> [--title T] [--description D] [--context C] [--priority P]
 sortie delete <id> [-y]
 sortie start <id>             # manually kick off a pending task
 sortie stop <id>              # stop a running task
-sortie retry <id>             # retry a failed task from its current step
+sortie retry <id> [--from-step name]  # restart workflow (default) or jump to a specific step
 sortie revert <id>            # revert all commits made by a completed task
 sortie continue <id>          # resume an awaiting-approval / completed / failed task
 sortie logs <id> [step] [-n N]

@@ -101,6 +101,11 @@ type GetTaskRequest struct {
 
 type RetryTaskRequest struct {
 	TaskID int64 `json:"task_id"`
+	// StepName, when non-empty, identifies the workflow step from which to
+	// restart. Earlier completed steps are preserved (their contexts remain
+	// available for later steps' templates). When empty, the task is restarted
+	// from the beginning (step_index 0, all step records wiped).
+	StepName string `json:"step_name,omitempty"`
 }
 
 type GetLogsRequest struct {

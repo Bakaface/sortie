@@ -108,12 +108,15 @@ func (m Model) stopTask(taskID int64) tea.Cmd {
 	}
 }
 
-func (m Model) retryTask(taskID int64) tea.Cmd {
+// retryTask resets a task and asks the daemon to re-run it. When stepName is
+// empty, the workflow restarts from the first step. When non-empty, completed
+// work for earlier steps is preserved and the engine resumes from that step.
+func (m Model) retryTask(taskID int64, stepName string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.RetryTask(taskID); err != nil {
+		if err := m.client.RetryTask(taskID, stepName); err != nil {
 			return errorMsg(err)
 		}
 		return nil

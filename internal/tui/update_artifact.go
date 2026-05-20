@@ -46,6 +46,13 @@ func (m Model) openArtifactSelection(task *daemon.TaskInfo, action string) (tea.
 	}
 }
 
+// openRetryStepSelection loads the task's workflow steps and arranges for the
+// caller to be shown a retry-step picker. The picker is bypassed when the
+// workflow only has a single step (handled in the taskStepsLoadedMsg handler).
+func (m Model) openRetryStepSelection(task *daemon.TaskInfo) (tea.Model, tea.Cmd) {
+	return m.openArtifactSelection(task, "retry")
+}
+
 // stepIsActionable returns true when a step row can be opened (viewed or edited).
 // Pending rows are non-actionable; completed-but-empty rows are viewable
 // (showing a placeholder) but not editable — actionability covers viewing only.
@@ -171,6 +178,66 @@ func actionableSteps(steps []daemon.TaskStepDetail) []daemon.TaskStepDetail {
 		}
 	}
 	return out
+}
+
+// retryStepSelectorLabel returns the displayed item text for a step row in
+// the retry-step picker. Same glyph vocabulary as stepSelectorLabel but
+// without the artifact-specific "(empty)" annotation: every step is a valid
+// retry target regardless of whether it has captured context.
+func retryStepSelectorLabel(step daemon.TaskStepDetail) string {
+	switch step.Status {
+	case stepStatusCompleted:
+		return "✓ " + step.Name
+	case stepStatusRunning:
+		return "⟳ " + step.Name + " (interrupted)"
+	default:
+		return "· " + step.Name + " (not yet run)"
+	}
+}
+
+// retryStepSelectorDescription returns the dim sub-line shown beneath the
+// currently highlighted row in the retry-step picker.
+func retryStepSelectorDescription(step daemon.TaskStepDetail) string {
+	switch step.Status {
+	case stepStatusCompleted:
+		if step.CompletedAt != nil {
+			return fmt.Sprintf("completed %s · earlier steps preserved", formatRelativeTime(*step.CompletedAt))
+		}
+		return "completed · earlier steps preserved"
+	case stepStatusRunning:
+		return "was running when task stopped"
+	default:
+		return "skips ahead; earlier steps will not run"
+	}
+}
+
+// retryStepCursor picks the default selection for the retry-step picker.
+// Heuristic: prefer the step the task was last on (current_step or the
+// running/failed step from task_steps); otherwise the last completed step;
+// otherwise the first row.
+func retryStepCursor(t *daemon.TaskInfo, steps []daemon.TaskStepDetail) int {
+	if t != nil && t.CurrentStep != "" {
+		for i, s := range steps {
+			if s.Name == t.CurrentStep {
+				return i
+			}
+		}
+	}
+	for i, s := range steps {
+		if s.Status == stepStatusRunning {
+			return i
+		}
+	}
+	lastCompleted := -1
+	for i, s := range steps {
+		if s.Status == stepStatusCompleted {
+			lastCompleted = i
+		}
+	}
+	if lastCompleted >= 0 {
+		return lastCompleted
+	}
+	return 0
 }
 
 func formatByteSize(n int) string {

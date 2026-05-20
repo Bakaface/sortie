@@ -17,6 +17,7 @@ const (
 	selectorPriority
 	selectorArtifact
 	selectorTaskWorkflow // tasks-category picker: opens new-task prompt with workflow preselected
+	selectorRetryStep    // retry: pick which workflow step to restart from
 )
 
 // selectionResult is returned by selector.HandleKey to signal what happened.

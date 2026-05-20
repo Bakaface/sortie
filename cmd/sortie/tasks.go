@@ -321,6 +321,7 @@ var stopCmd = &cobra.Command{
 var retryCmd = &cobra.Command{
 	Use:               "retry <task_id>",
 	Short:             "Retry a failed task",
+	Long:              "Retry a task. By default the workflow restarts from the first step. Pass --from-step <name> to restart at a specific step while preserving completed work from earlier steps.",
 	Args:              cobra.ExactArgs(1),
 	ValidArgsFunction: completeTaskIDs(task.StatusFailed),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -329,17 +330,23 @@ var retryCmd = &cobra.Command{
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
 
+		fromStep, _ := cmd.Flags().GetString("from-step")
+
 		c := client.New(cfg)
 		if err := c.Connect(); err != nil {
 			return fmt.Errorf("failed to connect to daemon: %w", err)
 		}
 		defer c.Close()
 
-		if err := c.RetryTask(taskID); err != nil {
+		if err := c.RetryTask(taskID, fromStep); err != nil {
 			return fmt.Errorf("failed to retry task: %w", err)
 		}
 
-		fmt.Printf("Task #%d reset for retry\n", taskID)
+		if fromStep != "" {
+			fmt.Printf("Task #%d reset for retry from step %q\n", taskID, fromStep)
+		} else {
+			fmt.Printf("Task #%d reset for retry\n", taskID)
+		}
 		return nil
 	},
 }
