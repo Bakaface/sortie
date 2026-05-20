@@ -146,6 +146,12 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
+	// Snapshot pre-existing Claude sessions in this workdir BEFORE spawning so
+	// the async session-ID poller below can distinguish the one we are about to
+	// launch from any unrelated chat the user already has open in the same
+	// directory.
+	preExistingSessions := claude.SnapshotSessionsByWorkdir(t.WorktreePath)
+
 	setupCmd := pc.cfg.TmuxSetupCommand
 	if tmux.SetupCommandControlsAgent(setupCmd) {
 		if err := session.Create(""); err != nil {
@@ -170,9 +176,11 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		}
 	}
 
-	// Async: discover Claude session ID and record it
+	// Async: discover the freshly-spawned Claude session ID and record it.
+	// Filtering against preExistingSessions prevents locking onto an unrelated
+	// pre-existing chat in the same worktree.
 	go func() {
-		sid, _ := claude.FindSessionByWorkdir(t.WorktreePath, 15*time.Second)
+		sid, _ := claude.FindNewSessionByWorkdir(t.WorktreePath, preExistingSessions, 15*time.Second)
 		if sid != "" {
 			if err := s.database.UpsertChat(t.ID, "continue", sid, session.Name); err != nil {
 				log.Printf("%sWarning: failed to upsert chat for continue task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
@@ -473,6 +481,12 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 		return
 	}
 
+	// Snapshot pre-existing Claude sessions in this workdir BEFORE spawning so
+	// the async session-ID poller below can distinguish the one we are about to
+	// launch from any unrelated chat the user already has open in the same
+	// directory.
+	preExistingSessions := claude.SnapshotSessionsByWorkdir(t.WorktreePath)
+
 	setupCmd := pc.cfg.TmuxSetupCommand
 	if tmux.SetupCommandControlsAgent(setupCmd) {
 		if err := session.Create(""); err != nil {
@@ -497,11 +511,13 @@ func (s *Server) setupTmuxDirect(taskID, projectID int64, title string) {
 		}
 	}
 
-	// Async: discover Claude session ID and record it
+	// Async: discover the freshly-spawned Claude session ID and record it.
+	// Filtering against preExistingSessions prevents locking onto an unrelated
+	// pre-existing chat in the same worktree.
 	worktreePath := t.WorktreePath
 	sessionName := session.Name
 	go func() {
-		sid, _ := claude.FindSessionByWorkdir(worktreePath, 15*time.Second)
+		sid, _ := claude.FindNewSessionByWorkdir(worktreePath, preExistingSessions, 15*time.Second)
 		if sid != "" {
 			if err := s.database.UpsertChat(taskID, "tmux-direct", sid, sessionName); err != nil {
 				log.Printf("%sWarning: failed to upsert chat for tmux-direct task #%d: %v", s.projectLogPrefix(projectID), taskID, err)

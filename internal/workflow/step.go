@@ -256,6 +256,12 @@ exec bash
 		return 1, "", fmt.Errorf("failed to write wrapper script: %w", err)
 	}
 
+	// Snapshot pre-existing Claude sessions in this workdir BEFORE spawning so
+	// the async session-ID poller below can distinguish the one we are about to
+	// launch from any unrelated chat the user already has open in the same
+	// directory (e.g. an interactive `claude` running in the worktree).
+	preExistingSessions := claude.SnapshotSessionsByWorkdir(t.WorktreePath)
+
 	// If the setup command contains {{run_agent}} or {{claude_command}}, the user
 	// controls which window/pane runs the agent — create a bare session instead
 	// of auto-starting Claude in window 0.
@@ -292,9 +298,11 @@ exec bash
 	log.Printf("Tmux session %q started for task #%d step %q (attach with: sortie attach %s)",
 		session.Name, t.ID, step.Name, taskID)
 
-	// Async: discover Claude session ID from session files and record it
+	// Async: discover the freshly-spawned Claude session ID and record it.
+	// Filtering against preExistingSessions prevents locking onto an unrelated
+	// pre-existing chat in the same worktree.
 	go func() {
-		sid, _ := claude.FindSessionByWorkdir(t.WorktreePath, 15*time.Second)
+		sid, _ := claude.FindNewSessionByWorkdir(t.WorktreePath, preExistingSessions, 15*time.Second)
 		if sid != "" {
 			if err := e.database.UpsertChat(t.ID, step.Name, sid, session.Name); err != nil {
 				log.Printf("Warning: failed to upsert chat for tmux task #%d step %q: %v", t.ID, step.Name, err)
