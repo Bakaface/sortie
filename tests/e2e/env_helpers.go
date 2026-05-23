@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 // Eventually polls cond every 50ms until it returns true or d elapses.
@@ -156,7 +156,7 @@ func (e *Env) StubCalls(purpose string) []StubCall {
 func (e *Env) DB() *sql.DB {
 	e.t.Helper()
 	dbPath := filepath.Join(e.XDGDir, "sortie", "tasks.db")
-	db, err := sql.Open("sqlite3", dbPath+"?_busy_timeout=5000")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		e.t.Fatalf("open db %s: %v", dbPath, err)
 	}
