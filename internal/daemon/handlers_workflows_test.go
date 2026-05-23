@@ -3,7 +3,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/aface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/config"
 )
 
 func TestSummarizeWorkflows_PropagatesHiddenAndSource(t *testing.T) {

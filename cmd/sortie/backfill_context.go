@@ -8,9 +8,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/aface/sortie/internal/db"
-	"github.com/aface/sortie/internal/task"
-	"github.com/aface/sortie/internal/workflow"
+	"github.com/Bakaface/sortie/internal/db"
+	"github.com/Bakaface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/workflow"
 	"github.com/spf13/cobra"
 )
 

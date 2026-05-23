@@ -7,9 +7,9 @@ import (
 	"log"
 	"strings"
 
-	"github.com/aface/sortie/internal/config"
-	gitpkg "github.com/aface/sortie/internal/git"
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/config"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 // executeOnComplete runs the configured on_complete action after all steps

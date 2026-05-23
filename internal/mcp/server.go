@@ -8,8 +8,8 @@ package mcp
 import (
 	"fmt"
 
-	"github.com/aface/sortie/internal/client"
-	"github.com/aface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/client"
+	"github.com/Bakaface/sortie/internal/config"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 )

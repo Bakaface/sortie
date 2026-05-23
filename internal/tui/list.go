@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/daemon"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"

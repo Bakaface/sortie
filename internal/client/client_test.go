@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/daemon"
 )
 
 // shortSocketPath returns a short Unix socket path to avoid exceeding

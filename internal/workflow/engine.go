@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/db"
-	gitpkg "github.com/aface/sortie/internal/git"
-	"github.com/aface/sortie/internal/merge"
-	"github.com/aface/sortie/internal/notify"
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/db"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/merge"
+	"github.com/Bakaface/sortie/internal/notify"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 const (

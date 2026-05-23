@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	gitpkg "github.com/aface/sortie/internal/git"
-	"github.com/aface/sortie/internal/task"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 // initRepoWithBranch creates a real git repo with a base branch and a feature

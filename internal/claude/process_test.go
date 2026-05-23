@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/config"
 )
 
 func TestProcessOutputFunc(t *testing.T) {

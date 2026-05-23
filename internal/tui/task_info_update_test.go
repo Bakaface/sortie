@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aface/sortie/internal/client"
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/client"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/daemon"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

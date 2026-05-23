@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aface/sortie/internal/client"
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/client"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/daemon"
 	mcppkg "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"

@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 type TaskVars struct {

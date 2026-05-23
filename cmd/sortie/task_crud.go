@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aface/sortie/internal/client"
-	"github.com/aface/sortie/internal/daemon"
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/client"
+	"github.com/Bakaface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/task"
 	"github.com/spf13/cobra"
 )
 

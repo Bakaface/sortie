@@ -5,7 +5,7 @@ import (
 	"net"
 	"strings"
 
-	"github.com/aface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/config"
 )
 
 // handleListWorkflows returns the task / one-off / init workflows for the

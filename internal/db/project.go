@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 type Project struct {

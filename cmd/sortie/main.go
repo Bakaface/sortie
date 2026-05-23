@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/aface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/config"
 	"github.com/spf13/cobra"
 )
 

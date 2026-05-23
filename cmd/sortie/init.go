@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aface/sortie/internal/config"
-	gitpkg "github.com/aface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/config"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/spf13/cobra"
 )
 

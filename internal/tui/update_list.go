@@ -7,8 +7,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/daemon"
 )
 
 // tmuxContinueAction returns "advance" when the tmux step has more workflow

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/aface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/config"
 )
 
 func TestCreateCmd_MissingDescription(t *testing.T) {

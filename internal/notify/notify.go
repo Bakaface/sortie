@@ -3,7 +3,7 @@ package notify
 import (
 	"os/exec"
 
-	"github.com/aface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/config"
 )
 
 type Notifier struct {

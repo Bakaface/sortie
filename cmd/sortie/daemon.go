@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/daemon"
 	"github.com/spf13/cobra"
 )
 

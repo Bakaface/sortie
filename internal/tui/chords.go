@@ -3,7 +3,7 @@ package tui
 import (
 	"fmt"
 
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/daemon"
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 )

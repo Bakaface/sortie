@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/aface/sortie/internal/client"
+	"github.com/Bakaface/sortie/internal/client"
 	"github.com/spf13/cobra"
 )
 

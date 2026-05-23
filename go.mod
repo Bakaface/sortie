@@ -1,4 +1,4 @@
-module github.com/aface/sortie
+module github.com/Bakaface/sortie
 
 go 1.24.0
 

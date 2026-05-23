@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/aface/sortie/internal/mcp"
+	"github.com/Bakaface/sortie/internal/mcp"
 	"github.com/spf13/cobra"
 )
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/daemon"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

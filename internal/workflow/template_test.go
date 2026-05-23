@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 func makeLookup(tasks map[int64]*task.Task) func(int64) (*task.Task, error) {

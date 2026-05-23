@@ -6,9 +6,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/aface/sortie/internal/task"
-	"github.com/aface/sortie/internal/tmux"
-	"github.com/aface/sortie/internal/workflow"
+	"github.com/Bakaface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/tmux"
+	"github.com/Bakaface/sortie/internal/workflow"
 )
 
 // tmuxIdleFallbackDuration is how long a tmux pane must remain in the

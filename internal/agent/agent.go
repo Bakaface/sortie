@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 type Agent struct {

@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aface/sortie/internal/claude"
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/task"
-	"github.com/aface/sortie/internal/tmux"
+	"github.com/Bakaface/sortie/internal/claude"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/tmux"
 )
 
 // buildTmuxClaudeCmd returns the claude command-line fragment used inside the

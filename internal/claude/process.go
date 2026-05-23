@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/config"
 )
 
 const (

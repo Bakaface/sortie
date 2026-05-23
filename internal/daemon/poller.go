@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/aface/sortie/internal/agent"
-	gitpkg "github.com/aface/sortie/internal/git"
-	"github.com/aface/sortie/internal/task"
-	"github.com/aface/sortie/internal/tmux"
+	"github.com/Bakaface/sortie/internal/agent"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/tmux"
 )
 
 func (s *Server) taskPollerLoop() {

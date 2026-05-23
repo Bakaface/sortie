@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aface/sortie/internal/workflow"
+	"github.com/Bakaface/sortie/internal/workflow"
 )
 
 // TestStopHookSentinelExists_FindsRealFile verifies the sentinel detector

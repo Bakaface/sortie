@@ -4,9 +4,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/db"
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/db"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 // TestFinalizeCompletedTaskNoProjectContext verifies that when the project context

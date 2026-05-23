@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/daemon"
 )
 
 // TestStatusText_TmuxRealStatusMatrix exhaustively verifies the rendered

@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aface/sortie/internal/config"
-	gitpkg "github.com/aface/sortie/internal/git"
-	"github.com/aface/sortie/internal/task"
-	"github.com/aface/sortie/internal/tmux"
-	"github.com/aface/sortie/internal/workflow"
+	"github.com/Bakaface/sortie/internal/config"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/tmux"
+	"github.com/Bakaface/sortie/internal/workflow"
 )
 
 const (

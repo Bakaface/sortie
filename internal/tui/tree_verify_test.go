@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/daemon"
 	"github.com/charmbracelet/lipgloss"
 )
 

@@ -9,13 +9,13 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/aface/sortie/internal/client"
-	"github.com/aface/sortie/internal/daemon"
-	"github.com/aface/sortie/internal/db"
-	gitpkg "github.com/aface/sortie/internal/git"
-	"github.com/aface/sortie/internal/task"
-	"github.com/aface/sortie/internal/tmux"
-	"github.com/aface/sortie/internal/workflow"
+	"github.com/Bakaface/sortie/internal/client"
+	"github.com/Bakaface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/db"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/tmux"
+	"github.com/Bakaface/sortie/internal/workflow"
 	"github.com/spf13/cobra"
 )
 

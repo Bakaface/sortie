@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/aface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 func TestGetAllTasks_SortedDescending(t *testing.T) {

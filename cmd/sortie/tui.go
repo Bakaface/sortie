@@ -4,10 +4,10 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/db"
-	gitpkg "github.com/aface/sortie/internal/git"
-	"github.com/aface/sortie/internal/tui"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/db"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/tui"
 	"github.com/spf13/cobra"
 )
 

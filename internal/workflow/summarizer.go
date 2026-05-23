@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	gitpkg "github.com/aface/sortie/internal/git"
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/task"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/task"
 )
 
 // FinalizeTask runs the on_complete action, then the summarizer, then worktree cleanup.

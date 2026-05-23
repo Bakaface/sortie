@@ -9,8 +9,8 @@ import (
 	"net"
 	"sync"
 
-	"github.com/aface/sortie/internal/config"
-	"github.com/aface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/daemon"
 )
 
 type Client struct {
