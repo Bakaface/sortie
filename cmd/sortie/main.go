@@ -22,6 +22,7 @@ var noProjectRequired = map[string]bool{
 	"validate":         true,
 	"mcp":              true,
 	"backfill-context": true,
+	"version":          true,
 }
 
 var rootCmd = &cobra.Command{
@@ -108,6 +109,7 @@ func init() {
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(mcpCmd)
 	rootCmd.AddCommand(backfillContextCmd)
+	rootCmd.AddCommand(versionCmd)
 
 	dependsOnCmd.AddCommand(dependsOnAddCmd)
 	dependsOnCmd.AddCommand(dependsOnRmCmd)
