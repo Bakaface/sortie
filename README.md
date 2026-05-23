@@ -25,12 +25,30 @@ You decide what runs, how many run at once, where the human gates go, and how fi
 - **It survives a reboot.** Tasks live in SQLite. Logs are persisted per step. Stop the daemon, restart it, pick up where you left off.
 - **Local first.** No cloud, no telemetry. A Go binary, a Unix socket, a SQLite file under `~/.config/sortie/`.
 
+## Install
+
+```bash
+go install github.com/Bakaface/sortie/cmd/sortie@latest
+```
+
+Requires Go 1.25+. The binary lands in `$(go env GOBIN)` (defaults to `$(go env GOPATH)/bin`) — make sure that's on your `PATH`.
+
+To pin to a specific release, replace `@latest` with a tag (e.g. `@v0.1.0`). To verify what you installed:
+
+```bash
+sortie version
+```
+
+Building from a checkout works too:
+
+```bash
+git clone https://github.com/Bakaface/sortie && cd sortie
+go build -o sortie ./cmd/sortie
+```
+
 ## Quick Start
 
 ```bash
-# Build
-go build -o sortie ./cmd/sortie
-
 # Inside any git repo:
 sortie init               # writes .sortie.yml + .sortie/ data dir
 sortie daemon start       # starts the background daemon (Unix socket)
@@ -294,7 +312,7 @@ sortie tui [-g]               # -g for cross-project view
 
 ## Requirements
 
-- Go 1.24+
+- Go 1.25+
 - git (worktree support, ≥ 2.5)
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI on `PATH` as `claude`
 - tmux (only required if you use tmux steps or `sortie attach`)
