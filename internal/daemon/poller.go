@@ -109,7 +109,7 @@ func (s *Server) recoverOrphanedTasks() error {
 	cleanedRepos := make(map[string]bool)
 	for _, t := range allTasks {
 		switch t.Status {
-		case task.StatusRunning, task.StatusSummarizingStep, task.StatusFinalizing, task.StatusMergeBlocked:
+		case task.StatusRunning, task.StatusSummarizingStep, task.StatusFinalizing, task.StatusMergeBlocked, task.StatusResolvingConflicts:
 		default:
 			continue
 		}
@@ -165,6 +165,16 @@ func (s *Server) recoverOrphanedTasks() error {
 			log.Printf("%sRecovering merge-blocked task #%d, restarting merge agent", prefix, t.ID)
 			if err := s.startTaskAgent(t); err != nil {
 				log.Printf("%sFailed to restart merge-blocked task #%d: %v", prefix, t.ID, err)
+			}
+		case task.StatusResolvingConflicts:
+			// Conflict resolution was interrupted mid-flight (the conflict
+			// resolver was running when the daemon died). Re-enter the agent
+			// so the completion callback re-runs FinalizeTask and the merge
+			// pipeline retries — the worktree may have a half-applied merge,
+			// which the next attempt's refreshFromBase will clean up.
+			log.Printf("%sRecovering task #%d stuck in resolving-conflicts, restarting agent to re-run merge", prefix, t.ID)
+			if err := s.startTaskAgent(t); err != nil {
+				log.Printf("%sFailed to restart resolving-conflicts task #%d: %v", prefix, t.ID, err)
 			}
 		case task.StatusAwaitingApproval:
 			log.Printf("%sTask #%d is awaiting approval (use 'continue' command)", prefix, t.ID)

@@ -303,9 +303,15 @@ func (c *Coordinator) refreshFromBase(ctx context.Context, t *task.Task, baseBra
 	log.Printf("Task #%d has %d conflicted files, invoking resolver", t.ID, len(conflictFiles))
 	logf("Found %d conflicted files, invoking resolver...", len(conflictFiles))
 
-	if err := c.resolveConflicts(ctx, t, conflictFiles); err != nil {
+	// Surface the conflict-resolution phase via the task status so the TUI can
+	// distinguish it from regular step execution (and avoid showing a stale
+	// "implementing [wip]" label while the conflict agent is running).
+	restoreStatus := c.markResolvingConflicts(t)
+	resolveErr := c.resolveConflicts(ctx, t, conflictFiles)
+	restoreStatus()
+	if resolveErr != nil {
 		gitpkg.AbortMerge(t.WorktreePath)
-		return fmt.Errorf("merge conflict resolution failed: %w", err)
+		return fmt.Errorf("merge conflict resolution failed: %w", resolveErr)
 	}
 
 	remaining, err := gitpkg.GetConflictedFiles(t.WorktreePath)
@@ -326,6 +332,32 @@ func (c *Coordinator) refreshFromBase(ctx context.Context, t *task.Task, baseBra
 	log.Printf("Task #%d conflicts resolved, retrying merge", t.ID)
 	logf("Conflicts resolved, retrying merge...")
 	return nil
+}
+
+// markResolvingConflicts transitions the task into StatusResolvingConflicts
+// and returns a function that restores the previous status. Used to surface
+// the conflict-resolution phase in the TUI without persisting
+// "resolving-conflicts" as the resting status of the task.
+//
+// On any DB failure the returned function is a no-op (logged) — surfacing the
+// status is best-effort and must not block conflict resolution.
+func (c *Coordinator) markResolvingConflicts(t *task.Task) func() {
+	if c.setStatus == nil {
+		return func() {}
+	}
+	prev := t.Status
+	if err := c.setStatus(t.ID, task.StatusResolvingConflicts); err != nil {
+		log.Printf("Warning: failed to set resolving-conflicts status for task #%d: %v", t.ID, err)
+		return func() {}
+	}
+	t.Status = task.StatusResolvingConflicts
+	return func() {
+		if err := c.setStatus(t.ID, prev); err != nil {
+			log.Printf("Warning: failed to restore status %q for task #%d after conflict resolution: %v", prev, t.ID, err)
+			return
+		}
+		t.Status = prev
+	}
 }
 
 // waitForCleanTarget polls the repo root until it has no pending changes.

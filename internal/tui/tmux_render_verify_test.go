@@ -107,6 +107,17 @@ func TestStatusText_TmuxRealStatusMatrix(t *testing.T) {
 			wantIcon:  "◷",
 			wantLabel: "review [wip]",
 		},
+		{
+			// Regression for sortie#95: when the coordinator transitions to
+			// resolving-conflicts mid-finalization, the previous tmux step's
+			// lingering session must NOT cause us to render "implement [wip]" —
+			// we should show the resolving-conflicts status explicitly.
+			name:      "resolving-conflicts status suppresses tmux postfix",
+			task:      daemon.TaskInfo{ID: 13, Status: "resolving-conflicts", CurrentStep: "implementing", StepHuman: true},
+			sessions:  map[int64]bool{13: true},
+			wantIcon:  "◉",
+			wantLabel: "resolving-conflicts",
+		},
 	}
 
 	for _, tt := range tests {

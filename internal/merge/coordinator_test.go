@@ -338,6 +338,99 @@ func TestCleanupOnConflictResolverFailure(t *testing.T) {
 	}
 }
 
+// TestResolvingConflictsStatusReportedDuringResolver verifies that the
+// coordinator surfaces the "resolving-conflicts" phase via the StatusSetter
+// while the conflict resolver is running, and restores the previous status
+// once the resolver returns. Regression for sortie#95, where tasks stuck in
+// conflict resolution displayed as "implementing [wip]" instead of telling
+// the user that conflict resolution was actually in flight.
+func TestResolvingConflictsStatusReportedDuringResolver(t *testing.T) {
+	dir := initRepoWithBranch(t, "feat-status", "shared.txt", "from-feature\n")
+
+	// Mutate the same file on main so the merge conflicts.
+	runIn(t, dir, "git", "checkout", "main")
+	if err := os.WriteFile(filepath.Join(dir, "shared.txt"), []byte("from-main\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runIn(t, dir, "git", "add", "-A")
+	runIn(t, dir, "git", "commit", "-m", "main edit")
+
+	wt := makeWorktree(t, dir, "feat-status")
+
+	// Capture the order of status transitions so we can assert that
+	// resolving-conflicts is set *before* the resolver runs and the previous
+	// status is restored *after* it returns.
+	var (
+		mu       sync.Mutex
+		statuses []task.Status
+	)
+	setStatus := func(taskID int64, status task.Status) error {
+		mu.Lock()
+		statuses = append(statuses, status)
+		mu.Unlock()
+		return nil
+	}
+
+	// Resolver records the in-flight status — it must see resolving-conflicts.
+	var (
+		inFlight    task.Status
+		resolverErr error
+	)
+	resolver := func(ctx context.Context, tk *task.Task, conflictFiles []string) error {
+		inFlight = tk.Status
+		// Stage the resolution so the merge can complete.
+		for _, f := range conflictFiles {
+			path := filepath.Join(tk.WorktreePath, f)
+			if err := os.WriteFile(path, []byte("resolved\n"), 0644); err != nil {
+				resolverErr = err
+				return err
+			}
+		}
+		cmd := exec.Command("git", "add", "-A")
+		cmd.Dir = tk.WorktreePath
+		if out, err := cmd.CombinedOutput(); err != nil {
+			resolverErr = errors.New(string(out))
+			return resolverErr
+		}
+		return nil
+	}
+
+	coord := NewCoordinator(
+		dir, &Lock{},
+		Config{OnComplete: ActionMerge, MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
+		resolver, setStatus, nil,
+	)
+
+	tk := &task.Task{
+		ID: 95, Title: "conflict task", Branch: "feat-status",
+		Worktree: true, WorktreePath: wt, Status: task.StatusFinalizing,
+	}
+	if err := coord.Finalize(context.Background(), tk, "main", nil); err != nil {
+		t.Fatalf("Finalize: %v (resolver err: %v)", err, resolverErr)
+	}
+
+	if inFlight != task.StatusResolvingConflicts {
+		t.Errorf("resolver observed status %q, want %q", inFlight, task.StatusResolvingConflicts)
+	}
+
+	mu.Lock()
+	got := append([]task.Status(nil), statuses...)
+	mu.Unlock()
+
+	if len(got) < 2 {
+		t.Fatalf("expected at least 2 status updates (set + restore), got %v", got)
+	}
+	if got[0] != task.StatusResolvingConflicts {
+		t.Errorf("first status update was %q, want %q", got[0], task.StatusResolvingConflicts)
+	}
+	if got[len(got)-1] != task.StatusFinalizing {
+		t.Errorf("last status update was %q, want %q (restored)", got[len(got)-1], task.StatusFinalizing)
+	}
+	if tk.Status != task.StatusFinalizing {
+		t.Errorf("task.Status after resolver = %q, want restored %q", tk.Status, task.StatusFinalizing)
+	}
+}
+
 // TestCleanupOnTargetBranchWaitCancellation verifies that cancelling the
 // context while waiting for a clean target branch leaves the base repo clean
 // (no half-applied state).

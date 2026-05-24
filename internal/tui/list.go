@@ -619,6 +619,8 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 		}
 	case "merge-blocked":
 		statusLabel = "merge-blocked"
+	case "resolving-conflicts":
+		statusLabel = "resolving-conflicts"
 	case "pending":
 		if len(task.BlockedBy) > 0 {
 			if l.hasFailedBlocker(task) {
@@ -633,6 +635,10 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 	}
 	if task.WorktreeDetached {
 		statusLabel += " [detached]"
+	} else if task.Status == "resolving-conflicts" {
+		// Don't apply the tmux postfix: conflict resolution runs in a fresh
+		// non-tmux Claude process even though a stale tmux session for the
+		// previous step may still be visible to ListSessions for a beat.
 	} else if task.Status == "tmux" || l.tmuxSessions[task.ID] {
 		switch task.TmuxActivity {
 		case "wip":
@@ -865,6 +871,8 @@ func statusIconFor(status string) string {
 		return "■"
 	case "merge-blocked":
 		return "⊘"
+	case "resolving-conflicts":
+		return "◉"
 	default:
 		return "○"
 	}

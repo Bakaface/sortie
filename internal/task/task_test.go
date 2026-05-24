@@ -18,6 +18,8 @@ func TestStatus_IsActive(t *testing.T) {
 		{StatusFinalizing, true},
 		{StatusSummarizing, true},
 		{StatusSummarizingStep, true},
+		{StatusMergeBlocked, true},
+		{StatusResolvingConflicts, true},
 		{StatusCompleted, false},
 		{StatusFailed, false},
 	}
@@ -42,6 +44,8 @@ func TestStatus_IsTerminal(t *testing.T) {
 		{StatusFinalizing, false},
 		{StatusSummarizing, false},
 		{StatusSummarizingStep, false},
+		{StatusMergeBlocked, false},
+		{StatusResolvingConflicts, false},
 		{StatusCompleted, true},
 		{StatusFailed, true},
 	}
@@ -216,6 +220,8 @@ func TestStatusValues(t *testing.T) {
 		{StatusFinalizing, "finalizing"},
 		{StatusSummarizing, "summarizing"},
 		{StatusSummarizingStep, "summarizing_step"},
+		{StatusMergeBlocked, "merge-blocked"},
+		{StatusResolvingConflicts, "resolving-conflicts"},
 		{StatusCompleted, "completed"},
 		{StatusFailed, "failed"},
 	}

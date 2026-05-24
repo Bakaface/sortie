@@ -9,17 +9,18 @@ import (
 type Status string
 
 const (
-	StatusPending          Status = "pending"
-	StatusInit             Status = "init"
-	StatusRunning          Status = "running"
-	StatusAwaitingApproval Status = "awaiting-approval"
-	StatusTmux             Status = "tmux"
-	StatusFinalizing       Status = "finalizing"
-	StatusSummarizing      Status = "summarizing"
-	StatusSummarizingStep  Status = "summarizing_step"
-	StatusMergeBlocked     Status = "merge-blocked"
-	StatusCompleted        Status = "completed"
-	StatusFailed           Status = "failed"
+	StatusPending            Status = "pending"
+	StatusInit               Status = "init"
+	StatusRunning            Status = "running"
+	StatusAwaitingApproval   Status = "awaiting-approval"
+	StatusTmux               Status = "tmux"
+	StatusFinalizing         Status = "finalizing"
+	StatusSummarizing        Status = "summarizing"
+	StatusSummarizingStep    Status = "summarizing_step"
+	StatusMergeBlocked       Status = "merge-blocked"
+	StatusResolvingConflicts Status = "resolving-conflicts"
+	StatusCompleted          Status = "completed"
+	StatusFailed             Status = "failed"
 )
 
 func (s Status) String() string {
@@ -31,7 +32,7 @@ func (s Status) IsTerminal() bool {
 }
 
 func (s Status) IsActive() bool {
-	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux || s == StatusFinalizing || s == StatusSummarizing || s == StatusSummarizingStep || s == StatusMergeBlocked
+	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux || s == StatusFinalizing || s == StatusSummarizing || s == StatusSummarizingStep || s == StatusMergeBlocked || s == StatusResolvingConflicts
 }
 
 type Priority string
