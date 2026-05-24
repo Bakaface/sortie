@@ -17,6 +17,7 @@ type taskInfoView struct {
 	width    int
 	height   int
 	ready    bool
+	showHelp bool // toggled by ctrl+h
 }
 
 func newTaskInfoView() taskInfoView {

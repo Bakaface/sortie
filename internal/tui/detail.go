@@ -24,6 +24,7 @@ type detailView struct {
 	followMode bool
 	pendingG   bool
 	loading    bool // true while waiting for initial output load after task switch
+	showHelp   bool // toggled by ctrl+h
 
 	// Performance: track content state to avoid redundant processing
 	contentLineCount int    // number of lines last set on viewport

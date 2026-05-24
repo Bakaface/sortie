@@ -14,6 +14,18 @@ func (m Model) handleDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	fk := cachedDetailFollowKeyMap
 	dk := cachedDetailNormalKeyMap
 
+	// Help overlay — ctrl+h toggles, ctrl+h or esc dismisses.
+	if m.detail.showHelp {
+		if key.Matches(msg, fk.Help) || key.Matches(msg, fk.ExitFollow) || key.Matches(msg, fk.Back) {
+			m.detail.showHelp = false
+		}
+		return m, nil
+	}
+	if key.Matches(msg, fk.Help) {
+		m.detail.showHelp = true
+		return m, nil
+	}
+
 	// Common keys (both modes)
 	switch {
 	case key.Matches(msg, fk.Back): // "q"

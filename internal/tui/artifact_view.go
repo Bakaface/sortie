@@ -17,6 +17,7 @@ type artifactViewState struct {
 	pendingG bool
 	editable bool  // true when the current step's context may be edited
 	taskID   int64 // owning task, used when launching the editor
+	showHelp bool  // toggled by ctrl+h
 }
 
 func (v *artifactViewState) SetSize(width, height int) {
@@ -95,23 +96,14 @@ func (v *artifactViewState) View() string {
 func (v *artifactViewState) renderHelp() string {
 	var help strings.Builder
 	help.WriteString(helpStyle.Render("  "))
-	bindings := []struct{ key, desc string }{
-		{"gg", "top"},
-		{"G", "bottom"},
-		{"j/k", "scroll"},
-		{"ctrl+u/d", "page"},
-	}
-	if v.editable {
-		bindings = append(bindings, struct{ key, desc string }{"e", "edit"})
-	}
-	bindings = append(bindings, struct{ key, desc string }{"esc/q", "back"})
-	for i, b := range bindings {
+	bindings := cachedArtifactViewKeyMap.ShortHelp(v.editable)
+	for i, binding := range bindings {
 		if i > 0 {
 			help.WriteString(helpStyle.Render(" | "))
 		}
-		help.WriteString(dimStyle.Render(b.key))
+		help.WriteString(dimStyle.Render(binding.Help().Key))
 		help.WriteString(helpStyle.Render(" "))
-		help.WriteString(helpStyle.Render(b.desc))
+		help.WriteString(helpStyle.Render(binding.Help().Desc))
 	}
 	return help.String()
 }

@@ -268,6 +268,18 @@ func formatRelativeTime(t time.Time) string {
 func (m Model) handleArtifactViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	ak := cachedArtifactViewKeyMap
 
+	// Help overlay — ctrl+h toggles, ctrl+h or esc/q dismisses.
+	if m.artifactView.showHelp {
+		if key.Matches(msg, ak.Help) || key.Matches(msg, ak.Back) {
+			m.artifactView.showHelp = false
+		}
+		return m, nil
+	}
+	if key.Matches(msg, ak.Help) {
+		m.artifactView.showHelp = true
+		return m, nil
+	}
+
 	switch {
 	case key.Matches(msg, ak.Back): // "q", "esc"
 		m.view = viewList

@@ -514,6 +514,21 @@ func (m Model) View() string {
 		return m.renderPromptHelpOverlay()
 	}
 
+	// Show detail (logs) help overlay
+	if m.detail.showHelp && m.view == viewDetail {
+		return m.renderDetailHelpOverlay()
+	}
+
+	// Show task-info help overlay
+	if m.taskInfo.showHelp && m.view == viewTaskInfo {
+		return m.renderTaskInfoHelpOverlay()
+	}
+
+	// Show artifact-view help overlay
+	if m.artifactView.showHelp && m.view == viewArtifact {
+		return m.renderArtifactHelpOverlay()
+	}
+
 	// Show selection dialog
 	if m.selector.IsActive() {
 		return m.selector.View()
@@ -660,6 +675,84 @@ func (m Model) renderPromptHelpOverlay() string {
 	b.WriteString(titleStyle.Render(" New Task Help ") + "\n\n")
 
 	for i, group := range groups {
+		if i < len(groupNames) {
+			b.WriteString("  " + headingStyle.Render(groupNames[i]) + "\n")
+		}
+		for _, binding := range group {
+			fmt.Fprintf(&b, "    %-12s %s\n", dimStyle.Render(binding.Help().Key), helpStyle.Render(binding.Help().Desc))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(dimStyle.Render("  Press ctrl+h or esc to close"))
+	return b.String()
+}
+
+// renderDetailHelpOverlay renders the help overlay for the logs (detail) view.
+func (m Model) renderDetailHelpOverlay() string {
+	keys := cachedDetailNormalKeyMap
+	groups := keys.FullHelp()
+	groupNames := []string{"Navigation", "Actions", "General"}
+
+	headingStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(" Logs Help ") + "\n\n")
+
+	for i, group := range groups {
+		if i < len(groupNames) {
+			b.WriteString("  " + headingStyle.Render(groupNames[i]) + "\n")
+		}
+		for _, binding := range group {
+			fmt.Fprintf(&b, "    %-12s %s\n", dimStyle.Render(binding.Help().Key), helpStyle.Render(binding.Help().Desc))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(dimStyle.Render("  Press ctrl+h or esc to close"))
+	return b.String()
+}
+
+// renderTaskInfoHelpOverlay renders the help overlay for the task-info view.
+func (m Model) renderTaskInfoHelpOverlay() string {
+	keys := cachedTaskInfoKeyMap
+	groups := keys.FullHelp()
+	groupNames := []string{"Navigation", "Actions", "General"}
+
+	headingStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(" Task Info Help ") + "\n\n")
+
+	for i, group := range groups {
+		if i < len(groupNames) {
+			b.WriteString("  " + headingStyle.Render(groupNames[i]) + "\n")
+		}
+		for _, binding := range group {
+			fmt.Fprintf(&b, "    %-12s %s\n", dimStyle.Render(binding.Help().Key), helpStyle.Render(binding.Help().Desc))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(dimStyle.Render("  Press ctrl+h or esc to close"))
+	return b.String()
+}
+
+// renderArtifactHelpOverlay renders the help overlay for the artifact (step context) view.
+func (m Model) renderArtifactHelpOverlay() string {
+	keys := cachedArtifactViewKeyMap
+	groups := keys.FullHelp(m.artifactView.editable)
+	groupNames := []string{"Navigation", "Actions", "General"}
+
+	headingStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
+
+	var b strings.Builder
+	b.WriteString(titleStyle.Render(" Step Context Help ") + "\n\n")
+
+	for i, group := range groups {
+		if len(group) == 0 {
+			continue
+		}
 		if i < len(groupNames) {
 			b.WriteString("  " + headingStyle.Render(groupNames[i]) + "\n")
 		}

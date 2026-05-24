@@ -10,6 +10,7 @@ import (
 	"github.com/Bakaface/sortie/internal/client"
 	"github.com/Bakaface/sortie/internal/config"
 	"github.com/Bakaface/sortie/internal/daemon"
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -4200,5 +4201,228 @@ func TestPromptHelpOverlayIsSeparateFromListHelp(t *testing.T) {
 	}
 	if strings.Contains(listHelp, "newline") {
 		t.Error("list help should not contain 'newline'")
+	}
+}
+
+// ── Help overlays on detail (logs), task-info, and artifact views ──
+//
+// CTRL+H must be available on every screen that hosts the full TUI chrome —
+// not just the list and prompt. These tests assert the toggle and the
+// overlay content for the three remaining screens.
+
+func TestHandleDetailKey_CtrlHTogglesHelp(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test"}
+	m.detail.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlH}
+	result, _ := m.handleDetailKey(msg)
+	updated := result.(Model)
+	if !updated.detail.showHelp {
+		t.Error("expected detail.showHelp to be true after ctrl+h")
+	}
+
+	// Second ctrl+h closes it.
+	result, _ = updated.handleDetailKey(msg)
+	updated = result.(Model)
+	if updated.detail.showHelp {
+		t.Error("expected detail.showHelp to be false after second ctrl+h")
+	}
+}
+
+func TestHandleDetailKey_EscClosesHelp(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewDetail,
+	}
+	m.detail.showHelp = true
+
+	msg := tea.KeyMsg{Type: tea.KeyEscape}
+	result, _ := m.handleDetailKey(msg)
+	updated := result.(Model)
+	if updated.detail.showHelp {
+		t.Error("expected detail.showHelp to be false after esc")
+	}
+}
+
+func TestDetailHelpOverlay_ContainsGroupsAndBindings(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewDetail,
+		width:  120, height: 30,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test"}
+	m.detail.SetTask(&task)
+	m.detail.SetSize(120, 30)
+	m.detail.showHelp = true
+
+	output := m.View()
+
+	if !strings.Contains(output, "Logs Help") {
+		t.Error("expected detail help to have 'Logs Help' title")
+	}
+	if !strings.Contains(output, "Navigation") {
+		t.Error("expected detail help to have 'Navigation' group")
+	}
+	if !strings.Contains(output, "Actions") {
+		t.Error("expected detail help to have 'Actions' group")
+	}
+	if !strings.Contains(output, "General") {
+		t.Error("expected detail help to have 'General' group")
+	}
+	for _, want := range []string{"ctrl+h", "ctrl+c", "tmux attach", "open log", "follow", "normal mode"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected detail help to mention %q", want)
+		}
+	}
+}
+
+func TestDetailShortHelp_ContainsHelpBinding(t *testing.T) {
+	for _, m := range []interface{ ShortHelp() []key.Binding }{
+		newDetailFollowKeyMap(), newDetailNormalKeyMap(),
+	} {
+		found := false
+		for _, b := range m.ShortHelp() {
+			if b.Help().Key == "ctrl+h" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected detail keymap %T ShortHelp to contain ctrl+h", m)
+		}
+	}
+}
+
+func TestHandleTaskInfoKey_CtrlHTogglesHelp(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false, ""),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Status: "running"}
+	m.taskInfo.SetTask(&task)
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlH}
+	result, _ := m.handleTaskInfoKey(msg)
+	updated := result.(Model)
+	if !updated.taskInfo.showHelp {
+		t.Error("expected taskInfo.showHelp to be true after ctrl+h")
+	}
+
+	result, _ = updated.handleTaskInfoKey(msg)
+	updated = result.(Model)
+	if updated.taskInfo.showHelp {
+		t.Error("expected taskInfo.showHelp to be false after second ctrl+h")
+	}
+}
+
+func TestTaskInfoHelpOverlay_ContainsBindings(t *testing.T) {
+	m := Model{
+		keys:     newKeyMap(),
+		list:     newListView(false, ""),
+		taskInfo: newTaskInfoView(),
+		view:     viewTaskInfo,
+		width:    120, height: 30,
+	}
+	task := daemon.TaskInfo{ID: 1, Title: "Test", Status: "running"}
+	m.taskInfo.SetTask(&task)
+	m.taskInfo.SetSize(120, 30)
+	m.taskInfo.showHelp = true
+
+	output := m.View()
+
+	if !strings.Contains(output, "Task Info Help") {
+		t.Error("expected task-info help to have 'Task Info Help' title")
+	}
+	for _, want := range []string{"ctrl+h", "ed", "et", "ec", "yd", "yc", "oa", "ea", "logs", "tmux attach"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected task-info help to mention %q", want)
+		}
+	}
+}
+
+func TestTaskInfoShortHelp_ContainsHelpBinding(t *testing.T) {
+	bindings := newTaskInfoKeyMap().ShortHelp()
+	found := false
+	for _, b := range bindings {
+		if b.Help().Key == "ctrl+h" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected task-info ShortHelp to contain ctrl+h binding")
+	}
+}
+
+func TestHandleArtifactViewKey_CtrlHTogglesHelp(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false, ""),
+		view: viewArtifact,
+	}
+	m.artifactView.SetSize(120, 30)
+	m.artifactView.SetContent("implement", "test content")
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlH}
+	result, _ := m.handleArtifactViewKey(msg)
+	updated := result.(Model)
+	if !updated.artifactView.showHelp {
+		t.Error("expected artifactView.showHelp to be true after ctrl+h")
+	}
+
+	result, _ = updated.handleArtifactViewKey(msg)
+	updated = result.(Model)
+	if updated.artifactView.showHelp {
+		t.Error("expected artifactView.showHelp to be false after second ctrl+h")
+	}
+}
+
+func TestArtifactHelpOverlay_ContainsBindings(t *testing.T) {
+	m := Model{
+		keys: newKeyMap(),
+		list: newListView(false, ""),
+		view: viewArtifact,
+		width: 120, height: 30,
+	}
+	m.artifactView.SetSize(120, 30)
+	m.artifactView.SetContent("implement", "test content")
+	m.artifactView.editable = true
+	m.artifactView.showHelp = true
+
+	output := m.View()
+
+	if !strings.Contains(output, "Step Context Help") {
+		t.Error("expected artifact help to have 'Step Context Help' title")
+	}
+	for _, want := range []string{"ctrl+h", "gg", "G", "edit context", "esc/q"} {
+		if !strings.Contains(output, want) {
+			t.Errorf("expected artifact help to mention %q", want)
+		}
+	}
+}
+
+func TestArtifactShortHelp_ContainsHelpBinding(t *testing.T) {
+	bindings := newArtifactViewKeyMap().ShortHelp(true)
+	found := false
+	for _, b := range bindings {
+		if b.Help().Key == "ctrl+h" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected artifact ShortHelp to contain ctrl+h binding")
 	}
 }

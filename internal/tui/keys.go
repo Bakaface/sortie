@@ -215,6 +215,7 @@ type detailFollowKeyMap struct {
 	Stop       key.Binding
 	Attach     key.Binding
 	EditLog    key.Binding
+	Help       key.Binding
 }
 
 func newDetailFollowKeyMap() detailFollowKeyMap {
@@ -239,11 +240,15 @@ func newDetailFollowKeyMap() detailFollowKeyMap {
 			key.WithKeys("e"),
 			key.WithHelp("e", "open log"),
 		),
+		Help: key.NewBinding(
+			key.WithKeys("ctrl+h"),
+			key.WithHelp("ctrl+h", "help"),
+		),
 	}
 }
 
 func (k detailFollowKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.ExitFollow, k.Back, k.Stop, k.Attach, k.EditLog}
+	return []key.Binding{k.ExitFollow, k.Back, k.Stop, k.Attach, k.EditLog, k.Help}
 }
 
 type detailNormalKeyMap struct {
@@ -258,6 +263,7 @@ type detailNormalKeyMap struct {
 	Stop       key.Binding
 	Attach     key.Binding
 	EditLog    key.Binding
+	Help       key.Binding
 }
 
 func newDetailNormalKeyMap() detailNormalKeyMap {
@@ -306,11 +312,26 @@ func newDetailNormalKeyMap() detailNormalKeyMap {
 			key.WithKeys("e"),
 			key.WithHelp("e", "open log"),
 		),
+		Help: key.NewBinding(
+			key.WithKeys("ctrl+h"),
+			key.WithHelp("ctrl+h", "help"),
+		),
 	}
 }
 
 func (k detailNormalKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Attach, k.EditLog, k.Back}
+	return []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp, k.Follow, k.Attach, k.EditLog, k.Back, k.Help}
+}
+
+// FullHelp returns all detail-view bindings grouped for the help overlay.
+// Combines follow- and normal-mode bindings into one comprehensive list.
+func (k detailNormalKeyMap) FullHelp() [][]key.Binding {
+	fk := newDetailFollowKeyMap()
+	return [][]key.Binding{
+		{k.GotoTop, k.GotoBottom, k.Up, k.Down, k.HalfUp, k.HalfDown},
+		{k.Follow, fk.ExitFollow, k.Attach, k.EditLog, k.Stop},
+		{k.Back, k.Help},
+	}
 }
 
 type taskInfoKeyMap struct {
@@ -331,6 +352,7 @@ type taskInfoKeyMap struct {
 	EditContext  key.Binding
 	YankDesc     key.Binding
 	YankContext  key.Binding
+	Help         key.Binding
 }
 
 type artifactViewKeyMap struct {
@@ -342,13 +364,14 @@ type artifactViewKeyMap struct {
 	HalfUp     key.Binding
 	HalfDown   key.Binding
 	Edit       key.Binding
+	Help       key.Binding
 }
 
 func newArtifactViewKeyMap() artifactViewKeyMap {
 	return artifactViewKeyMap{
 		Back: key.NewBinding(
 			key.WithKeys("q", "esc"),
-			key.WithHelp("q/esc", "back"),
+			key.WithHelp("esc/q", "back"),
 		),
 		GotoTop: key.NewBinding(
 			key.WithKeys("g"),
@@ -378,6 +401,33 @@ func newArtifactViewKeyMap() artifactViewKeyMap {
 			key.WithKeys("e"),
 			key.WithHelp("e", "edit context"),
 		),
+		Help: key.NewBinding(
+			key.WithKeys("ctrl+h"),
+			key.WithHelp("ctrl+h", "help"),
+		),
+	}
+}
+
+// ShortHelp returns the essential bindings for the artifact-view footer tooltip.
+func (k artifactViewKeyMap) ShortHelp(editable bool) []key.Binding {
+	bindings := []key.Binding{k.GotoTop, k.GotoBottom, k.Down, k.Up, k.HalfDown, k.HalfUp}
+	if editable {
+		bindings = append(bindings, k.Edit)
+	}
+	bindings = append(bindings, k.Back, k.Help)
+	return bindings
+}
+
+// FullHelp returns all artifact-view bindings grouped for the help overlay.
+func (k artifactViewKeyMap) FullHelp(editable bool) [][]key.Binding {
+	actions := []key.Binding{}
+	if editable {
+		actions = append(actions, k.Edit)
+	}
+	return [][]key.Binding{
+		{k.Up, k.Down, k.HalfUp, k.HalfDown, k.GotoTop, k.GotoBottom},
+		actions,
+		{k.Back, k.Help},
 	}
 }
 
@@ -451,11 +501,24 @@ func newTaskInfoKeyMap() taskInfoKeyMap {
 			key.WithKeys("y"),
 			key.WithHelp("yc", "copy context"),
 		),
+		Help: key.NewBinding(
+			key.WithKeys("ctrl+h"),
+			key.WithHelp("ctrl+h", "help"),
+		),
 	}
 }
 
 func (k taskInfoKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.YankDesc, k.YankContext, k.Back}
+	return []key.Binding{k.Up, k.Down, k.GotoTop, k.GotoBtm, k.Logs, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.YankDesc, k.YankContext, k.Back, k.Help}
+}
+
+// FullHelp returns all task-info bindings grouped for the help overlay.
+func (k taskInfoKeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Up, k.Down, k.HalfUp, k.HalfDown, k.GotoTop, k.GotoBtm},
+		{k.Logs, k.Attach, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.YankDesc, k.YankContext, k.Stop},
+		{k.Back, k.Help},
+	}
 }
 
 type promptKeyMap struct {

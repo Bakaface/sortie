@@ -18,12 +18,24 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleSelectorKey(msg)
 	}
 
+	tk := cachedTaskInfoKeyMap
+
+	// Help overlay — ctrl+h toggles, ctrl+h or esc/q dismisses.
+	if m.taskInfo.showHelp {
+		if key.Matches(msg, tk.Help) || key.Matches(msg, tk.Back) {
+			m.taskInfo.showHelp = false
+		}
+		return m, nil
+	}
+	if key.Matches(msg, tk.Help) {
+		m.taskInfo.showHelp = true
+		return m, nil
+	}
+
 	// Handle chord sequences (gg, oa, ea, ed, et, ec, yd, yc)
 	if ret, cmd, handled := m.tryChord(keyStr); handled {
 		return ret, cmd
 	}
-
-	tk := cachedTaskInfoKeyMap
 
 	switch {
 	case key.Matches(msg, tk.Back): // "esc", "q"
