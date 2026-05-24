@@ -610,6 +610,14 @@ type Config struct {
 	Daemon   daemonCompat
 	Database databaseCompat
 	Agents   agentsCompat
+
+	// globalPool holds workflows resolved from the global ~/.sortie.yml (both
+	// inline and file-based under ~/.sortie/workflows/). Project-level config
+	// string refs that don't match a local .sortie/workflows/<cat>/<name>.yml
+	// fall back to this pool, letting projects reuse globally-defined
+	// workflows by name. Populated during loadCommon, after the global
+	// .sortie.yml is processed. Not serialized.
+	globalPool *globalWorkflowPool
 }
 
 // daemonCompat provides backward-compatible access for daemon package

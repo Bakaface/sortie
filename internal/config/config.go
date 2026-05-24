@@ -69,7 +69,9 @@ func DefaultWorkflow() WorkflowConfig {
 	}
 }
 
-// loadCommon loads the global config and global .sortie.yml into cfg.
+// loadCommon loads the global config and global .sortie.yml into cfg, and
+// captures the resolved global workflows into cfg.globalPool so that the
+// subsequent project-level load can reference them by name via string refs.
 func loadCommon(cfg *Config) error {
 	// Load global config (~/.config/sortie/config.yaml)
 	globalPath := getGlobalConfigPath()
@@ -79,13 +81,20 @@ func loadCommon(cfg *Config) error {
 		}
 	}
 
-	// Load global .sortie.yml (~/.sortie.yml)
+	// Load global .sortie.yml (~/.sortie.yml). cfg.globalPool is still nil at
+	// this point, so the global file's own workflows resolve only against its
+	// local .sortie/workflows/ — no self-recursion.
 	globalSortieYml := getGlobalSortieYmlPath()
 	if globalSortieYml != "" {
 		if err := loadProjectConfig(globalSortieYml, cfg); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}
+
+	// Snapshot the global-resolved workflows so the upcoming project load can
+	// look them up by name. Done after the global load so it reflects the
+	// fully-resolved state (file-based + inline + hidden alike).
+	cfg.globalPool = snapshotGlobalPool(cfg)
 
 	return nil
 }
@@ -323,6 +332,68 @@ func loadProjectConfig(path string, cfg *Config) error {
 	return resolveWorkflows(cfg, &proj, filePool)
 }
 
+// globalWorkflowPool holds workflows resolved from the global ~/.sortie.yml
+// (both inline and file-based under ~/.sortie/workflows/) keyed by category
+// and name. Project-level string refs that don't match a local
+// .sortie/workflows/<cat>/<name>.yml fall back to this pool, letting projects
+// reuse globally-defined workflows by name.
+//
+// Distinct from workflowFilePool because there are no "hidden-append"
+// semantics here: a global workflow only flows into a project's resolved
+// listing when the project explicitly references it.
+type globalWorkflowPool struct {
+	byCategory map[string]map[string]WorkflowConfig
+}
+
+func newGlobalWorkflowPool() *globalWorkflowPool {
+	return &globalWorkflowPool{
+		byCategory: make(map[string]map[string]WorkflowConfig, len(workflowCategories)),
+	}
+}
+
+// lookup returns the global workflow for category/name and reports whether
+// it was found.
+func (p *globalWorkflowPool) lookup(category, name string) (WorkflowConfig, bool) {
+	if p == nil {
+		return WorkflowConfig{}, false
+	}
+	m, ok := p.byCategory[category]
+	if !ok {
+		return WorkflowConfig{}, false
+	}
+	wf, ok := m[name]
+	return wf, ok
+}
+
+// add registers a workflow in the pool under the given category.
+func (p *globalWorkflowPool) add(category string, wf WorkflowConfig) {
+	if p == nil {
+		return
+	}
+	if p.byCategory[category] == nil {
+		p.byCategory[category] = make(map[string]WorkflowConfig)
+	}
+	p.byCategory[category][wf.Name] = wf
+}
+
+// snapshotGlobalPool captures the currently-resolved workflows on cfg into a
+// pool that project-level config resolution can consult to look up workflows
+// by name. Called after the global ~/.sortie.yml is loaded so that later
+// project loads can reference global workflows via string refs.
+func snapshotGlobalPool(cfg *Config) *globalWorkflowPool {
+	pool := newGlobalWorkflowPool()
+	for _, wf := range cfg.TaskWorkflows {
+		pool.add("tasks", wf)
+	}
+	for _, wf := range cfg.OneOff {
+		pool.add("one-off", wf)
+	}
+	for _, wf := range cfg.InitWorkflows {
+		pool.add("init", wf)
+	}
+	return pool
+}
+
 // workflowFilePool holds workflow definitions discovered on disk under
 // .sortie/workflows/<category>/, keyed by category → name → loaded workflow.
 // Files that haven't been referenced from .sortie.yml at the end of resolution
@@ -504,27 +575,33 @@ func resolveWorkflows(cfg *Config, proj *ProjectConfig, filePool *workflowFilePo
 	// workflows even when .sortie.yml has no entries for that category.
 	hasFilePool := filePool != nil && len(filePool.byCategory) > 0
 
+	// cfg.globalPool is populated by loadCommon after the global ~/.sortie.yml
+	// is processed. It is nil while the global config itself is being loaded
+	// (so global resolution never self-references) and during direct
+	// loadProjectConfig() calls from tests that bypass loadCommon.
+	globalPool := cfg.globalPool
+
 	if hasNewFormat || hasFilePool {
 		// New structured format — only override categories actually defined in
 		// proj.Workflows so global init workflows persist when project config
 		// only defines a subset of categories. The file pool is consulted only
 		// for categories whose pool is non-empty.
 		if len(proj.Workflows.Tasks) > 0 || hasCategoryFiles(filePool, "tasks") {
-			resolved, err := resolveCategory("tasks", proj.Workflows.Tasks, filePool)
+			resolved, err := resolveCategory("tasks", proj.Workflows.Tasks, filePool, globalPool)
 			if err != nil {
 				return err
 			}
 			cfg.TaskWorkflows = resolved
 		}
 		if len(proj.Workflows.OneOff) > 0 || hasCategoryFiles(filePool, "one-off") {
-			resolved, err := resolveCategory("one-off", proj.Workflows.OneOff, filePool)
+			resolved, err := resolveCategory("one-off", proj.Workflows.OneOff, filePool, globalPool)
 			if err != nil {
 				return err
 			}
 			cfg.OneOff = resolved
 		}
 		if len(proj.Workflows.Init) > 0 || hasCategoryFiles(filePool, "init") {
-			resolved, err := resolveCategory("init", proj.Workflows.Init, filePool)
+			resolved, err := resolveCategory("init", proj.Workflows.Init, filePool, globalPool)
 			if err != nil {
 				return err
 			}
@@ -632,8 +709,18 @@ func hasCategoryFiles(pool *workflowFilePool, category string) bool {
 
 // resolveCategory expands a single category's entries (string refs + inline
 // defs) into a flat slice of WorkflowConfig. Active workflows come first in
-// listing order; any files in the pool not referenced are appended as Hidden.
-func resolveCategory(category string, entries []WorkflowEntry, filePool *workflowFilePool) ([]WorkflowConfig, error) {
+// listing order; any files in the local pool not referenced are appended as
+// Hidden.
+//
+// String refs are resolved against the local file pool first; if not found,
+// globalPool (workflows defined in the global ~/.sortie.yml, both inline and
+// file-based) is consulted as a fallback. This lets project configs reuse
+// globally-defined workflows by name.
+//
+// Project-level inline definitions or project-level local files with the
+// same name as a global workflow are allowed and override the global — only
+// inline-vs-file collisions WITHIN the project's own scope are an error.
+func resolveCategory(category string, entries []WorkflowEntry, filePool *workflowFilePool, globalPool *globalWorkflowPool) ([]WorkflowConfig, error) {
 	// Track names seen so we can flag duplicates and inline/file collisions.
 	seen := make(map[string]bool, len(entries))
 	out := make([]WorkflowConfig, 0, len(entries))
@@ -645,13 +732,20 @@ func resolveCategory(category string, entries []WorkflowEntry, filePool *workflo
 			if seen[name] {
 				return nil, fmt.Errorf("workflows.%s: duplicate workflow name %q", category, name)
 			}
+			// Local file pool wins over the global pool when both define the
+			// same name (project-level overrides global-level).
 			wf, ok := filePool.lookup(category, name)
+			if ok {
+				filePool.remove(category, name)
+			} else if globalWf, gok := globalPool.lookup(category, name); gok {
+				wf = globalWf
+				ok = true
+			}
 			if !ok {
-				return nil, fmt.Errorf("workflows.%s: referenced workflow %q has no file at .sortie/workflows/%s/%s.yml", category, name, category, name)
+				return nil, fmt.Errorf("workflows.%s: referenced workflow %q has no file at .sortie/workflows/%s/%s.yml and is not defined in the global config", category, name, category, name)
 			}
 			wf.Hidden = false
 			out = append(out, wf)
-			filePool.remove(category, name)
 			seen[name] = true
 		case entry.Inline != nil:
 			wf := *entry.Inline
@@ -661,6 +755,9 @@ func resolveCategory(category string, entries []WorkflowEntry, filePool *workflo
 			if seen[wf.Name] {
 				return nil, fmt.Errorf("workflows.%s: duplicate workflow name %q", category, wf.Name)
 			}
+			// Inline-vs-file collision is only an error within the project's
+			// own scope. An inline definition that shadows a global workflow
+			// is a legal override.
 			if _, dup := filePool.lookup(category, wf.Name); dup {
 				return nil, fmt.Errorf("workflows.%s: inline workflow %q collides with file at .sortie/workflows/%s/%s.yml — define it in one place only", category, wf.Name, category, wf.Name)
 			}

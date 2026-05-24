@@ -81,12 +81,55 @@ func Diagnose(path string) ([]Diagnostic, error) {
 		return nil, err
 	}
 
-	return validateProject(&proj, filePool)
+	// Build the global workflow pool (resolved workflows from ~/.sortie.yml
+	// and ~/.sortie/workflows/) so project configs that reference global
+	// workflows by string ref validate cleanly. Skipped when the file under
+	// validation IS the global config itself.
+	globalPool, err := loadGlobalPoolForValidation(path)
+	if err != nil {
+		return nil, fmt.Errorf("load global config: %w", err)
+	}
+
+	return validateProject(&proj, filePool, globalPool)
+}
+
+// loadGlobalPoolForValidation resolves the global ~/.sortie.yml into a
+// globalWorkflowPool. Returns nil (no global pool) when no global config
+// exists or when skipPath matches the global path (avoiding self-recursion
+// when the validation target IS the global config).
+func loadGlobalPoolForValidation(skipPath string) (*globalWorkflowPool, error) {
+	globalYml := getGlobalSortieYmlPath()
+	if globalYml == "" {
+		return nil, nil
+	}
+	// Resolve to absolute paths to avoid false negatives when skipPath was
+	// passed as a relative path.
+	absGlobal, err := filepath.Abs(globalYml)
+	if err == nil {
+		globalYml = absGlobal
+	}
+	absSkip, err := filepath.Abs(skipPath)
+	if err == nil {
+		skipPath = absSkip
+	}
+	if globalYml == skipPath {
+		return nil, nil
+	}
+
+	tmpCfg := defaultConfig()
+	if err := loadProjectConfig(globalYml, tmpCfg); err != nil {
+		return nil, err
+	}
+	return snapshotGlobalPool(tmpCfg), nil
 }
 
 // validateProject runs structural validation on a parsed ProjectConfig.
 // Returns any non-fatal warnings (e.g. unreferenced file-based workflows).
-func validateProject(proj *ProjectConfig, filePool *workflowFilePool) ([]Diagnostic, error) {
+//
+// globalPool, when non-nil, supplies workflows defined in the global
+// ~/.sortie.yml so that project-level string refs to global workflows
+// validate without surfacing "missing file" errors.
+func validateProject(proj *ProjectConfig, filePool *workflowFilePool, globalPool *globalWorkflowPool) ([]Diagnostic, error) {
 	// Enum sanity
 	if !validOnCompleteValues[proj.Git.OnComplete] {
 		return nil, fmt.Errorf(`git.on_complete: invalid value %q (must be "commit", "merge", or "none")`, proj.Git.OnComplete)
@@ -114,6 +157,7 @@ func validateProject(proj *ProjectConfig, filePool *workflowFilePool) ([]Diagnos
 	// Reuse the production assembly path to apply identical validation rules
 	// (loops, steps, summarization strategies) the daemon enforces at load time.
 	cfg := defaultConfig()
+	cfg.globalPool = globalPool
 	if err := resolveWorkflows(cfg, proj, filePool); err != nil {
 		return nil, err
 	}
