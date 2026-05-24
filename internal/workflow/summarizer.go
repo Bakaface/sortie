@@ -83,17 +83,21 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 		return err
 	}
 
-	// Run summarizer after merge
+	// Run summarizer after merge. For single-step workflows the per-step
+	// summary already IS the task summary — promote it directly into
+	// task.context and skip the redundant cross-step Claude invocation.
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	if wf != nil {
-		if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
-			logFn("Warning: failed to set summarizing status: %v", err)
-		}
-		logFn("Running summarizer...")
-		if err := e.runSummarizer(ctx, t, wf, preMergeDiffStat, logFn); err != nil {
-			logFn("Warning: summarizer failed: %v", err)
-		} else {
-			logFn("Summarizer completed")
+		if !e.promoteSingleStepContextToTask(t, wf, logFn) {
+			if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizing); err != nil {
+				logFn("Warning: failed to set summarizing status: %v", err)
+			}
+			logFn("Running summarizer...")
+			if err := e.runSummarizer(ctx, t, wf, preMergeDiffStat, logFn); err != nil {
+				logFn("Warning: summarizer failed: %v", err)
+			} else {
+				logFn("Summarizer completed")
+			}
 		}
 	}
 
@@ -104,6 +108,41 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 
 	logFn("=== Finalization completed ===")
 	return nil
+}
+
+// promoteSingleStepContextToTask copies the single step's already-captured
+// summary into the task's context, bypassing the cross-step task summarizer.
+// Returns true when the promotion happened and the caller should skip
+// runSummarizer; false when the workflow has more than one step or the single
+// step has no usable context (in which case the caller should fall through to
+// runSummarizer so its git-diff fallback can still produce a task summary).
+func (e *Engine) promoteSingleStepContextToTask(t *task.Task, wf *config.WorkflowConfig, logFn func(string, ...any)) bool {
+	if wf == nil || len(wf.Steps) != 1 {
+		return false
+	}
+	stepName := wf.Steps[0].Name
+	stepCtx, err := e.database.GetTaskStepContext(t.ID, stepName)
+	if err != nil {
+		if logFn != nil {
+			logFn("Warning: failed to read step %q context for promotion: %v", stepName, err)
+		}
+		return false
+	}
+	stepCtx = strings.TrimSpace(stepCtx)
+	if stepCtx == "" {
+		return false
+	}
+	if err := e.database.UpdateTaskContext(t.ID, stepCtx); err != nil {
+		if logFn != nil {
+			logFn("Warning: failed to promote step %q context to task #%d: %v", stepName, t.ID, err)
+		}
+		return false
+	}
+	t.Context = stepCtx
+	if logFn != nil {
+		logFn("Promoted step %q context to task #%d context (%d chars); skipping cross-step summarizer", stepName, t.ID, len(stepCtx))
+	}
+	return true
 }
 
 // runSummarizer generates a summary of all artifacts and stores it as the task's context.

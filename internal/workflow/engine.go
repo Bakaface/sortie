@@ -352,7 +352,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			} else if chat != "" && shouldSummarizeChat(chat, resultText, useTmux) {
 				// Surface the step summarization phase via the task status so
 				// the TUI can distinguish it from regular step execution.
-				restore := e.markSummarizingStep(t)
+				restore := e.markSummarizingStep(t, wf)
 				summary, sumErr := e.summarizeChatLog(ctx, t, step.Name, step.SummarizationPrompt, chat, step.EffectiveAllowedSummarizationModels(e.cfg.AllowedSummarizationModels))
 				restore()
 				if sumErr != nil {
@@ -477,7 +477,7 @@ func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, lo
 	}
 	// Surface the step summarization phase via the task status so
 	// the TUI can distinguish it from regular step execution.
-	restore := e.markSummarizingStep(t)
+	restore := e.markSummarizingStep(t, wf)
 	summary, err := e.summarizeChatLog(ctx, t, prevStep.Name, prevStep.SummarizationPrompt, chat, prevStep.EffectiveAllowedSummarizationModels(e.cfg.AllowedSummarizationModels))
 	restore()
 	if err != nil {
@@ -494,20 +494,30 @@ func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, lo
 	logMsg("summarize_chat updated step context for tmux step %q of task #%d (%d chars)", prevStep.Name, t.ID, len(summary))
 }
 
-// markSummarizingStep transitions the task to StatusSummarizingStep and
-// returns a function that restores the previous status. Used to surface the
-// step summarization phase in the TUI without persisting "summarizing_step"
-// as the resting status of the task.
+// markSummarizingStep transitions the task to the appropriate "summarizing"
+// status and returns a function that restores the previous status. Used to
+// surface the step summarization phase in the TUI without persisting it as
+// the resting status of the task.
+//
+// For single-step workflows the step summary IS the task summary (FinalizeTask
+// promotes it directly into task.context, skipping the cross-step summarizer),
+// so the canonical StatusSummarizing is used. Multi-step workflows use
+// StatusSummarizingStep to distinguish per-step summarization from the final
+// cross-step summarizer.
 //
 // On any DB failure the function is a no-op (logged) — step summarization is
 // a best-effort phase and must not block forward progress.
-func (e *Engine) markSummarizingStep(t *task.Task) func() {
+func (e *Engine) markSummarizingStep(t *task.Task, wf *config.WorkflowConfig) func() {
 	prev := t.Status
-	if err := e.database.UpdateTaskStatus(t.ID, task.StatusSummarizingStep); err != nil {
-		log.Printf("Warning: failed to set summarizing_step status for task #%d: %v", t.ID, err)
+	status := task.StatusSummarizingStep
+	if wf != nil && len(wf.Steps) == 1 {
+		status = task.StatusSummarizing
+	}
+	if err := e.database.UpdateTaskStatus(t.ID, status); err != nil {
+		log.Printf("Warning: failed to set %s status for task #%d: %v", status, t.ID, err)
 		return func() {}
 	}
-	t.Status = task.StatusSummarizingStep
+	t.Status = status
 	return func() {
 		if err := e.database.UpdateTaskStatus(t.ID, prev); err != nil {
 			log.Printf("Warning: failed to restore status %q for task #%d after step summarization: %v", prev, t.ID, err)

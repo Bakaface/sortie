@@ -1040,6 +1040,216 @@ func TestRunTaskSummarizationStrategyNoneSkipsContext(t *testing.T) {
 	}
 }
 
+func TestMarkSummarizingStepSingleStepUsesSummarizing(t *testing.T) {
+	// For a single-step workflow the step summary IS the task summary, so
+	// markSummarizingStep should surface `summarizing` (not `summarizing_step`).
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	tk, err := database.CreateTask(project.ID, "single", "", "single", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+
+	engine := NewEngine(&config.Config{}, database, nil, dir)
+	wf := &config.WorkflowConfig{Steps: []config.StepConfig{{Name: "only"}}}
+
+	restore := engine.markSummarizingStep(tk, wf)
+	if tk.Status != task.StatusSummarizing {
+		t.Errorf("expected in-memory status %q, got %q", task.StatusSummarizing, tk.Status)
+	}
+	got, err := database.GetTask(tk.ID)
+	if err != nil {
+		t.Fatalf("GetTask failed: %v", err)
+	}
+	if got.Status != task.StatusSummarizing {
+		t.Errorf("expected persisted status %q, got %q", task.StatusSummarizing, got.Status)
+	}
+
+	restore()
+	if tk.Status != task.StatusRunning {
+		t.Errorf("expected restored status %q, got %q", task.StatusRunning, tk.Status)
+	}
+}
+
+func TestMarkSummarizingStepMultiStepUsesSummarizingStep(t *testing.T) {
+	// For multi-step workflows the per-step summarization is distinct from
+	// the cross-step summarizer, so the transient `summarizing_step` status
+	// must still be used to disambiguate them in the TUI.
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	tk, err := database.CreateTask(project.ID, "multi", "", "multi", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+
+	engine := NewEngine(&config.Config{}, database, nil, dir)
+	wf := &config.WorkflowConfig{Steps: []config.StepConfig{{Name: "a"}, {Name: "b"}}}
+
+	restore := engine.markSummarizingStep(tk, wf)
+	if tk.Status != task.StatusSummarizingStep {
+		t.Errorf("expected status %q, got %q", task.StatusSummarizingStep, tk.Status)
+	}
+	restore()
+	if tk.Status != task.StatusRunning {
+		t.Errorf("expected restored status %q, got %q", task.StatusRunning, tk.Status)
+	}
+}
+
+func TestPromoteSingleStepContextToTask(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	tk, err := database.CreateTask(project.ID, "single", "", "single", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+
+	stepCtx := "concise step summary text"
+	if err := database.CreateTaskStep(tk.ID, "only"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteTaskStep(tk.ID, "only", &stepCtx, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := NewEngine(&config.Config{}, database, nil, dir)
+	wf := &config.WorkflowConfig{Steps: []config.StepConfig{{Name: "only"}}}
+
+	if !engine.promoteSingleStepContextToTask(tk, wf, nil) {
+		t.Fatal("expected promotion to succeed for single-step workflow with non-empty step context")
+	}
+	if tk.Context != stepCtx {
+		t.Errorf("expected in-memory task.Context %q, got %q", stepCtx, tk.Context)
+	}
+	got, err := database.GetTask(tk.ID)
+	if err != nil {
+		t.Fatalf("GetTask failed: %v", err)
+	}
+	if got.Context != stepCtx {
+		t.Errorf("expected persisted task context %q, got %q", stepCtx, got.Context)
+	}
+}
+
+func TestPromoteSingleStepContextToTaskNoOpForMultiStep(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	tk, err := database.CreateTask(project.ID, "multi", "", "multi", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+
+	stepCtx := "should not be promoted"
+	if err := database.CreateTaskStep(tk.ID, "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteTaskStep(tk.ID, "a", &stepCtx, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := NewEngine(&config.Config{}, database, nil, dir)
+	wf := &config.WorkflowConfig{Steps: []config.StepConfig{{Name: "a"}, {Name: "b"}}}
+
+	if engine.promoteSingleStepContextToTask(tk, wf, nil) {
+		t.Fatal("expected no promotion for multi-step workflow")
+	}
+	if tk.Context != "" {
+		t.Errorf("expected in-memory task.Context unchanged, got %q", tk.Context)
+	}
+}
+
+func TestPromoteSingleStepContextToTaskNoOpForEmptyStepContext(t *testing.T) {
+	// When the single step's context is empty (e.g. summarize_chat skipped),
+	// promotion should be a no-op so the caller falls through to runSummarizer
+	// which can still produce a task summary from the git diff fallback.
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+	tk, err := database.CreateTask(project.ID, "single-empty", "", "single-empty", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+
+	if err := database.CreateTaskStep(tk.ID, "only"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteTaskStep(tk.ID, "only", nil, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := NewEngine(&config.Config{}, database, nil, dir)
+	wf := &config.WorkflowConfig{Steps: []config.StepConfig{{Name: "only"}}}
+
+	if engine.promoteSingleStepContextToTask(tk, wf, nil) {
+		t.Fatal("expected no promotion when step context is empty")
+	}
+	if tk.Context != "" {
+		t.Errorf("expected task.Context to remain empty, got %q", tk.Context)
+	}
+}
+
 func TestTmuxScriptNonEmptyPromptPassesPrompt(t *testing.T) {
 	// Verify that when prompt is non-empty, the tmux script passes it to Claude
 	prompt := "implement the feature"
