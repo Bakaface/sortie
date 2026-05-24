@@ -300,6 +300,7 @@ func (s *Server) acceptLoop() {
 }
 
 func (s *Server) handleConnection(conn net.Conn) {
+	log.Printf("daemon: connection accepted (conn=%p)", conn)
 	defer func() {
 		s.mu.Lock()
 		delete(s.clients, conn)
@@ -318,6 +319,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 		}
 
 		s.handleMessage(conn, msg)
+	}
+
+	// Connection-lifecycle logging — without this, broken-pipe symptoms are
+	// impossible to root-cause from post-hoc state (see sortie-102).
+	if err := scanner.Err(); err != nil {
+		log.Printf("daemon: connection closed with scanner error (conn=%p): %v", conn, err)
+	} else {
+		log.Printf("daemon: connection closed (EOF) (conn=%p)", conn)
 	}
 }
 

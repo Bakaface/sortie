@@ -3,12 +3,22 @@ package daemon
 import (
 	"log"
 	"net"
+	"time"
 
 	"github.com/Bakaface/sortie/internal/agent"
 	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
 	"github.com/Bakaface/sortie/internal/tmux"
 )
+
+// broadcastWriteTimeout bounds how long the daemon will wait when pushing a
+// broadcast (agent/task/tmux updates) to a single subscriber. A healthy
+// subscriber drains a buffered message in microseconds; a 2-second budget
+// is conservative enough to absorb a stop-the-world GC on the consumer
+// while still preventing one stalled peer from blocking the broadcast loop
+// for every other subscriber. The conn is dropped on timeout (or any other
+// write error) — see broadcastToSubscribers.
+const broadcastWriteTimeout = 2 * time.Second
 
 func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.State) {
 	info := agentToInfo(a)
@@ -154,8 +164,57 @@ func (s *Server) broadcastToSubscribers(msgType MessageType, payload any) {
 	}
 	s.mu.RUnlock()
 
+	// Collect dead conns during iteration, then drop them in one critical
+	// section after the loop. Deleting-while-iterating from s.subscribers
+	// here would race against handleConnection's own cleanup defer.
+	var failed []net.Conn
 	for _, conn := range subs {
-		s.sendMessage(conn, msgType, payload)
+		if err := s.broadcastSend(conn, msgType, payload); err != nil {
+			log.Printf("daemon: client write failed, dropping conn: %v", err)
+			failed = append(failed, conn)
+		}
+	}
+
+	if len(failed) > 0 {
+		s.dropDeadConns(failed)
+	}
+}
+
+// broadcastSend writes a single broadcast message to one subscriber with
+// a write deadline. Returns the write error so the caller can drop the
+// conn from s.subscribers / s.clients. The deadline is cleared after the
+// write so subsequent RPC writes on the same conn (handled by handleMessage)
+// are not subject to it — broadcasts are the only push-from-daemon path.
+func (s *Server) broadcastSend(conn net.Conn, msgType MessageType, payload any) error {
+	msg, err := NewMessage(msgType, payload)
+	if err != nil {
+		log.Printf("Failed to create broadcast message: %v", err)
+		return err
+	}
+	data, err := EncodeMessage(msg)
+	if err != nil {
+		log.Printf("Failed to encode broadcast message: %v", err)
+		return err
+	}
+	_ = conn.SetWriteDeadline(time.Now().Add(broadcastWriteTimeout))
+	_, writeErr := conn.Write(data)
+	_ = conn.SetWriteDeadline(time.Time{})
+	return writeErr
+}
+
+// dropDeadConns removes the given conns from s.clients and s.subscribers
+// and closes each one. Idempotent w.r.t. handleConnection's own deferred
+// cleanup: delete on a missing key is a no-op and net.Conn.Close on an
+// already-closed conn is benign.
+func (s *Server) dropDeadConns(conns []net.Conn) {
+	s.mu.Lock()
+	for _, conn := range conns {
+		delete(s.clients, conn)
+		delete(s.subscribers, conn)
+	}
+	s.mu.Unlock()
+	for _, conn := range conns {
+		conn.Close()
 	}
 }
 
@@ -168,24 +227,37 @@ func (s *Server) broadcastTaskUpdate(taskID int64) {
 	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
 }
 
-func (s *Server) sendMessage(conn net.Conn, msgType MessageType, payload any) {
+// sendMessage writes a 1:1 RPC response to conn. No write deadline is applied
+// — RPC responses are naturally bounded by a specific in-flight request, and
+// handleConnection's scanner loop will detect a dead peer on the next read.
+// The write error is surfaced so callers can log it; the returned value is
+// intentionally ignored by most callers because (a) there's nothing actionable
+// for an RPC handler to do once the reply has failed, and (b) the broken
+// conn will be cleaned up by handleConnection's exit-defer.
+func (s *Server) sendMessage(conn net.Conn, msgType MessageType, payload any) error {
 	msg, err := NewMessage(msgType, payload)
 	if err != nil {
 		log.Printf("Failed to create message: %v", err)
-		return
+		return err
 	}
 
 	data, err := EncodeMessage(msg)
 	if err != nil {
 		log.Printf("Failed to encode message: %v", err)
-		return
+		return err
 	}
 
-	conn.Write(data)
+	if _, writeErr := conn.Write(data); writeErr != nil {
+		log.Printf("daemon: RPC write to client failed (type=%s): %v", msgType, writeErr)
+		return writeErr
+	}
+	return nil
 }
 
 func (s *Server) sendError(conn net.Conn, message string) {
-	s.sendMessage(conn, MsgError, ErrorResponse{Message: message})
+	// sendMessage already logs the underlying write error; we don't propagate
+	// it because there's no path back to the caller (no Go return).
+	_ = s.sendMessage(conn, MsgError, ErrorResponse{Message: message})
 }
 
 func agentToInfo(a *agent.Agent) AgentInfo {

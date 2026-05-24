@@ -13,6 +13,28 @@ import (
 	"github.com/Bakaface/sortie/internal/daemon"
 )
 
+// errConnectionClosed is the sentinel pushed onto errChan when readLoop exits
+// (clean EOF or scan error). sendAndWait observes this to wake up promptly
+// and attempt a single reconnect-and-retry rather than timing out on the
+// response channel.
+var errConnectionClosed = errors.New("daemon connection closed")
+
+// Reconnect contract (Fix #102, sortie-102):
+//
+//   - sendAndWait and send do EXACTLY ONE reconnect-and-retry on a wire-level
+//     failure (Write error or readLoop signaling errConnectionClosed). A second
+//     consecutive failure escalates to the caller — never spin-loop.
+//   - Reconnect does NOT fire after explicit Close() — the done channel is the
+//     terminal signal, checked before any retry attempt.
+//   - If Subscribe() has been called and not yet Unsubscribe()-d, the reconnect
+//     path transparently re-issues MsgSubscribe on the fresh connection BEFORE
+//     retrying the original request, so create_task --wait_for_ready and other
+//     broadcast-dependent flows survive a daemon hiccup.
+//   - The mutex contract is unchanged: c.mu is held for the entire send+wait
+//     cycle (including reconnect+resubscribe+retry). Reconnect must NEVER
+//     release the lock — concurrent sendAndWait callers would otherwise see
+//     a partially-constructed connection.
+
 type Client struct {
 	cfg  *config.Config
 	conn net.Conn
@@ -23,6 +45,12 @@ type Client struct {
 	errChan   chan error
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// subscribed tracks whether Subscribe() has been called and not yet
+	// Unsubscribe()-d. The reconnect path uses this to transparently
+	// re-subscribe on a fresh connection so broadcasts keep flowing.
+	// Guarded by mu.
+	subscribed bool
 }
 
 func New(cfg *config.Config) *Client {
@@ -36,13 +64,16 @@ func New(cfg *config.Config) *Client {
 }
 
 func (c *Client) Connect() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	conn, err := net.Dial("unix", c.cfg.Daemon.SocketPath)
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon: %w", err)
 	}
 	c.conn = conn
 
-	go c.readLoop()
+	go c.readLoop(conn)
 
 	return nil
 }
@@ -51,8 +82,12 @@ func (c *Client) Close() error {
 	c.closeOnce.Do(func() {
 		close(c.done)
 	})
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.conn != nil {
-		return c.conn.Close()
+		err := c.conn.Close()
+		c.conn = nil
+		return err
 	}
 	return nil
 }
@@ -68,8 +103,16 @@ func isBroadcast(t daemon.MessageType) bool {
 	}
 }
 
-func (c *Client) readLoop() {
-	scanner := bufio.NewScanner(c.conn)
+// readLoop reads messages from conn (NOT c.conn) until conn fails or closes.
+// Passing conn as a parameter lets reconnect() start a fresh readLoop while
+// any prior readLoop drains and exits on the now-closed previous connection.
+//
+// On exit (clean EOF or scan error), a sentinel is pushed onto c.errChan so
+// callers blocked in sendAndWait wake up immediately. Push is non-blocking:
+// if errChan is already populated or the client is closing, the signal is
+// dropped — the buffered entry or the done channel will wake any waiter.
+func (c *Client) readLoop(conn net.Conn) {
+	scanner := bufio.NewScanner(conn)
 	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024) // 10MB buffer for large log responses
 	for scanner.Scan() {
 		msg, err := daemon.DecodeMessage(scanner.Bytes())
@@ -90,11 +133,16 @@ func (c *Client) readLoop() {
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		select {
-		case c.errChan <- err:
-		default:
-		}
+	// Even on clean EOF (scanner.Err() == nil) we MUST signal — otherwise
+	// callers blocked in sendAndWait would wait indefinitely on respChan.
+	err := scanner.Err()
+	if err == nil {
+		err = errConnectionClosed
+	}
+	select {
+	case c.errChan <- err:
+	case <-c.done:
+	default:
 	}
 }
 
@@ -104,6 +152,132 @@ func (c *Client) Messages() <-chan *daemon.Message {
 
 func (c *Client) Errors() <-chan error {
 	return c.errChan
+}
+
+// drainStaleSignalsLocked clears any pending errChan / respChan entries
+// produced by a now-dead connection so they don't ambush the new request
+// after a reconnect. Caller MUST hold c.mu.
+func (c *Client) drainStaleSignalsLocked() {
+	for {
+		select {
+		case <-c.errChan:
+			continue
+		default:
+		}
+		break
+	}
+	for {
+		select {
+		case <-c.respChan:
+			continue
+		default:
+		}
+		break
+	}
+}
+
+// reconnectLocked closes the current connection and dials a fresh one,
+// re-subscribing transparently if the client was subscribed before. Caller
+// MUST hold c.mu. On success c.conn is the new connection and a fresh
+// readLoop is running against it. On dial failure c.conn is set to nil
+// and the next call will naturally retry the dial.
+//
+// skipResubscribe suppresses the implicit MsgSubscribe round-trip on the
+// new conn. It is set when the in-flight request was itself MsgSubscribe —
+// the outer retry will re-send subscribe, so doing it twice would orphan
+// a MsgOK in respChan and ambush the next caller.
+func (c *Client) reconnectLocked(skipResubscribe bool) error {
+	if c.conn != nil {
+		c.conn.Close()
+	}
+
+	c.drainStaleSignalsLocked()
+
+	newConn, err := net.Dial("unix", c.cfg.Daemon.SocketPath)
+	if err != nil {
+		c.conn = nil
+		return fmt.Errorf("dial: %w", err)
+	}
+	c.conn = newConn
+	go c.readLoop(newConn)
+
+	if skipResubscribe || !c.subscribed {
+		return nil
+	}
+
+	// Re-issue Subscribe on the new conn. We are already holding c.mu, so
+	// we inline the write+wait rather than calling Subscribe() to avoid
+	// re-entrant lock acquisition.
+	subMsg, err := daemon.NewMessage(daemon.MsgSubscribe, nil)
+	if err != nil {
+		return fmt.Errorf("resubscribe encode: %w", err)
+	}
+	subData, err := daemon.EncodeMessage(subMsg)
+	if err != nil {
+		return fmt.Errorf("resubscribe encode: %w", err)
+	}
+	resp, err := c.writeAndWaitLocked(subData)
+	if err != nil {
+		return fmt.Errorf("resubscribe: %w", err)
+	}
+	if resp.Type == daemon.MsgError {
+		return fmt.Errorf("resubscribe: daemon rejected")
+	}
+	return nil
+}
+
+// writeAndWaitLocked writes data on c.conn and blocks until a non-broadcast
+// response arrives, the connection signals an error, or Close() is called.
+// Caller MUST hold c.mu. Returns the wire error verbatim — does not attempt
+// any reconnect itself; the caller decides retry policy.
+func (c *Client) writeAndWaitLocked(data []byte) (*daemon.Message, error) {
+	if c.conn == nil {
+		return nil, errConnectionClosed
+	}
+	if _, err := c.conn.Write(data); err != nil {
+		return nil, err
+	}
+
+	// Read responses, skipping any broadcast messages that may have leaked
+	// into respChan (e.g. due to a missing isBroadcast entry).
+	for {
+		select {
+		case resp := <-c.respChan:
+			if isBroadcast(resp.Type) {
+				continue
+			}
+			return resp, nil
+		case err := <-c.errChan:
+			return nil, err
+		case <-c.done:
+			return nil, fmt.Errorf("client closed")
+		}
+	}
+}
+
+// sendOnceWithReconnectLocked attempts writeAndWaitLocked; on transient
+// wire failure it does EXACTLY ONE reconnect-and-retry. msgType is used
+// purely to decide whether the reconnect-internal resubscribe must be
+// skipped (when the request itself is MsgSubscribe). Caller MUST hold c.mu.
+func (c *Client) sendOnceWithReconnectLocked(data []byte, msgType daemon.MessageType) (*daemon.Message, error) {
+	resp, err := c.writeAndWaitLocked(data)
+	if err == nil {
+		return resp, nil
+	}
+
+	// Never reconnect after explicit Close() — done is the terminal signal.
+	select {
+	case <-c.done:
+		return nil, err
+	default:
+	}
+
+	log.Printf("client: send %s failed (%v), attempting one reconnect", msgType, err)
+	skipResub := msgType == daemon.MsgSubscribe
+	if reconErr := c.reconnectLocked(skipResub); reconErr != nil {
+		return nil, fmt.Errorf("send %s failed: %v (reconnect also failed: %w)", msgType, err, reconErr)
+	}
+	return c.writeAndWaitLocked(data)
 }
 
 func (c *Client) send(msgType daemon.MessageType, payload any) error {
@@ -120,13 +294,48 @@ func (c *Client) send(msgType daemon.MessageType, payload any) error {
 		return err
 	}
 
-	_, err = c.conn.Write(data)
+	writeErr := c.writeRawLocked(data)
+	if writeErr == nil {
+		return nil
+	}
+
+	// Fire-and-forget gets the same single-retry bound as sendAndWait.
+	select {
+	case <-c.done:
+		return writeErr
+	default:
+	}
+	log.Printf("client: send (fire-and-forget) %s failed (%v), attempting one reconnect", msgType, writeErr)
+	skipResub := msgType == daemon.MsgSubscribe
+	if reconErr := c.reconnectLocked(skipResub); reconErr != nil {
+		return fmt.Errorf("send failed: %v (reconnect also failed: %w)", writeErr, reconErr)
+	}
+	return c.writeRawLocked(data)
+}
+
+// writeRawLocked writes data on c.conn without waiting for a response.
+// Caller MUST hold c.mu.
+func (c *Client) writeRawLocked(data []byte) error {
+	if c.conn == nil {
+		return errConnectionClosed
+	}
+	_, err := c.conn.Write(data)
 	return err
 }
 
+// sendAndWait sends msgType with payload and blocks for the matching response.
+// Holds c.mu for the entire send+wait cycle so concurrent callers can't steal
+// each other's responses, and so reconnect (if it fires) can mutate c.conn
+// without racing other callers.
 func (c *Client) sendAndWait(msgType daemon.MessageType, payload any) (*daemon.Message, error) {
-	// Hold the lock for the entire send+wait cycle to prevent concurrent
-	// sendAndWait calls from receiving each other's responses.
+	return c.sendAndWaitWithHook(msgType, payload, nil)
+}
+
+// sendAndWaitWithHook is sendAndWait plus an optional callback fired while c.mu
+// is still held, on a non-error response. Used by Subscribe/Unsubscribe to
+// atomically flip c.subscribed alongside the daemon's ack — closing the race
+// window where a concurrent reconnect could miss the subscription state change.
+func (c *Client) sendAndWaitWithHook(msgType daemon.MessageType, payload any, onSuccess func()) (*daemon.Message, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -140,26 +349,14 @@ func (c *Client) sendAndWait(msgType daemon.MessageType, payload any) (*daemon.M
 		return nil, err
 	}
 
-	if _, err = c.conn.Write(data); err != nil {
+	resp, err := c.sendOnceWithReconnectLocked(data, msgType)
+	if err != nil {
 		return nil, err
 	}
-
-	// Read responses, skipping any broadcast messages that may have leaked
-	// into respChan (e.g. due to a missing isBroadcast entry).
-	for {
-		select {
-		case resp := <-c.respChan:
-			if isBroadcast(resp.Type) {
-				// Discard stale broadcast that ended up in the response channel
-				continue
-			}
-			return resp, nil
-		case err := <-c.errChan:
-			return nil, err
-		case <-c.done:
-			return nil, fmt.Errorf("client closed")
-		}
+	if onSuccess != nil && resp.Type != daemon.MsgError {
+		onSuccess()
 	}
+	return resp, nil
 }
 
 // request sends a message and waits for a non-error response.
@@ -256,12 +453,36 @@ func (c *Client) StopAgent(agentID string) error {
 }
 
 func (c *Client) Subscribe() error {
-	_, err := c.sendAndWait(daemon.MsgSubscribe, nil)
-	return err
+	// The onSuccess hook runs while c.mu is still held so c.subscribed flips
+	// atomically with the daemon's ack — protects against a concurrent
+	// sendAndWait triggering reconnect in the gap and missing the new state.
+	msg, err := c.sendAndWaitWithHook(daemon.MsgSubscribe, nil, func() {
+		c.subscribed = true
+	})
+	if err != nil {
+		return err
+	}
+	if msg.Type == daemon.MsgError {
+		var errResp daemon.ErrorResponse
+		msg.DecodePayload(&errResp)
+		return errors.New(errResp.Message)
+	}
+	return nil
 }
 
 func (c *Client) Unsubscribe() error {
-	return c.requestOK(daemon.MsgUnsubscribe, nil)
+	msg, err := c.sendAndWaitWithHook(daemon.MsgUnsubscribe, nil, func() {
+		c.subscribed = false
+	})
+	if err != nil {
+		return err
+	}
+	if msg.Type == daemon.MsgError {
+		var errResp daemon.ErrorResponse
+		msg.DecodePayload(&errResp)
+		return errors.New(errResp.Message)
+	}
+	return nil
 }
 
 func (c *Client) GetOutput(agentID string, fromLine int) ([]string, int, error) {

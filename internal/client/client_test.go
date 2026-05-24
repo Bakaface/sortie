@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Bakaface/sortie/internal/config"
 	"github.com/Bakaface/sortie/internal/daemon"
 )
 
@@ -99,7 +100,7 @@ func TestSendAndWait_ConcurrentCallsGetCorrectResponses(t *testing.T) {
 		errChan:  make(chan error, 1),
 		done:     make(chan struct{}),
 	}
-	go c.readLoop()
+	go c.readLoop(conn)
 	defer c.Close()
 
 	// Run multiple concurrent sendAndWait calls and verify each gets the correct response type.
@@ -177,7 +178,7 @@ func TestSendAndWait_BroadcastsNotRoutedToResponses(t *testing.T) {
 		errChan:  make(chan error, 1),
 		done:     make(chan struct{}),
 	}
-	go c.readLoop()
+	go c.readLoop(conn)
 	defer c.Close()
 
 	// Inject a broadcast message directly into the connection to simulate
@@ -296,7 +297,7 @@ func TestUnsubscribe_DoesNotPoisonNextRequest(t *testing.T) {
 		errChan:  make(chan error, 1),
 		done:     make(chan struct{}),
 	}
-	go c.readLoop()
+	go c.readLoop(conn)
 	defer c.Close()
 
 	if err := c.Unsubscribe(); err != nil {
@@ -310,6 +311,360 @@ func TestUnsubscribe_DoesNotPoisonNextRequest(t *testing.T) {
 	if task.ID != 99 || task.Title != "real" {
 		t.Errorf("GetTask returned wrong/zero data after Unsubscribe: %+v", task)
 	}
+}
+
+// reconnectableMockServer is a mock daemon that accepts a sequence of
+// connections. Each connection is handled with the supplied handler until
+// the test closes the listener. Used by reconnect tests to break and then
+// re-accept a fresh client connection.
+type reconnectableMockServer struct {
+	t        *testing.T
+	listener net.Listener
+	handler  func(*daemon.Message) *daemon.Message
+
+	mu          sync.Mutex
+	activeConns []net.Conn
+
+	// broadcast is closed by tests once they want to push a broadcast to
+	// every currently-subscribed conn. Use sendBroadcast for explicit pushes.
+	subscribed map[net.Conn]bool
+
+	wg sync.WaitGroup
+}
+
+func newReconnectableMockServer(t *testing.T, handler func(*daemon.Message) *daemon.Message) *reconnectableMockServer {
+	t.Helper()
+	listener, err := net.Listen("unix", shortSocketPath(t))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	s := &reconnectableMockServer{
+		t:          t,
+		listener:   listener,
+		handler:    handler,
+		subscribed: make(map[net.Conn]bool),
+	}
+	s.wg.Add(1)
+	go s.acceptLoop()
+	return s
+}
+
+func (s *reconnectableMockServer) acceptLoop() {
+	defer s.wg.Done()
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			return
+		}
+		s.mu.Lock()
+		s.activeConns = append(s.activeConns, conn)
+		s.mu.Unlock()
+		s.wg.Add(1)
+		go s.handleConn(conn)
+	}
+}
+
+func (s *reconnectableMockServer) handleConn(conn net.Conn) {
+	defer s.wg.Done()
+	defer func() {
+		s.mu.Lock()
+		delete(s.subscribed, conn)
+		s.mu.Unlock()
+		conn.Close()
+	}()
+	scanner := bufio.NewScanner(conn)
+	scanner.Buffer(make([]byte, 0, 1024*1024), 10*1024*1024)
+	for scanner.Scan() {
+		msg, err := daemon.DecodeMessage(scanner.Bytes())
+		if err != nil {
+			continue
+		}
+		if msg.Type == daemon.MsgSubscribe {
+			s.mu.Lock()
+			s.subscribed[conn] = true
+			s.mu.Unlock()
+		}
+		if msg.Type == daemon.MsgUnsubscribe {
+			s.mu.Lock()
+			delete(s.subscribed, conn)
+			s.mu.Unlock()
+		}
+		resp := s.handler(msg)
+		if resp == nil {
+			continue
+		}
+		data, _ := daemon.EncodeMessage(resp)
+		conn.Write(data)
+	}
+}
+
+// breakLatestConn closes the most recently-accepted connection from the
+// server side, simulating a daemon-side conn drop / restart.
+func (s *reconnectableMockServer) breakLatestConn() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.activeConns) == 0 {
+		return
+	}
+	last := s.activeConns[len(s.activeConns)-1]
+	last.Close()
+}
+
+func (s *reconnectableMockServer) sendBroadcast(msgType daemon.MessageType, payload any) {
+	msg, _ := daemon.NewMessage(msgType, payload)
+	data, _ := daemon.EncodeMessage(msg)
+	s.mu.Lock()
+	conns := make([]net.Conn, 0, len(s.subscribed))
+	for c := range s.subscribed {
+		conns = append(conns, c)
+	}
+	s.mu.Unlock()
+	for _, c := range conns {
+		c.Write(data)
+	}
+}
+
+func (s *reconnectableMockServer) connCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.activeConns)
+}
+
+func (s *reconnectableMockServer) close() {
+	s.listener.Close()
+	s.mu.Lock()
+	for _, c := range s.activeConns {
+		c.Close()
+	}
+	s.mu.Unlock()
+}
+
+// TestClient_ReconnectAfterServerSideBreak verifies that when the daemon
+// closes the connection, the client transparently reconnects on the next
+// RPC and the call succeeds.
+func TestClient_ReconnectAfterServerSideBreak(t *testing.T) {
+	srv := newReconnectableMockServer(t, func(msg *daemon.Message) *daemon.Message {
+		switch msg.Type {
+		case daemon.MsgPing:
+			resp, _ := daemon.NewMessage(daemon.MsgPong, nil)
+			return resp
+		}
+		resp, _ := daemon.NewMessage(daemon.MsgError, daemon.ErrorResponse{Message: "unknown"})
+		return resp
+	})
+	defer srv.close()
+
+	cfg := &config.Config{}
+	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	c := New(cfg)
+	if err := c.Connect(); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	// First ping establishes a working connection.
+	if err := c.Ping(); err != nil {
+		t.Fatalf("first ping: %v", err)
+	}
+
+	// Break the conn from the server side.
+	srv.breakLatestConn()
+
+	// Give the readLoop a beat to observe EOF and signal errChan. Not strictly
+	// required (sendAndWait would Write-fail too) but exercises the EOF path.
+	time.Sleep(20 * time.Millisecond)
+
+	// Second ping must succeed — the client should reconnect transparently.
+	if err := c.Ping(); err != nil {
+		t.Fatalf("ping after break: %v", err)
+	}
+
+	// Sanity: at least two connections were accepted by the mock daemon.
+	if got := srv.connCount(); got < 2 {
+		t.Errorf("expected ≥2 accepted conns after reconnect, got %d", got)
+	}
+}
+
+// TestClient_ReconnectSecondFailureEscalates verifies that if reconnect
+// itself fails (daemon socket gone), the error escalates to the caller
+// rather than spin-looping.
+func TestClient_ReconnectSecondFailureEscalates(t *testing.T) {
+	srv := newReconnectableMockServer(t, func(msg *daemon.Message) *daemon.Message {
+		resp, _ := daemon.NewMessage(daemon.MsgPong, nil)
+		return resp
+	})
+
+	cfg := &config.Config{}
+	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	c := New(cfg)
+	if err := c.Connect(); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	if err := c.Ping(); err != nil {
+		t.Fatalf("first ping: %v", err)
+	}
+
+	// Kill the listener entirely AND break the current conn so reconnect's
+	// own dial fails. Order matters — close listener first.
+	srv.listener.Close()
+	srv.breakLatestConn()
+
+	// Wait for the readLoop to observe EOF so the next send sees errChan first.
+	time.Sleep(20 * time.Millisecond)
+
+	if err := c.Ping(); err == nil {
+		t.Fatalf("expected ping to fail after listener closed; got nil error")
+	}
+}
+
+// TestClient_ReconnectNotAttemptedAfterClose verifies that Close() is
+// terminal — no reconnect fires for calls made after Close().
+func TestClient_ReconnectNotAttemptedAfterClose(t *testing.T) {
+	srv := newReconnectableMockServer(t, func(msg *daemon.Message) *daemon.Message {
+		resp, _ := daemon.NewMessage(daemon.MsgPong, nil)
+		return resp
+	})
+	defer srv.close()
+
+	cfg := &config.Config{}
+	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	c := New(cfg)
+	if err := c.Connect(); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	if err := c.Ping(); err != nil {
+		t.Fatalf("first ping: %v", err)
+	}
+
+	preCloseConns := srv.connCount()
+
+	if err := c.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	// Subsequent calls must return error without dialing a new conn.
+	err := c.Ping()
+	if err == nil {
+		t.Fatalf("expected error pinging closed client")
+	}
+
+	if got := srv.connCount(); got != preCloseConns {
+		t.Errorf("expected no new connections after Close(); got %d (was %d)", got, preCloseConns)
+	}
+}
+
+// TestClient_SubscriptionPreservedAcrossReconnect verifies that the
+// client's subscription state survives a transparent reconnect: after
+// the connection is broken, a subsequent RPC triggers reconnect+resubscribe,
+// and a daemon-side broadcast reaches the client over the new conn.
+func TestClient_SubscriptionPreservedAcrossReconnect(t *testing.T) {
+	srv := newReconnectableMockServer(t, func(msg *daemon.Message) *daemon.Message {
+		switch msg.Type {
+		case daemon.MsgSubscribe, daemon.MsgUnsubscribe:
+			resp, _ := daemon.NewMessage(daemon.MsgOK, daemon.OKResponse{})
+			return resp
+		case daemon.MsgPing:
+			resp, _ := daemon.NewMessage(daemon.MsgPong, nil)
+			return resp
+		}
+		resp, _ := daemon.NewMessage(daemon.MsgError, daemon.ErrorResponse{Message: "unknown"})
+		return resp
+	})
+	defer srv.close()
+
+	cfg := &config.Config{}
+	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	c := New(cfg)
+	if err := c.Connect(); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	if err := c.Subscribe(); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	// Break the conn underneath, then trigger reconnect via another RPC.
+	srv.breakLatestConn()
+	time.Sleep(20 * time.Millisecond)
+
+	if err := c.Ping(); err != nil {
+		t.Fatalf("ping after break (should reconnect+resubscribe): %v", err)
+	}
+
+	// At this point the daemon-side mock should have re-registered the
+	// new conn in its subscribers map. Fire a broadcast and assert the
+	// client receives it.
+	srv.sendBroadcast(daemon.MsgTaskUpdate, daemon.TaskUpdateResponse{Task: daemon.TaskInfo{ID: 77, Title: "post-reconnect"}})
+
+	select {
+	case msg := <-c.Messages():
+		if msg.Type != daemon.MsgTaskUpdate {
+			t.Errorf("expected MsgTaskUpdate, got %s", msg.Type)
+		}
+		var resp daemon.TaskUpdateResponse
+		if err := msg.DecodePayload(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Task.ID != 77 {
+			t.Errorf("expected task ID 77, got %d", resp.Task.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not receive broadcast after reconnect")
+	}
+}
+
+// TestClient_FireAndForgetReconnectsOnBrokenPipe verifies that the
+// fire-and-forget send() path also reconnects exactly once on Write
+// failure (covers the `send()` retry contract).
+//
+// Note: a peer-side close alone does NOT reliably surface as Write error
+// on Unix sockets — small writes can succeed into the kernel buffer even
+// when the remote end is gone. To make this deterministic, we close the
+// conn from the LOCAL side before send(), which guarantees a
+// "use of closed network connection" error on the next Write and exercises
+// the reconnect path.
+func TestClient_FireAndForgetReconnectsOnBrokenPipe(t *testing.T) {
+	srv := newReconnectableMockServer(t, func(msg *daemon.Message) *daemon.Message {
+		return nil
+	})
+	defer srv.close()
+
+	cfg := &config.Config{}
+	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	c := New(cfg)
+	if err := c.Connect(); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer c.Close()
+
+	// Close the conn locally — guarantees the next Write fails.
+	c.mu.Lock()
+	localConn := c.conn
+	c.mu.Unlock()
+	localConn.Close()
+
+	// Give the readLoop a beat to observe EOF.
+	time.Sleep(20 * time.Millisecond)
+
+	if err := c.send(daemon.MsgPing, nil); err != nil {
+		t.Fatalf("send (after local close, should reconnect): %v", err)
+	}
+
+	// net.Dial returns once the handshake completes, but the server's
+	// acceptLoop goroutine may not have appended the new conn to
+	// activeConns yet — poll briefly.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if srv.connCount() >= 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("expected ≥2 accepted conns after fire-and-forget reconnect, got %d", srv.connCount())
 }
 
 func TestContinueTaskRequest_JSONEncoding(t *testing.T) {
@@ -328,4 +683,3 @@ func TestContinueTaskRequest_JSONEncoding(t *testing.T) {
 		t.Errorf("expected task_id=42, got %d", decoded.TaskID)
 	}
 }
-
