@@ -3,6 +3,7 @@ package git
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -104,12 +105,12 @@ func CleanRepoState(repoRoot string) error {
 	return nil
 }
 
-// MergeBranch merges the task branch into baseBranch, fast-forwarding when
-// possible to keep history linear. When the base branch has advanced and a
-// fast-forward isn't possible, git falls back to a merge commit using
-// commitMsg. The task's individual commits remain reachable from the base
-// branch in both cases.
-func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
+// MergeBranch fast-forwards baseBranch to the tip of branch. Fails if a
+// fast-forward isn't possible — callers are expected to rebase the task
+// branch onto baseBranch first (via RebaseInto) and retry. Linear history
+// is the design: no merge commits are ever produced here, so the base
+// branch's log is the task branches' commits in order.
+func MergeBranch(repoRoot, branch, baseBranch string) error {
 	// Safety net: if we exit without a successful commit, ensure we don't
 	// leave staged changes on the base branch (the root cause of the race
 	// condition where parallel merges leave pending changes on main).
@@ -120,7 +121,6 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 		}
 	}()
 
-	// Checkout base branch
 	checkoutCmd := exec.Command("git", "checkout", baseBranch)
 	checkoutCmd.Dir = repoRoot
 
@@ -131,19 +131,13 @@ func MergeBranch(repoRoot, branch, baseBranch, commitMsg string) error {
 		return fmt.Errorf("git checkout %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
 	}
 
-	// Fast-forward when possible; fall back to a merge commit when the base
-	// branch has advanced. commitMsg is only used for the fallback merge
-	// commit — a clean fast-forward leaves the task commit message intact.
-	if commitMsg == "" {
-		commitMsg = fmt.Sprintf("Merge %s into %s", branch, baseBranch)
-	}
-	mergeCmd := exec.Command("git", "merge", "--ff", "-m", commitMsg, branch)
+	mergeCmd := exec.Command("git", "merge", "--ff-only", branch)
 	mergeCmd.Dir = repoRoot
 	stderr.Reset()
 	mergeCmd.Stderr = &stderr
 
 	if err := mergeCmd.Run(); err != nil {
-		return fmt.Errorf("git merge failed: %w (stderr: %s)", err, stderr.String())
+		return fmt.Errorf("git merge --ff-only failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	committed = true
@@ -328,25 +322,28 @@ func DiffStat(workDir, baseBranch string) (string, error) {
 	return strings.TrimSpace(diffOut.String()), nil
 }
 
-// MergeInto merges baseBranch into the current branch in the worktree.
-// On clean merge, returns nil. On conflict, returns a non-nil error but does NOT
-// abort the merge — the caller should resolve conflicts then call CompleteMerge.
-func MergeInto(worktreePath, baseBranch string) error {
-	cmd := exec.Command("git", "merge", baseBranch, "--no-edit")
+// RebaseInto rebases the worktree's current branch onto baseBranch. Unlike
+// RebaseBranch, it does NOT auto-abort on conflicts — on conflict it
+// returns an error but leaves the rebase in progress so the caller can
+// inspect conflicted files via GetConflictedFiles, stage resolutions, and
+// call ContinueRebase. Callers are responsible for invoking AbortRebase on
+// unrecoverable failures.
+func RebaseInto(worktreePath, baseBranch string) error {
+	cmd := exec.Command("git", "rebase", baseBranch)
 	cmd.Dir = worktreePath
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git merge %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
+		return fmt.Errorf("git rebase %s failed: %w (stderr: %s)", baseBranch, err, stderr.String())
 	}
 
 	return nil
 }
 
-// GetConflictedFiles returns the list of files with unresolved merge conflicts.
-// Returns an empty slice if there are no conflicts.
+// GetConflictedFiles returns the list of files with unresolved merge or
+// rebase conflicts. Returns an empty slice if there are no conflicts.
 func GetConflictedFiles(workDir string) ([]string, error) {
 	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=U")
 	cmd.Dir = workDir
@@ -369,11 +366,12 @@ func GetConflictedFiles(workDir string) ([]string, error) {
 	return files, nil
 }
 
-// CompleteMerge stages all files and commits with the default merge message.
-// Should be called after resolving conflicts from a MergeInto call.
-func CompleteMerge(workDir string) error {
+// ContinueRebase stages everything in the worktree and resumes an
+// in-progress rebase, preserving the original commit message. Should be
+// called after resolving conflicts from a RebaseInto call.
+func ContinueRebase(worktreePath string) error {
 	addCmd := exec.Command("git", "add", "-A")
-	addCmd.Dir = workDir
+	addCmd.Dir = worktreePath
 
 	var stderr bytes.Buffer
 	addCmd.Stderr = &stderr
@@ -382,28 +380,31 @@ func CompleteMerge(workDir string) error {
 		return fmt.Errorf("git add failed: %w (stderr: %s)", err, stderr.String())
 	}
 
-	commitCmd := exec.Command("git", "commit", "--no-edit")
-	commitCmd.Dir = workDir
+	cmd := exec.Command("git", "rebase", "--continue")
+	cmd.Dir = worktreePath
+	// Prevent git from launching an editor for the commit message; reuse
+	// the original message as-is.
+	cmd.Env = append(os.Environ(), "GIT_EDITOR=true")
 	stderr.Reset()
-	commitCmd.Stderr = &stderr
+	cmd.Stderr = &stderr
 
-	if err := commitCmd.Run(); err != nil {
-		return fmt.Errorf("git commit (merge) failed: %w (stderr: %s)", err, stderr.String())
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git rebase --continue failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	return nil
 }
 
-// AbortMerge aborts an in-progress merge to restore clean state.
-func AbortMerge(workDir string) error {
-	cmd := exec.Command("git", "merge", "--abort")
-	cmd.Dir = workDir
+// AbortRebase aborts an in-progress rebase to restore clean state.
+func AbortRebase(worktreePath string) error {
+	cmd := exec.Command("git", "rebase", "--abort")
+	cmd.Dir = worktreePath
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git merge --abort failed: %w (stderr: %s)", err, stderr.String())
+		return fmt.Errorf("git rebase --abort failed: %w (stderr: %s)", err, stderr.String())
 	}
 
 	return nil
@@ -499,4 +500,3 @@ func lowercaseFirst(s string) string {
 	}
 	return string(unicode.ToLower(r)) + s[size:]
 }
-

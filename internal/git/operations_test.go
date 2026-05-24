@@ -233,11 +233,18 @@ func TestMergeBranch_SequentialMerges(t *testing.T) {
 		t.Fatalf("checkout main failed: %v\n%s", err, out)
 	}
 
-	// Merge both branches sequentially (as the mutex would enforce)
-	if err := MergeBranch(repo, "feature-a", "main", "sortie: feature A"); err != nil {
+	// Merge both branches sequentially (as the mutex would enforce). feature-a
+	// fast-forwards from init; feature-b is rebased onto main (now at A) so it
+	// can also fast-forward.
+	if err := MergeBranch(repo, "feature-a", "main"); err != nil {
 		t.Fatalf("MergeBranch feature-a failed: %v", err)
 	}
-	if err := MergeBranch(repo, "feature-b", "main", "sortie: feature B"); err != nil {
+	runGit(t, repo, "checkout", "feature-b")
+	if err := RebaseBranch(repo, "main"); err != nil {
+		t.Fatalf("RebaseBranch feature-b failed: %v", err)
+	}
+	runGit(t, repo, "checkout", "main")
+	if err := MergeBranch(repo, "feature-b", "main"); err != nil {
 		t.Fatalf("MergeBranch feature-b failed: %v", err)
 	}
 
@@ -314,8 +321,22 @@ func TestMergeBranch_ConcurrentWithMutex(t *testing.T) {
 			defer wg.Done()
 			branchName := fmt.Sprintf("feature-%d", idx)
 			mu.Lock()
-			errs[idx] = MergeBranch(repo, branchName, "main", fmt.Sprintf("sortie: feature %d", idx))
-			mu.Unlock()
+			defer mu.Unlock()
+			// First task fast-forwards; later tasks must rebase onto the
+			// updated main first because --ff-only refuses when their fork
+			// point has fallen behind.
+			err := MergeBranch(repo, branchName, "main")
+			if err != nil {
+				runGit(t, repo, "checkout", branchName)
+				if rebaseErr := RebaseBranch(repo, "main"); rebaseErr != nil {
+					errs[idx] = rebaseErr
+					runGit(t, repo, "checkout", "main")
+					return
+				}
+				runGit(t, repo, "checkout", "main")
+				err = MergeBranch(repo, branchName, "main")
+			}
+			errs[idx] = err
 		}(i)
 	}
 	wg.Wait()
@@ -369,7 +390,7 @@ func TestMergeBranch_PreservesHistory(t *testing.T) {
 	featureTip := strings.TrimSpace(string(out))
 
 	runGit(t, repo, "checkout", "main")
-	if err := MergeBranch(repo, "feature", "main", "feat: merge feature"); err != nil {
+	if err := MergeBranch(repo, "feature", "main"); err != nil {
 		t.Fatalf("MergeBranch failed: %v", err)
 	}
 
@@ -393,17 +414,17 @@ func TestMergeBranch_PreservesHistory(t *testing.T) {
 	}
 }
 
-func TestMergeBranch_ConflictCleansUp(t *testing.T) {
+func TestMergeBranch_NonFastForwardCleansUp(t *testing.T) {
 	repo := initTestRepo(t)
 
-	// Create shared.txt on main
+	// Add shared.txt so the branches actually diverge.
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("original"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-m", "add shared.txt")
 
-	// Create two branches that modify the same file differently
+	// branch-a forks from main and changes shared.txt
 	runGit(t, repo, "checkout", "-b", "branch-a")
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("branch A changes"), 0644); err != nil {
 		t.Fatal(err)
@@ -411,6 +432,7 @@ func TestMergeBranch_ConflictCleansUp(t *testing.T) {
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-m", "modify shared.txt in branch-a")
 
+	// branch-b forks from the same point and changes shared.txt differently
 	runGit(t, repo, "checkout", "main")
 	runGit(t, repo, "checkout", "-b", "branch-b")
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("branch B changes"), 0644); err != nil {
@@ -421,24 +443,25 @@ func TestMergeBranch_ConflictCleansUp(t *testing.T) {
 
 	runGit(t, repo, "checkout", "main")
 
-	// Merge branch-a first — should succeed
-	if err := MergeBranch(repo, "branch-a", "main", "sortie: branch A"); err != nil {
-		t.Fatalf("first merge should succeed: %v", err)
+	// First merge fast-forwards.
+	if err := MergeBranch(repo, "branch-a", "main"); err != nil {
+		t.Fatalf("first merge should fast-forward: %v", err)
 	}
 
-	// Merge branch-b — should fail (conflict on shared.txt)
-	err := MergeBranch(repo, "branch-b", "main", "sortie: branch B")
-	if err == nil {
-		t.Fatal("expected merge to fail due to conflict")
+	// Second merge must fail — branch-b is not descended from main's new tip,
+	// so --ff-only refuses. The caller's job is to rebase branch-b first.
+	if err := MergeBranch(repo, "branch-b", "main"); err == nil {
+		t.Fatal("expected --ff-only merge to refuse non-descendant branch")
 	}
 
-	// Verify the working directory is clean after failed merge (cleanup worked)
+	// Working directory must be clean after the refusal so other tasks can
+	// keep merging.
 	statusOut := runGitOutput(t, repo, "status", "--porcelain")
 	if strings.TrimSpace(statusOut) != "" {
-		t.Errorf("expected clean working directory after failed merge, got:\n%s", statusOut)
+		t.Errorf("expected clean working directory after refused merge, got:\n%s", statusOut)
 	}
 
-	// Verify we can still do another merge after the failure
+	// A descendant branch should still merge cleanly afterwards.
 	runGit(t, repo, "checkout", "-b", "branch-c")
 	if err := os.WriteFile(filepath.Join(repo, "other.txt"), []byte("no conflict"), 0644); err != nil {
 		t.Fatal(err)
@@ -447,8 +470,8 @@ func TestMergeBranch_ConflictCleansUp(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "add other.txt")
 	runGit(t, repo, "checkout", "main")
 
-	if err := MergeBranch(repo, "branch-c", "main", "sortie: branch C"); err != nil {
-		t.Fatalf("merge after conflict cleanup should succeed: %v", err)
+	if err := MergeBranch(repo, "branch-c", "main"); err != nil {
+		t.Fatalf("descendant merge after refusal should succeed: %v", err)
 	}
 }
 
@@ -574,35 +597,32 @@ func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 	// Merge branch-a first — advances main
 	var mu sync.Mutex
 	mu.Lock()
-	if err := MergeBranch(repo, "branch-a", "main", "sortie: branch A"); err != nil {
+	if err := MergeBranch(repo, "branch-a", "main"); err != nil {
 		mu.Unlock()
 		t.Fatalf("first merge failed: %v", err)
 	}
 
-	// Try merge branch-b — may fail because main advanced
-	mergeErr := MergeBranch(repo, "branch-b", "main", "sortie: branch B")
-	if mergeErr != nil {
-		// Simulate the engine's retry: rebase branch-b, then retry
-		// branch-b's worktree is the repo itself for this test, but in production
-		// it would be a separate worktree. We need to checkout branch-b to rebase it.
+	// branch-b now isn't descended from main, so --ff-only must refuse it.
+	mergeErr := MergeBranch(repo, "branch-b", "main")
+	if mergeErr == nil {
 		mu.Unlock()
-
-		// Use a temporary worktree for the rebase (like production does)
-		runGit(t, repo, "checkout", "branch-b")
-		if err := RebaseBranch(repo, "main"); err != nil {
-			t.Fatalf("rebase should succeed for non-conflicting branches: %v", err)
-		}
-		runGit(t, repo, "checkout", "main")
-
-		mu.Lock()
-		mergeErr = MergeBranch(repo, "branch-b", "main", "sortie: branch B")
-		mu.Unlock()
-		if mergeErr != nil {
-			t.Fatalf("merge after rebase should succeed: %v", mergeErr)
-		}
-	} else {
-		mu.Unlock()
+		t.Fatal("expected --ff-only to refuse branch-b before rebase")
 	}
+	mu.Unlock()
+
+	// Rebase branch-b onto the new main, then retry.
+	runGit(t, repo, "checkout", "branch-b")
+	if err := RebaseBranch(repo, "main"); err != nil {
+		t.Fatalf("rebase should succeed for non-conflicting branches: %v", err)
+	}
+	runGit(t, repo, "checkout", "main")
+
+	mu.Lock()
+	if err := MergeBranch(repo, "branch-b", "main"); err != nil {
+		mu.Unlock()
+		t.Fatalf("merge after rebase should succeed: %v", err)
+	}
+	mu.Unlock()
 
 	// Verify both files exist
 	if _, err := os.ReadFile(filepath.Join(repo, "a.txt")); err != nil {
@@ -610,6 +630,121 @@ func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 	}
 	if _, err := os.ReadFile(filepath.Join(repo, "b.txt")); err != nil {
 		t.Error("b.txt should exist on main")
+	}
+
+	// Linear history: no merge commits should have been created.
+	parentsOut := runGitOutput(t, repo, "log", "--merges", "--oneline", "main")
+	if strings.TrimSpace(parentsOut) != "" {
+		t.Errorf("expected linear history, but found merge commits:\n%s", parentsOut)
+	}
+}
+
+func TestRebaseInto_ConflictLeavesRebaseInProgress(t *testing.T) {
+	repo := initTestRepo(t)
+
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("base"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add shared.txt")
+
+	// feature edits shared.txt
+	runGit(t, repo, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("feature edit"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "feature edit")
+
+	// main also edits shared.txt
+	runGit(t, repo, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("main edit"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "main edit")
+
+	// Conflict path: RebaseInto must NOT auto-abort, so the caller can resolve.
+	runGit(t, repo, "checkout", "feature")
+	if err := RebaseInto(repo, "main"); err == nil {
+		t.Fatal("expected RebaseInto to surface conflict as error")
+	}
+
+	conflicts, err := GetConflictedFiles(repo)
+	if err != nil {
+		t.Fatalf("GetConflictedFiles after RebaseInto: %v", err)
+	}
+	if len(conflicts) != 1 || conflicts[0] != "shared.txt" {
+		t.Errorf("expected shared.txt to be the only conflict, got %v", conflicts)
+	}
+
+	if _, statErr := os.Stat(filepath.Join(repo, ".git", "rebase-merge")); os.IsNotExist(statErr) {
+		// Some git versions use rebase-apply for non-interactive rebase.
+		if _, fallback := os.Stat(filepath.Join(repo, ".git", "rebase-apply")); os.IsNotExist(fallback) {
+			t.Fatal("expected an in-progress rebase directory after conflict")
+		}
+	}
+
+	if err := AbortRebase(repo); err != nil {
+		t.Fatalf("AbortRebase failed: %v", err)
+	}
+
+	statusOut := runGitOutput(t, repo, "status", "--porcelain")
+	if strings.TrimSpace(statusOut) != "" {
+		t.Errorf("expected clean state after AbortRebase, got:\n%s", statusOut)
+	}
+}
+
+func TestContinueRebase_ResolvesConflict(t *testing.T) {
+	repo := initTestRepo(t)
+
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("base"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "add shared.txt")
+
+	runGit(t, repo, "checkout", "-b", "feature")
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("feature edit"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "feature edit")
+
+	runGit(t, repo, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("main edit"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "main edit")
+
+	runGit(t, repo, "checkout", "feature")
+	if err := RebaseInto(repo, "main"); err == nil {
+		t.Fatal("expected initial rebase to conflict")
+	}
+
+	// Resolve by taking a merged content, then continue.
+	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("resolved"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ContinueRebase(repo); err != nil {
+		t.Fatalf("ContinueRebase after resolution failed: %v", err)
+	}
+
+	// Resulting branch must contain main's commit + the rebased feature commit, no merge commit.
+	if branch, _ := GetCurrentBranch(repo); branch != "feature" {
+		t.Errorf("expected to be on feature after successful rebase, got %s", branch)
+	}
+	mergesOut := runGitOutput(t, repo, "log", "--merges", "--oneline", "feature")
+	if strings.TrimSpace(mergesOut) != "" {
+		t.Errorf("expected linear history after rebase, found merges:\n%s", mergesOut)
+	}
+	content, err := os.ReadFile(filepath.Join(repo, "shared.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "resolved" {
+		t.Errorf("expected shared.txt to contain resolution, got %q", string(content))
 	}
 }
 

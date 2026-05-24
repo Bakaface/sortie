@@ -178,7 +178,9 @@ func TestConcurrentFinalizesSerialize(t *testing.T) {
 	makeCoord := func() *Coordinator {
 		return NewCoordinator(
 			dir, lock, // shared lock
-			Config{OnComplete: ActionMerge, MaxAttempts: 1, BlockedPollInterval: 10 * time.Millisecond},
+			// MaxAttempts=2 so the second branch can rebase onto the
+			// fast-forwarded base before retrying its --ff-only merge.
+			Config{OnComplete: ActionMerge, MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
 			nil, nil, nil,
 		)
 	}
@@ -214,16 +216,23 @@ func TestConcurrentFinalizesSerialize(t *testing.T) {
 		t.Fatalf("base repo dirty after concurrent merges:\n%s", out)
 	}
 
-	// Expect 4 commits on main: init, alpha, beta, alpha-merge, beta-merge —
-	// the two feature branches were branched off main independently, then
-	// each merged in via --no-ff (which always creates a merge commit).
+	// Expect a linear history of exactly 3 commits on main: init, alpha,
+	// beta. The fast-forward + rebase pipeline must never create merge
+	// commits when integrating non-conflicting branches.
 	out, err := exec.Command("git", "-C", dir, "log", "--oneline", "main").CombinedOutput()
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := strings.Count(string(out), "\n")
-	if got < 4 {
-		t.Errorf("expected at least 4 commits on main after two merges, got %d:\n%s", got, out)
+	if got != 3 {
+		t.Errorf("expected 3 commits on main after two merges, got %d:\n%s", got, out)
+	}
+	mergesOut, err := exec.Command("git", "-C", dir, "log", "--merges", "--oneline", "main").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(mergesOut)) != "" {
+		t.Errorf("expected linear history with no merge commits on main, got:\n%s", mergesOut)
 	}
 }
 

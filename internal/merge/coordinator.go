@@ -137,11 +137,12 @@ func (c *Coordinator) RepoRoot() string { return c.repoRoot }
 //
 // Locality of the merge invariant:
 //   - Serialization: the per-repo Lock is held only across the base-repo merge
-//     operation itself. Worktree-side work (commits, conflict resolution) runs
-//     outside the lock so two tasks can prep their worktrees in parallel.
+//     operation itself. Worktree-side work (commits, rebase, conflict
+//     resolution) runs outside the lock so two tasks can prep their worktrees
+//     in parallel.
 //   - Cleanup: CleanRepoState fires whenever the merge branch of this function
 //     returns an error — regardless of whether the failure came from
-//     MergeBranch, MergeInto, CompleteMerge, or the conflict resolver.
+//     MergeBranch, RebaseInto, ContinueRebase, or the conflict resolver.
 //
 // For Action == "" / "none", or for non-worktree tasks, Finalize is a no-op.
 // For Action == "merge" on a non-worktree task, Finalize falls back to a
@@ -191,6 +192,12 @@ func (c *Coordinator) commit(t *task.Task, logf LogFunc) error {
 // guarantee. The deferred CleanRepoState fires for any non-nil return inside
 // this method — including failures that happen *after* MergeBranch has
 // committed and *before* the post-merge bookkeeping completes.
+//
+// The merge is always a fast-forward of the base branch onto the task tip.
+// When the base branch has advanced past the task's fork point, the merge
+// attempt fails and refreshFromBase rebases the task branch onto the latest
+// base before retrying. This keeps history linear — no synthetic merge
+// commits get added for either the refresh or the integration step.
 func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string, logf LogFunc) (retErr error) {
 	if t.Branch == "" {
 		return errors.New("cannot merge: task branch name is empty")
@@ -227,8 +234,7 @@ func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string
 		return fmt.Errorf("waiting for clean target branch: %w", err)
 	}
 
-	commitMsg := gitpkg.ConventionalCommitFromTitle(t.Title)
-	logf("Merging branch %s into %s...", t.Branch, baseBranch)
+	logf("Fast-forwarding %s to branch %s...", baseBranch, t.Branch)
 
 	var mergeErr error
 	for attempt := 1; attempt <= c.cfg.MaxAttempts; attempt++ {
@@ -236,7 +242,7 @@ func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string
 			logf("Merge attempt %d/%d...", attempt, c.cfg.MaxAttempts)
 		}
 
-		mergeErr = c.lockedMerge(t.Branch, baseBranch, commitMsg)
+		mergeErr = c.lockedMerge(t.Branch, baseBranch)
 		if mergeErr == nil {
 			logf("Merge successful")
 			c.recordBaseCommit(t)
@@ -250,9 +256,9 @@ func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string
 			break
 		}
 
-		// Conflict path: update the worktree branch from base outside the lock,
-		// resolving any conflicts via the injected resolver, then retry the
-		// base-repo merge.
+		// Fast-forward failed because the base branch advanced past the
+		// task's fork point. Rebase the task branch onto the latest base
+		// (outside the lock) so the next attempt can fast-forward cleanly.
 		if err := c.refreshFromBase(ctx, t, baseBranch, logf); err != nil {
 			return err
 		}
@@ -264,73 +270,73 @@ func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string
 // lockedMerge is the only place the per-repo Lock is held. Keep it tiny —
 // every line that runs under the lock contributes to head-of-line blocking
 // across all tasks in this repo.
-func (c *Coordinator) lockedMerge(branch, baseBranch, commitMsg string) error {
+func (c *Coordinator) lockedMerge(branch, baseBranch string) error {
 	c.lock.Acquire()
 	defer c.lock.Release()
-	return gitpkg.MergeBranch(c.repoRoot, branch, baseBranch, commitMsg)
+	return gitpkg.MergeBranch(c.repoRoot, branch, baseBranch)
 }
 
-// refreshFromBase merges baseBranch into the task's worktree branch, resolving
-// any conflicts via the injected ConflictResolver. Returns nil on success.
+// refreshFromBase rebases the task's worktree branch onto baseBranch,
+// resolving any per-commit conflicts via the injected ConflictResolver.
+// Returns nil on success, leaving the branch ready for a fast-forward
+// merge into baseBranch.
 //
-// Runs outside the per-repo lock — the worktree has its own index and other
-// tasks' merges into base do not need to block on this.
-func (c *Coordinator) refreshFromBase(ctx context.Context, t *task.Task, baseBranch string, logf LogFunc) error {
-	logf("Updating branch from %s...", baseBranch)
-	if err := gitpkg.MergeInto(t.WorktreePath, baseBranch); err == nil {
-		// Clean merge of base into worktree — no conflicts, ready to retry the
-		// base-repo merge as-is.
-		return nil
+// Runs outside the per-repo lock — the worktree has its own index and
+// other tasks' merges into base do not need to block on this.
+func (c *Coordinator) refreshFromBase(ctx context.Context, t *task.Task, baseBranch string, logf LogFunc) (retErr error) {
+	logf("Rebasing branch onto %s...", baseBranch)
+
+	// Safety net: any non-nil return must leave the worktree out of rebase
+	// state, so a later attempt does not encounter a stale .git/rebase-merge
+	// directory.
+	defer func() {
+		if retErr != nil {
+			gitpkg.AbortRebase(t.WorktreePath) // best-effort
+		}
+	}()
+
+	err := gitpkg.RebaseInto(t.WorktreePath, baseBranch)
+	for err != nil {
+		conflictFiles, cfErr := gitpkg.GetConflictedFiles(t.WorktreePath)
+		if cfErr != nil {
+			return fmt.Errorf("could not list conflicts: %w", cfErr)
+		}
+		if len(conflictFiles) == 0 {
+			return fmt.Errorf("rebase failed with no conflicted files: %w", err)
+		}
+		if c.resolveConflicts == nil {
+			return fmt.Errorf("rebase produced %d conflicted files and no resolver is configured", len(conflictFiles))
+		}
+
+		log.Printf("Task #%d has %d conflicted files during rebase, invoking resolver", t.ID, len(conflictFiles))
+		logf("Found %d conflicted files, invoking resolver...", len(conflictFiles))
+
+		// Surface the conflict-resolution phase via the task status so the TUI can
+		// distinguish it from regular step execution (and avoid showing a stale
+		// "implementing [wip]" label while the conflict agent is running).
+		restoreStatus := c.markResolvingConflicts(t)
+		resolveErr := c.resolveConflicts(ctx, t, conflictFiles)
+		restoreStatus()
+		if resolveErr != nil {
+			return fmt.Errorf("rebase conflict resolution failed: %w", resolveErr)
+		}
+
+		remaining, listErr := gitpkg.GetConflictedFiles(t.WorktreePath)
+		if listErr != nil {
+			return fmt.Errorf("failed to verify conflict resolution: %w", listErr)
+		}
+		if len(remaining) > 0 {
+			return fmt.Errorf("resolver left %d files still conflicted: %v", len(remaining), remaining)
+		}
+
+		log.Printf("Task #%d conflicts resolved, continuing rebase", t.ID)
+		logf("Conflicts resolved, continuing rebase...")
+
+		// Continue may surface conflicts on a subsequent commit — the loop
+		// runs the resolver again for those.
+		err = gitpkg.ContinueRebase(t.WorktreePath)
 	}
 
-	// Conflict resolution path.
-	conflictFiles, cfErr := gitpkg.GetConflictedFiles(t.WorktreePath)
-	if cfErr != nil {
-		gitpkg.AbortMerge(t.WorktreePath)
-		return fmt.Errorf("could not list conflicts: %w", cfErr)
-	}
-
-	if len(conflictFiles) == 0 {
-		gitpkg.AbortMerge(t.WorktreePath)
-		return errors.New("merge into worktree failed with no conflicted files")
-	}
-
-	if c.resolveConflicts == nil {
-		gitpkg.AbortMerge(t.WorktreePath)
-		return fmt.Errorf("merge produced %d conflicted files and no resolver is configured", len(conflictFiles))
-	}
-
-	log.Printf("Task #%d has %d conflicted files, invoking resolver", t.ID, len(conflictFiles))
-	logf("Found %d conflicted files, invoking resolver...", len(conflictFiles))
-
-	// Surface the conflict-resolution phase via the task status so the TUI can
-	// distinguish it from regular step execution (and avoid showing a stale
-	// "implementing [wip]" label while the conflict agent is running).
-	restoreStatus := c.markResolvingConflicts(t)
-	resolveErr := c.resolveConflicts(ctx, t, conflictFiles)
-	restoreStatus()
-	if resolveErr != nil {
-		gitpkg.AbortMerge(t.WorktreePath)
-		return fmt.Errorf("merge conflict resolution failed: %w", resolveErr)
-	}
-
-	remaining, err := gitpkg.GetConflictedFiles(t.WorktreePath)
-	if err != nil {
-		gitpkg.AbortMerge(t.WorktreePath)
-		return fmt.Errorf("failed to verify conflict resolution: %w", err)
-	}
-	if len(remaining) > 0 {
-		gitpkg.AbortMerge(t.WorktreePath)
-		return fmt.Errorf("resolver left %d files still conflicted: %v", len(remaining), remaining)
-	}
-
-	if err := gitpkg.CompleteMerge(t.WorktreePath); err != nil {
-		gitpkg.AbortMerge(t.WorktreePath)
-		return fmt.Errorf("failed to complete merge after conflict resolution: %w", err)
-	}
-
-	log.Printf("Task #%d conflicts resolved, retrying merge", t.ID)
-	logf("Conflicts resolved, retrying merge...")
 	return nil
 }
 
