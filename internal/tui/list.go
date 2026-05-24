@@ -596,9 +596,12 @@ func (l *listView) renderHeader() string {
 // effectively still "running" (Claude is working in the pane) and a human
 // tmux step is "awaiting-approval" (the user has been handed the wheel).
 // The fact that there's a tmux session attached is communicated by the
-// trailing postfix: [T] for non-human, [wip] for human. Same mechanism the
-// engine uses (`step.Human`) drives both the real-status mapping and the
-// postfix, so the two never disagree.
+// trailing postfix: [wip] when the Claude pane is actively working, [T] when
+// it has gone idle. The live signal comes from the daemon's tmux activity
+// monitor (`task.TmuxActivity`); when no monitor data has arrived yet we fall
+// back to the static `StepHuman` flag — human steps default to [wip] (Claude
+// just finished and the user is being handed the wheel) and non-human steps
+// to [T] (auto-advance will pick them up shortly).
 func (l *listView) statusText(task daemon.TaskInfo) string {
 	effectiveStatus := effectiveStatusFor(task)
 	statusIcon := statusIconFor(effectiveStatus)
@@ -631,10 +634,17 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 	if task.WorktreeDetached {
 		statusLabel += " [detached]"
 	} else if task.Status == "tmux" || l.tmuxSessions[task.ID] {
-		if task.StepHuman {
+		switch task.TmuxActivity {
+		case "wip":
 			statusLabel += " [wip]"
-		} else {
+		case "idle":
 			statusLabel += " [T]"
+		default:
+			if task.StepHuman {
+				statusLabel += " [wip]"
+			} else {
+				statusLabel += " [T]"
+			}
 		}
 	}
 	return fmt.Sprintf("%s %s", statusIcon, statusLabel)

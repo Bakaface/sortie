@@ -79,6 +79,34 @@ func TestStatusText_TmuxRealStatusMatrix(t *testing.T) {
 			wantIcon:  "●",
 			wantLabel: "implement [L2] [T]",
 		},
+		{
+			name:      "human tmux step flips to [T] when monitor reports idle",
+			task:      daemon.TaskInfo{ID: 9, Status: "tmux", CurrentStep: "implement", StepHuman: true, TmuxActivity: "idle"},
+			sessions:  map[int64]bool{9: true},
+			wantIcon:  "◷",
+			wantLabel: "implement [T]",
+		},
+		{
+			name:      "human tmux step stays [wip] when monitor reports wip",
+			task:      daemon.TaskInfo{ID: 10, Status: "tmux", CurrentStep: "implement", StepHuman: true, TmuxActivity: "wip"},
+			sessions:  map[int64]bool{10: true},
+			wantIcon:  "◷",
+			wantLabel: "implement [wip]",
+		},
+		{
+			name:      "non-human tmux step flips to [wip] when monitor reports wip",
+			task:      daemon.TaskInfo{ID: 11, Status: "tmux", CurrentStep: "implement", StepHuman: false, TmuxActivity: "wip"},
+			sessions:  map[int64]bool{11: true},
+			wantIcon:  "●",
+			wantLabel: "implement [wip]",
+		},
+		{
+			name:      "unknown activity falls back to StepHuman default ([wip] for human)",
+			task:      daemon.TaskInfo{ID: 12, Status: "tmux", CurrentStep: "review", StepHuman: true, TmuxActivity: "unknown"},
+			sessions:  map[int64]bool{12: true},
+			wantIcon:  "◷",
+			wantLabel: "review [wip]",
+		},
 	}
 
 	for _, tt := range tests {
