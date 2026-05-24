@@ -31,11 +31,27 @@ type LoopVars struct {
 	MaxIterations int
 }
 
+// ChildVars holds the per-child fields exposed via {{children.<id>.<field>}}.
+type ChildVars struct {
+	ID      int64
+	Title   string
+	Status  string // terminal status: "completed" or "failed"
+	Context string // final task context (the child's synthesized output)
+}
+
+// ChildrenVars is the typed bag of child-task results surfaced to a parent
+// task's step when it resumes from StatusAwaitingChildren. ByID is keyed by
+// child task ID; an unknown ID resolves to the zero value.
+type ChildrenVars struct {
+	ByID map[int64]ChildVars
+}
+
 type TemplateContext struct {
-	Task  TaskVars
-	Steps map[string]string // step name -> result text from DB
-	Git   GitVars
-	Loop  LoopVars
+	Task     TaskVars
+	Steps    map[string]string // step name -> result text from DB
+	Git      GitVars
+	Loop     LoopVars
+	Children ChildrenVars
 	// TaskLookup resolves a task by ID for {{tasks.<id>.<field>}} references.
 	// When nil, such references resolve to "".
 	TaskLookup func(int64) (*task.Task, error)
@@ -101,10 +117,103 @@ func ResolveTemplate(tmpl string, ctx *TemplateContext) string {
 			return ""
 		case strings.HasPrefix(key, "tasks."):
 			return resolveTaskRef(key, match, ctx)
+		case strings.HasPrefix(key, "children."):
+			return resolveChildRef(key, match, ctx)
 		default:
 			return match // leave unknown placeholders as-is
 		}
 	})
+}
+
+// childRefFields lists the per-child fields exposed via {{children.<id>.<field>}}.
+var childRefFields = []string{"id", "title", "status", "context"}
+
+// resolveChildRef handles {{children.summary}} and {{children.<id>.<field>}}.
+// Unknown IDs or unsupported fields resolve to "" (empty string) so the
+// template never crashes on a missing wait-on edge.
+func resolveChildRef(key, match string, ctx *TemplateContext) string {
+	rest := key[len("children."):]
+	// {{children.summary}} — concatenated formatted summary of all children,
+	// sorted by ID for stability. Suitable for "feed all child outputs to the
+	// next iteration of this step" patterns.
+	if rest == "summary" {
+		return formatChildrenSummary(ctx.Children)
+	}
+	parts := strings.SplitN(rest, ".", 2)
+	if len(parts) != 2 {
+		return match
+	}
+	idStr, field := parts[0], parts[1]
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		return match
+	}
+	if !isSupportedChildRefField(field) {
+		log.Printf("template: unsupported child ref field %q in %s", field, match)
+		return ""
+	}
+	if ctx.Children.ByID == nil {
+		return ""
+	}
+	c, ok := ctx.Children.ByID[id]
+	if !ok {
+		return ""
+	}
+	switch field {
+	case "id":
+		return fmt.Sprintf("%d", c.ID)
+	case "title":
+		return c.Title
+	case "status":
+		return c.Status
+	case "context":
+		return c.Context
+	default:
+		return ""
+	}
+}
+
+func isSupportedChildRefField(field string) bool {
+	for _, f := range childRefFields {
+		if f == field {
+			return true
+		}
+	}
+	return false
+}
+
+// formatChildrenSummary builds a deterministic, human-readable digest of every
+// child the parent was waiting on. Children are sorted by ID so the result is
+// stable across runs.
+func formatChildrenSummary(vars ChildrenVars) string {
+	if len(vars.ByID) == 0 {
+		return ""
+	}
+	ids := make([]int64, 0, len(vars.ByID))
+	for id := range vars.ByID {
+		ids = append(ids, id)
+	}
+	// Simple insertion sort — child counts are small (typically < 20).
+	for i := 1; i < len(ids); i++ {
+		for j := i; j > 0 && ids[j-1] > ids[j]; j-- {
+			ids[j-1], ids[j] = ids[j], ids[j-1]
+		}
+	}
+	var b strings.Builder
+	for _, id := range ids {
+		c := vars.ByID[id]
+		fmt.Fprintf(&b, "## Child task #%d (status=%s)\n", c.ID, c.Status)
+		if c.Title != "" {
+			fmt.Fprintf(&b, "Title: %s\n", c.Title)
+		}
+		if c.Context != "" {
+			b.WriteString("\n")
+			b.WriteString(c.Context)
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // resolveTaskRef handles the tasks.<id>.<field> placeholder form. Malformed

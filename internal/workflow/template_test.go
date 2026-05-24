@@ -30,9 +30,9 @@ func TestResolveTemplate_TaskRefFields(t *testing.T) {
 	}
 
 	cases := []struct {
-		name  string
-		tmpl  string
-		want  string
+		name string
+		tmpl string
+		want string
 	}{
 		{"title", "title={{tasks.42.title}}", "title=Refactor parser"},
 		{"branch", "branch={{tasks.42.branch}}", "branch=sortie/42-refactor"},
@@ -158,6 +158,72 @@ func TestExtractTaskRefs(t *testing.T) {
 	}
 	if refs[1].ID != 7 || refs[1].Field != "branch" {
 		t.Errorf("ref 1: %+v", refs[1])
+	}
+}
+
+func TestResolveTemplate_ChildrenFields(t *testing.T) {
+	ctx := &TemplateContext{
+		Children: ChildrenVars{ByID: map[int64]ChildVars{
+			5: {ID: 5, Title: "child five", Status: "completed", Context: "five did the thing"},
+			6: {ID: 6, Title: "child six", Status: "failed", Context: "six exploded"},
+		}},
+	}
+
+	cases := []struct {
+		tmpl, want string
+	}{
+		{"{{children.5.id}}", "5"},
+		{"{{children.5.title}}", "child five"},
+		{"{{children.5.status}}", "completed"},
+		{"{{children.5.context}}", "five did the thing"},
+		{"{{children.6.status}}", "failed"},
+		// Unknown ID → empty
+		{"x={{children.99.title}}", "x="},
+	}
+	for _, tc := range cases {
+		if got := ResolveTemplate(tc.tmpl, ctx); got != tc.want {
+			t.Errorf("ResolveTemplate(%q) = %q, want %q", tc.tmpl, got, tc.want)
+		}
+	}
+}
+
+func TestResolveTemplate_ChildrenSummary_DeterministicOrder(t *testing.T) {
+	ctx := &TemplateContext{
+		Children: ChildrenVars{ByID: map[int64]ChildVars{
+			11: {ID: 11, Title: "eleven", Status: "completed", Context: "alpha"},
+			3:  {ID: 3, Title: "three", Status: "failed", Context: "beta"},
+		}},
+	}
+	got := ResolveTemplate("{{children.summary}}", ctx)
+	// IDs sorted ascending: 3 first, 11 second
+	if !strings.Contains(got, "## Child task #3") {
+		t.Errorf("summary missing #3:\n%s", got)
+	}
+	if !strings.Contains(got, "## Child task #11") {
+		t.Errorf("summary missing #11:\n%s", got)
+	}
+	if i3, i11 := strings.Index(got, "#3"), strings.Index(got, "#11"); !(i3 < i11) {
+		t.Errorf("expected #3 to precede #11 in summary:\n%s", got)
+	}
+	if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") {
+		t.Errorf("summary missing child contexts: %s", got)
+	}
+}
+
+func TestResolveTemplate_ChildrenSummary_EmptyMap(t *testing.T) {
+	ctx := &TemplateContext{Children: ChildrenVars{}}
+	if got := ResolveTemplate("x={{children.summary}}", ctx); got != "x=" {
+		t.Errorf("empty children summary should be empty, got %q", got)
+	}
+}
+
+func TestResolveTemplate_ChildrenUnsupportedField(t *testing.T) {
+	ctx := &TemplateContext{
+		Children: ChildrenVars{ByID: map[int64]ChildVars{1: {ID: 1, Title: "x", Status: "completed"}}},
+	}
+	// Unsupported field resolves to "" rather than crashing.
+	if got := ResolveTemplate("x={{children.1.nope}}", ctx); got != "x=" {
+		t.Errorf("unsupported children field should resolve empty, got %q", got)
 	}
 }
 

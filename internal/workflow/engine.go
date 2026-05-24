@@ -214,6 +214,16 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			log.Printf("Warning: failed to update task step: %v", err)
 		}
 
+		// If we are resuming after children finished (StatusAwaitingChildren →
+		// pending via the poller), the wait-on edges still exist. Snapshot the
+		// children for {{children.*}} template vars, then clear the edges so
+		// the post-step check sees only NEW edges added during this run.
+		// First-time step runs simply find an empty list and skip the work.
+		childrenVars, err := e.loadAndClearChildren(t)
+		if err != nil {
+			log.Printf("Warning: failed to load waits-on children for task #%d: %v", t.ID, err)
+		}
+
 		// Record step start in task_steps table
 		if err := e.database.CreateTaskStep(t.ID, step.Name); err != nil {
 			log.Printf("Warning: failed to create task step record: %v", err)
@@ -269,6 +279,7 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			Branch:      t.Branch,
 			Images:      imageRelPaths,
 		}, stepContexts, loopVars)
+		tmplCtx.Children = childrenVars
 
 		resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
 
@@ -280,6 +291,13 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			"SORTIE_STEP":     step.Name,
 			"SORTIE_WORKTREE": t.WorktreePath,
 			"SORTIE_PURPOSE":  "step",
+			// SORTIE_PROJECT_PATH is the absolute path to the project repo
+			// root (NOT the worktree). MCP servers / scripts spawned inside
+			// the step that need to create child tasks under the same
+			// project use this so they don't accidentally register their
+			// `git rev-parse --show-toplevel` (which in a worktree returns
+			// the worktree path) as a new project row.
+			"SORTIE_PROJECT_PATH": e.repoRoot,
 		}
 
 		// Spawn Claude process (tmux or direct)
@@ -312,6 +330,29 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			if chatErr := e.database.UpsertChat(t.ID, step.Name, sessionID, ""); chatErr != nil {
 				log.Printf("Warning: failed to upsert chat for task #%d step %q: %v", t.ID, step.Name, chatErr)
 			}
+		}
+
+		// If this step spawned child tasks via the MCP create_tasks_and_wait /
+		// wait_for_tasks tools, the daemon recorded task_waits_on edges. Suspend
+		// the task at the SAME step (do not advance step_index) so the engine
+		// re-runs this step once the children reach terminal status. The poller
+		// detects "all children terminal" and flips status back to pending. On
+		// the re-run, loadAndClearChildren above will surface their results via
+		// {{children.*}} template variables.
+		hasWaits, waitsErr := e.database.HasAnyWaitsOn(t.ID)
+		if waitsErr != nil {
+			log.Printf("Warning: failed to check waits-on for task #%d: %v", t.ID, waitsErr)
+		}
+		if hasWaits {
+			// Skip output validation, step completion record, summarize_chat,
+			// loop handling, and the tmux/human approval pause — none of them
+			// apply to a step that is going to re-run. The step_index stays at
+			// i so the next invocation resumes here.
+			if err := e.database.UpdateTaskStatus(t.ID, task.StatusAwaitingChildren); err != nil {
+				log.Printf("Warning: failed to set %s status for task #%d: %v", task.StatusAwaitingChildren, t.ID, err)
+			}
+			log.Printf("Task #%d suspended at step %q: waiting for spawned child tasks", t.ID, step.Name)
+			return nil
 		}
 
 		// Validate that the step produced meaningful changes
@@ -492,6 +533,34 @@ func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, lo
 		return
 	}
 	logMsg("summarize_chat updated step context for tmux step %q of task #%d (%d chars)", prevStep.Name, t.ID, len(summary))
+}
+
+// loadAndClearChildren loads all task_waits_on children for t, converts them
+// into a ChildrenVars map keyed by child ID, then deletes the wait-on edges
+// from the DB. Returns an empty (but non-nil) map on first-time step runs (no
+// edges). The clear-on-read pattern ensures the post-step check sees only
+// NEW edges added during this run.
+func (e *Engine) loadAndClearChildren(t *task.Task) (ChildrenVars, error) {
+	children, err := e.database.GetWaitsOnChildren(t.ID)
+	if err != nil {
+		return ChildrenVars{ByID: map[int64]ChildVars{}}, err
+	}
+	out := ChildrenVars{ByID: make(map[int64]ChildVars, len(children))}
+	if len(children) == 0 {
+		return out, nil
+	}
+	for _, c := range children {
+		out.ByID[c.ID] = ChildVars{
+			ID:      c.ID,
+			Title:   c.Title,
+			Status:  string(c.Status),
+			Context: c.Context,
+		}
+	}
+	if err := e.database.RemoveAllTaskWaitsOn(t.ID); err != nil {
+		log.Printf("Warning: failed to clear waits-on for task #%d after resume: %v", t.ID, err)
+	}
+	return out, nil
 }
 
 // markSummarizingStep transitions the task to the appropriate "summarizing"

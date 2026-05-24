@@ -30,6 +30,14 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 			}
 			return
 		}
+		// Mid-step suspend on spawned children: do NOT run finalization.
+		// The engine left task_waits_on edges behind; the poller will resume
+		// the parent at the same step once every child is terminal.
+		if err == nil && refreshedTask.Status == task.StatusAwaitingChildren {
+			waits, _ := s.database.GetTaskWaitsOn(a.Task.ID)
+			log.Printf("%sAgent %s suspended task #%d on %d children: %v", prefix, a.ID, a.Task.ID, len(waits), waits)
+			return
+		}
 
 		log.Printf("%sAgent %s completed task #%d, starting finalization", prefix, a.ID, a.Task.ID)
 
@@ -128,7 +136,7 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 	}
 	for _, t := range tasks {
 		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusTmux, task.StatusFinalizing, task.StatusSummarizing, task.StatusSummarizingStep, task.StatusMergeBlocked, task.StatusResolvingConflicts, task.StatusInit:
+		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusAwaitingChildren, task.StatusTmux, task.StatusFinalizing, task.StatusSummarizing, task.StatusSummarizingStep, task.StatusMergeBlocked, task.StatusResolvingConflicts, task.StatusInit:
 			return
 		}
 	}
@@ -194,32 +202,40 @@ func agentToInfo(a *agent.Agent) AgentInfo {
 
 func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 	info := TaskInfo{
-		ID:            t.ID,
-		ProjectID:     t.ProjectID,
-		Title:         t.Title,
-		Description:   t.Description,
-		Slug:          t.Slug,
-		Workflow:      t.Workflow,
-		Status:        string(t.Status),
-		Priority:      string(t.Priority),
-		StepIndex:     t.StepIndex,
-		CurrentStep:   t.CurrentStep,
-		LoopIteration: t.LoopIteration,
-		BranchName:     t.BranchName,
-		Branch:         t.Branch,
-		TargetBranch:   t.TargetBranch,
-		CheckoutBranch: t.CheckoutBranch,
+		ID:               t.ID,
+		ProjectID:        t.ProjectID,
+		Title:            t.Title,
+		Description:      t.Description,
+		Slug:             t.Slug,
+		Workflow:         t.Workflow,
+		Status:           string(t.Status),
+		Priority:         string(t.Priority),
+		StepIndex:        t.StepIndex,
+		CurrentStep:      t.CurrentStep,
+		LoopIteration:    t.LoopIteration,
+		BranchName:       t.BranchName,
+		Branch:           t.Branch,
+		TargetBranch:     t.TargetBranch,
+		CheckoutBranch:   t.CheckoutBranch,
 		Worktree:         t.Worktree,
 		WorktreePath:     t.WorktreePath,
 		WorktreeDetached: t.WorktreeDetached,
-		ErrorMessage:  t.ErrorMessage,
-		Context:       t.Context,
-		Images:        t.Images,
-		Commits:       t.Commits,
-		BlockedBy:     t.BlockedBy,
-		CreatedAt:     t.CreatedAt,
-		StartedAt:     t.StartedAt,
-		CompletedAt:   t.CompletedAt,
+		ErrorMessage:     t.ErrorMessage,
+		Context:          t.Context,
+		Images:           t.Images,
+		Commits:          t.Commits,
+		BlockedBy:        t.BlockedBy,
+		CreatedAt:        t.CreatedAt,
+		StartedAt:        t.StartedAt,
+		CompletedAt:      t.CompletedAt,
+	}
+
+	// Populate waits-on for tasks suspended on spawned children so the TUI
+	// (and other clients) can surface "task #N awaiting [#A, #B]".
+	if t.Status == task.StatusAwaitingChildren {
+		if waits, err := s.database.GetTaskWaitsOn(t.ID); err == nil {
+			info.WaitsOn = waits
+		}
 	}
 
 	if proj, err := s.database.GetProject(t.ProjectID); err == nil {

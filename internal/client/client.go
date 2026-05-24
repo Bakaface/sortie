@@ -504,6 +504,43 @@ func (c *Client) StopTask(id int64) (*daemon.TaskInfo, error) {
 	return &resp.Task, nil
 }
 
+// CreateTasksAndWait creates each child task and atomically records
+// task_waits_on edges from the parent so its current step suspends pending
+// child completion. Returns the created children. Bundled API — preferred
+// over CreateTask+WaitForTasks because it cannot be partially performed.
+func (c *Client) CreateTasksAndWait(parentTaskID int64, tasks []daemon.CreateTaskRequest) ([]daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgCreateTasksAndWait, daemon.CreateTasksAndWaitRequest{
+		ParentTaskID: parentTaskID,
+		Tasks:        tasks,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.CreateTasksAndWaitResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return resp.Children, nil
+}
+
+// WaitForTasks records task_waits_on edges from parentTaskID to each
+// child in childTaskIDs without creating new tasks. Used to suspend the
+// parent's current step until pre-existing tasks reach terminal status.
+func (c *Client) WaitForTasks(parentTaskID int64, childTaskIDs []int64) ([]daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgWaitForTasks, daemon.WaitForTasksRequest{
+		ParentTaskID: parentTaskID,
+		ChildTaskIDs: childTaskIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.WaitForTasksResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return resp.Children, nil
+}
+
 // Cleanup removes worktrees, branches, and log directories for completed
 // and failed tasks. Passing taskID == 0 cleans up every eligible task.
 // The daemon returns the number of tasks cleaned and their post-cleanup

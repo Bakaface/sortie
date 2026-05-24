@@ -48,6 +48,20 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
     PRIMARY KEY (task_id, blocked_by)
 );
 
+-- task_waits_on records mid-step suspensions: a parent task whose currently
+-- executing step has spawned child tasks (via create_tasks_and_wait or
+-- wait_for_tasks) is suspended in StatusAwaitingChildren until every
+-- waits_on_id child reaches a terminal status. Semantically distinct from
+-- task_dependencies, which is a "blocked before start" relation that persists
+-- until manual removal — a waits_on edge is removed automatically once the
+-- child reaches terminal status and the parent is re-enqueued at the same step.
+CREATE TABLE IF NOT EXISTS task_waits_on (
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    waits_on_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    PRIMARY KEY (task_id, waits_on_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_waits_on_waits_on ON task_waits_on(waits_on_id);
+
 CREATE TABLE IF NOT EXISTS task_steps (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,

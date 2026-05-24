@@ -13,6 +13,7 @@ const (
 	StatusInit               Status = "init"
 	StatusRunning            Status = "running"
 	StatusAwaitingApproval   Status = "awaiting-approval"
+	StatusAwaitingChildren   Status = "awaiting-children"
 	StatusTmux               Status = "tmux"
 	StatusFinalizing         Status = "finalizing"
 	StatusSummarizing        Status = "summarizing"
@@ -31,8 +32,14 @@ func (s Status) IsTerminal() bool {
 	return s == StatusCompleted || s == StatusFailed
 }
 
+// IsAwaitingChildren reports whether the task is suspended mid-step waiting
+// for spawned child tasks (recorded in task_waits_on) to reach terminal status.
+func (s Status) IsAwaitingChildren() bool {
+	return s == StatusAwaitingChildren
+}
+
 func (s Status) IsActive() bool {
-	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusTmux || s == StatusFinalizing || s == StatusSummarizing || s == StatusSummarizingStep || s == StatusMergeBlocked || s == StatusResolvingConflicts
+	return s == StatusRunning || s == StatusAwaitingApproval || s == StatusAwaitingChildren || s == StatusTmux || s == StatusFinalizing || s == StatusSummarizing || s == StatusSummarizingStep || s == StatusMergeBlocked || s == StatusResolvingConflicts
 }
 
 type Priority string
@@ -79,34 +86,34 @@ func IsValidPriority(s string) bool {
 }
 
 type Task struct {
-	ID           int64
-	ProjectID    int64
-	Title        string
-	Description  string
-	Slug         string
-	Workflow     string
-	Status       Status
-	Priority     Priority
-	StepIndex     int
-	CurrentStep   string
-	LoopIteration int
-	BranchName     string // user-provided branch template (e.g. "feature/{{task.title}}")
-	Branch         string // resolved branch name
-	TargetBranch   string // per-task override for base/merge branch
-	CheckoutBranch string // use an existing branch instead of creating a new one
-	Worktree       bool   // whether to use git worktree isolation (default true)
+	ID               int64
+	ProjectID        int64
+	Title            string
+	Description      string
+	Slug             string
+	Workflow         string
+	Status           Status
+	Priority         Priority
+	StepIndex        int
+	CurrentStep      string
+	LoopIteration    int
+	BranchName       string // user-provided branch template (e.g. "feature/{{task.title}}")
+	Branch           string // resolved branch name
+	TargetBranch     string // per-task override for base/merge branch
+	CheckoutBranch   string // use an existing branch instead of creating a new one
+	Worktree         bool   // whether to use git worktree isolation (default true)
 	WorktreePath     string
 	WorktreeDetached bool
 	ExitCode         *int
-	ErrorMessage string
-	Context      string
-	BlockedBy    []int64
-	Images       []string
-	Commits      []string
-	CreatedAt    time.Time
-	StartedAt    *time.Time
-	CompletedAt  *time.Time
-	UpdatedAt    time.Time
+	ErrorMessage     string
+	Context          string
+	BlockedBy        []int64
+	Images           []string
+	Commits          []string
+	CreatedAt        time.Time
+	StartedAt        *time.Time
+	CompletedAt      *time.Time
+	UpdatedAt        time.Time
 }
 
 // MaxTitleLength is the maximum allowed length for a task title.

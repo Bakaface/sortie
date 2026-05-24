@@ -48,6 +48,8 @@ const (
 	MsgListWorkflows           MessageType = "list_workflows"
 	MsgStopTask                MessageType = "stop_task"
 	MsgCleanup                 MessageType = "cleanup"
+	MsgCreateTasksAndWait      MessageType = "create_tasks_and_wait"
+	MsgWaitForTasks            MessageType = "wait_for_tasks"
 )
 
 type Message struct {
@@ -314,6 +316,38 @@ type UpdateDependencyResponse struct {
 	Task TaskInfo `json:"task"`
 }
 
+// CreateTasksAndWaitRequest spawns one or more child tasks and atomically
+// records task_waits_on edges from the parent so its currently-executing step
+// suspends on engine return. Bundling create + wait into a single RPC makes
+// the "spawn-and-suspend" pattern deterministic — the agent cannot forget to
+// wait, nor wait on the wrong IDs.
+type CreateTasksAndWaitRequest struct {
+	// ParentTaskID is the task whose currently-running step will suspend
+	// pending the children's completion. Must be a running task in the same
+	// project as every child.
+	ParentTaskID int64               `json:"parent_task_id"`
+	Tasks        []CreateTaskRequest `json:"tasks"`
+}
+
+type CreateTasksAndWaitResponse struct {
+	ParentTaskID int64      `json:"parent_task_id"`
+	Children     []TaskInfo `json:"children"`
+}
+
+// WaitForTasksRequest records task_waits_on edges from ParentTaskID to each of
+// the supplied child task IDs without creating any new tasks. Children must
+// belong to the same project as the parent. Used to wait on pre-existing
+// tasks (e.g., observe-and-block patterns).
+type WaitForTasksRequest struct {
+	ParentTaskID int64   `json:"parent_task_id"`
+	ChildTaskIDs []int64 `json:"child_task_ids"`
+}
+
+type WaitForTasksResponse struct {
+	ParentTaskID int64      `json:"parent_task_id"`
+	Children     []TaskInfo `json:"children"`
+}
+
 // CleanupRequest removes worktrees, branches, and log directories for
 // completed or failed tasks. A TaskID of 0 cleans up every eligible task.
 type CleanupRequest struct {
@@ -354,35 +388,39 @@ type ChatInfo struct {
 }
 
 type TaskInfo struct {
-	ID               int64      `json:"id"`
-	ProjectID        int64      `json:"project_id"`
-	ProjectName      string     `json:"project_name,omitempty"`
-	ProjectPath      string     `json:"project_path,omitempty"`
-	Title            string     `json:"title"`
-	Description      string     `json:"description"`
-	Slug             string     `json:"slug"`
-	Workflow         string     `json:"workflow,omitempty"`
-	Status           string     `json:"status"`
-	Priority         string     `json:"priority"`
-	StepIndex        int        `json:"step_index"`
-	CurrentStep      string     `json:"current_step"`
-	LoopIteration    int        `json:"loop_iteration,omitempty"`
-	BranchName       string     `json:"branch_name,omitempty"`
-	Branch           string     `json:"branch"`
-	TargetBranch     string     `json:"target_branch,omitempty"`
-	CheckoutBranch   string     `json:"checkout_branch,omitempty"`
-	Worktree         bool       `json:"worktree"`
-	WorktreePath     string     `json:"worktree_path,omitempty"`
-	WorktreeDetached bool       `json:"worktree_detached,omitempty"`
-	ErrorMessage     string     `json:"error_message,omitempty"`
-	Context          string     `json:"context,omitempty"`
-	Images           []string   `json:"images,omitempty"`
-	Commits          []string   `json:"commits,omitempty"`
-	BlockedBy        []int64    `json:"blocked_by,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	StartedAt        *time.Time `json:"started_at,omitempty"`
-	CompletedAt      *time.Time `json:"completed_at,omitempty"`
-	TmuxActivity     string     `json:"tmux_activity,omitempty"`
+	ID               int64    `json:"id"`
+	ProjectID        int64    `json:"project_id"`
+	ProjectName      string   `json:"project_name,omitempty"`
+	ProjectPath      string   `json:"project_path,omitempty"`
+	Title            string   `json:"title"`
+	Description      string   `json:"description"`
+	Slug             string   `json:"slug"`
+	Workflow         string   `json:"workflow,omitempty"`
+	Status           string   `json:"status"`
+	Priority         string   `json:"priority"`
+	StepIndex        int      `json:"step_index"`
+	CurrentStep      string   `json:"current_step"`
+	LoopIteration    int      `json:"loop_iteration,omitempty"`
+	BranchName       string   `json:"branch_name,omitempty"`
+	Branch           string   `json:"branch"`
+	TargetBranch     string   `json:"target_branch,omitempty"`
+	CheckoutBranch   string   `json:"checkout_branch,omitempty"`
+	Worktree         bool     `json:"worktree"`
+	WorktreePath     string   `json:"worktree_path,omitempty"`
+	WorktreeDetached bool     `json:"worktree_detached,omitempty"`
+	ErrorMessage     string   `json:"error_message,omitempty"`
+	Context          string   `json:"context,omitempty"`
+	Images           []string `json:"images,omitempty"`
+	Commits          []string `json:"commits,omitempty"`
+	BlockedBy        []int64  `json:"blocked_by,omitempty"`
+	// WaitsOn lists child task IDs the parent's current step is suspended
+	// waiting for. Populated only while Status == "awaiting-children" — the
+	// edges are cleared atomically when the parent resumes.
+	WaitsOn      []int64    `json:"waits_on,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
+	TmuxActivity string     `json:"tmux_activity,omitempty"`
 	// StepHuman reflects the Human flag on the workflow step that the task is
 	// currently paused at (when Status is "tmux" or "awaiting-approval").
 	// Used by the TUI to surface the "real" underlying state of a tmux task —

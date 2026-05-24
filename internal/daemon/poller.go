@@ -21,12 +21,18 @@ func (s *Server) taskPollerLoop() {
 	defer ticker.Stop()
 
 	s.checkPendingTasks()
+	s.checkSuspendedParents()
 
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
 		case <-ticker.C:
+			// Promote suspended parents BEFORE the claimable scan so they
+			// hit the same tick — without this, parents whose children all
+			// completed during the previous poll interval would wait an
+			// extra tick to resume.
+			s.checkSuspendedParents()
 			s.checkPendingTasks()
 		}
 	}
@@ -52,6 +58,50 @@ func (s *Server) checkPendingTasks() {
 		if err := s.startTaskAgent(t); err != nil {
 			log.Printf("%sFailed to start agent for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		}
+	}
+}
+
+// checkSuspendedParents promotes tasks in StatusAwaitingChildren back to
+// StatusPending once every wait-on child has reached terminal status. The
+// next checkPendingTasks tick re-enqueues the parent, the engine re-runs the
+// same step (step_index is preserved), and loadAndClearChildren in the engine
+// hydrates {{children.*}} from the still-attached wait-on edges before
+// clearing them.
+func (s *Server) checkSuspendedParents() {
+	suspended, err := s.database.GetTasksAwaitingChildren()
+	if err != nil {
+		log.Printf("Failed to get awaiting-children tasks: %v", err)
+		return
+	}
+	for _, t := range suspended {
+		// Defensive: if the manager still tracks this task (e.g., agent
+		// somehow didn't clean up), skip to avoid double-start.
+		if s.manager.IsTaskKnown(t.ID) {
+			continue
+		}
+		allDone, err := s.database.AllWaitsOnTerminal(t.ID)
+		if err != nil {
+			log.Printf("%sFailed to check waits-on terminal for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			continue
+		}
+		if !allDone {
+			continue
+		}
+		// Failure semantics: even if some children failed, the parent
+		// resumes. The agent inspects {{children.<id>.status}} on resume and
+		// decides whether to fail, retry, or proceed. This is the documented
+		// design choice (see PR description "Failure semantics" section).
+		log.Printf("%sTask #%d: all waited-on children terminal, resuming at step %d", s.projectLogPrefix(t.ProjectID), t.ID, t.StepIndex)
+		if err := s.database.UpdateTaskStatus(t.ID, task.StatusPending); err != nil {
+			log.Printf("%sFailed to flip task #%d to pending for resume: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			continue
+		}
+		// The next checkPendingTasks tick picks up the now-pending task and
+		// calls startTaskAgent → engine.RunTask. The engine's wait-on probe
+		// at step start (loadAndClearChildren) reads the still-attached
+		// edges into the template and removes them, so the post-Claude
+		// wait-on check sees only NEW edges added during the resumed step.
+		s.broadcastTaskUpdate(t.ID)
 	}
 }
 
@@ -178,6 +228,13 @@ func (s *Server) recoverOrphanedTasks() error {
 			}
 		case task.StatusAwaitingApproval:
 			log.Printf("%sTask #%d is awaiting approval (use 'continue' command)", prefix, t.ID)
+		case task.StatusAwaitingChildren:
+			// No-op recovery: the next checkSuspendedParents tick re-evaluates
+			// children terminal status and resumes if appropriate. The
+			// task_waits_on edges survived the daemon restart, so the parent
+			// will pick up exactly where it left off.
+			waits, _ := s.database.GetTaskWaitsOn(t.ID)
+			log.Printf("%sTask #%d is awaiting %d children (will resume when all reach terminal status)", prefix, t.ID, len(waits))
 		case task.StatusTmux:
 			tmuxTasksToRestore = append(tmuxTasksToRestore, t)
 		}

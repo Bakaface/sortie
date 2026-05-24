@@ -59,7 +59,7 @@ func (db *DB) migrate() error {
 		if _, err := db.Exec(schema); err != nil {
 			return fmt.Errorf("failed to apply schema: %w", err)
 		}
-		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (18)`); err != nil {
+		if _, err := db.Exec(`INSERT INTO schema_version (version) VALUES (19)`); err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}
 		return nil
@@ -338,6 +338,29 @@ func (db *DB) migrate() error {
 			return fmt.Errorf("failed to create idx_chats_task_step index: %w", err)
 		}
 		_, err = db.Exec(`UPDATE schema_version SET version = 18`)
+		if err != nil {
+			return fmt.Errorf("failed to set schema version: %w", err)
+		}
+	}
+
+	// Migration version 19: Add task_waits_on table for mid-step child-task
+	// suspension (StatusAwaitingChildren). Distinct from task_dependencies:
+	// edges here are inserted by create_tasks_and_wait/wait_for_tasks at
+	// suspend time and removed automatically when the parent resumes.
+	if version < 19 {
+		_, err := db.Exec(`CREATE TABLE IF NOT EXISTS task_waits_on (
+			task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			waits_on_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+			PRIMARY KEY (task_id, waits_on_id)
+		)`)
+		if err != nil {
+			return fmt.Errorf("failed to create task_waits_on table: %w", err)
+		}
+		_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_task_waits_on_waits_on ON task_waits_on(waits_on_id)`)
+		if err != nil {
+			return fmt.Errorf("failed to create idx_task_waits_on_waits_on index: %w", err)
+		}
+		_, err = db.Exec(`UPDATE schema_version SET version = 19`)
 		if err != nil {
 			return fmt.Errorf("failed to set schema version: %w", err)
 		}

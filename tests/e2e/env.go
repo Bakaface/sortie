@@ -66,6 +66,12 @@ func setupE2E(t *testing.T, scenario string) *Env {
 	t.Setenv("HOME", xdgDir)
 	t.Setenv("E2E_RESPONSES_DIR", responsesDir)
 	t.Setenv("SORTIE_E2E_LOG", stubLog)
+	// SORTIE_E2E_BIN lets stub hooks (e.g. awaiting_children's spawn hook)
+	// shell out to the same sortie binary the daemon was launched from.
+	// The hooks need to call back into the daemon via CLI commands like
+	// `sortie create` / `sortie wait-for-tasks`, but the binary lives in
+	// a one-off tmp dir built by main_test.go and is not on PATH.
+	t.Setenv("SORTIE_E2E_BIN", sortieBinPath)
 
 	e := &Env{
 		t:            t,

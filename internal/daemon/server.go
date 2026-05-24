@@ -527,6 +527,22 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleCleanup(conn, req)
 
+	case MsgCreateTasksAndWait:
+		var req CreateTasksAndWaitRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleCreateTasksAndWait(conn, req)
+
+	case MsgWaitForTasks:
+		var req WaitForTasksRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleWaitForTasks(conn, req)
+
 	case MsgShutdown:
 		s.mu.RLock()
 		clientCount := len(s.clients)

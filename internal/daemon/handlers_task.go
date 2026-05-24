@@ -73,18 +73,37 @@ func (s *Server) handleGetTask(conn net.Conn, req GetTaskRequest) {
 }
 
 func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
+	t, _, err := s.createTaskFromRequest(req)
+	if err != nil {
+		s.sendError(conn, err.Error())
+		return
+	}
+
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
+	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
+
+	s.kickOffPostCreate(t, req)
+}
+
+// createTaskFromRequest validates and persists a CreateTaskRequest, returning
+// the created task plus the resolved title (used by callers that need it for
+// the async post-create hook). User-facing errors are returned plainly so the
+// caller can propagate them on whatever transport it owns.
+//
+// Shared by handleCreateTask and handleCreateTasksAndWait so the bundled
+// spawn-and-suspend path uses exactly the same validation, dependency
+// auto-collection, and project-defaults persistence as the single-create path.
+func (s *Server) createTaskFromRequest(req CreateTaskRequest) (*task.Task, string, error) {
 	description := strings.TrimSpace(req.Description)
 
 	projectPath := req.ProjectPath
 	if projectPath == "" {
-		s.sendError(conn, "project_path is required")
-		return
+		return nil, "", fmt.Errorf("project_path is required")
 	}
 
 	proj, err := s.database.GetOrCreateProject(projectPath)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to resolve project: %v", err))
-		return
+		return nil, "", fmt.Errorf("failed to resolve project: %v", err)
 	}
 
 	// Resolve workflow against the project config so we can decide whether
@@ -97,8 +116,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	tmuxFirst := wf != nil && wf.FirstStepIsTmux()
 
 	if description == "" && req.CheckoutBranch == "" && !tmuxFirst {
-		s.sendError(conn, "description cannot be empty")
-		return
+		return nil, "", fmt.Errorf("description cannot be empty")
 	}
 
 	// Validate any {{tasks.<id>.<field>}} references and collect auto-blockers.
@@ -106,8 +124,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	// possible (any future cycle would have to be in req.BlockedBy explicitly).
 	autoBlockedBy, refErr := s.validateTaskRefs(description, proj.ID, 0, "description")
 	if refErr != nil {
-		s.sendError(conn, refErr.Error())
-		return
+		return nil, "", refErr
 	}
 
 	// Caller-supplied title wins. Otherwise: branch-derived for checkout-only,
@@ -134,8 +151,7 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 	}
 
 	if req.CheckoutBranch != "" && req.BranchName != "" {
-		s.sendError(conn, "cannot specify both --checkout and --branch")
-		return
+		return nil, "", fmt.Errorf("cannot specify both --checkout and --branch")
 	}
 
 	worktree := proj.DefaultWorktree
@@ -154,30 +170,33 @@ func (s *Server) handleCreateTask(conn net.Conn, req CreateTaskRequest) {
 
 	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", req.TargetBranch, req.CheckoutBranch, task.StatusInit, priority, worktree, req.Images)
 	if err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to create task: %v", err))
-		return
+		return nil, "", fmt.Errorf("failed to create task: %v", err)
 	}
 
 	// Merge auto-blockers (from {{tasks.<id>.<field>}} refs) into req.BlockedBy,
 	// deduplicating so an explicit --blocked-by overlap doesn't double-insert.
 	blockedBy := mergeBlockedBy(req.BlockedBy, autoBlockedBy)
 
-	// Set task dependencies if provided (explicit or auto-collected)
 	if len(blockedBy) > 0 {
 		if err := s.database.SetTaskDependencies(t.ID, blockedBy); err != nil {
 			log.Printf("%sFailed to set dependencies for task #%d: %v", s.projectLogPrefix(proj.ID), t.ID, err)
 		} else {
-			// Re-fetch task to include dependencies in response
 			if updated, err := s.database.GetTask(t.ID); err == nil {
 				t = updated
 			}
 		}
 	}
 
-	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
+	return t, title, nil
+}
 
-	s.sendMessage(conn, MsgCreateTask, CreateTaskResponse{Task: s.taskToInfo(t)})
-
+// kickOffPostCreate starts the async title/branch refinement (or tmux setup)
+// that transitions a newly-created task out of StatusInit. Extracted so
+// handleCreateTask and handleCreateTasksAndWait fire the same goroutine on
+// every child without duplicating the branch logic.
+func (s *Server) kickOffPostCreate(t *task.Task, req CreateTaskRequest) {
+	title := t.Title
+	description := strings.TrimSpace(req.Description)
 	if req.TmuxDirect {
 		go s.setupTmuxDirect(t.ID, t.ProjectID, title)
 	} else {

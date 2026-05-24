@@ -14,6 +14,7 @@ func TestStatus_IsActive(t *testing.T) {
 		{StatusInit, false},
 		{StatusRunning, true},
 		{StatusAwaitingApproval, true},
+		{StatusAwaitingChildren, true},
 		{StatusTmux, true},
 		{StatusFinalizing, true},
 		{StatusSummarizing, true},
@@ -40,6 +41,7 @@ func TestStatus_IsTerminal(t *testing.T) {
 		{StatusInit, false},
 		{StatusRunning, false},
 		{StatusAwaitingApproval, false},
+		{StatusAwaitingChildren, false},
 		{StatusTmux, false},
 		{StatusFinalizing, false},
 		{StatusSummarizing, false},
@@ -53,6 +55,25 @@ func TestStatus_IsTerminal(t *testing.T) {
 	for _, tt := range tests {
 		if got := tt.status.IsTerminal(); got != tt.want {
 			t.Errorf("Status(%q).IsTerminal() = %v, want %v", tt.status, got, tt.want)
+		}
+	}
+}
+
+func TestStatus_IsAwaitingChildren(t *testing.T) {
+	tests := []struct {
+		status Status
+		want   bool
+	}{
+		{StatusPending, false},
+		{StatusRunning, false},
+		{StatusAwaitingApproval, false},
+		{StatusTmux, false},
+		{StatusAwaitingChildren, true},
+		{StatusCompleted, false},
+	}
+	for _, tt := range tests {
+		if got := tt.status.IsAwaitingChildren(); got != tt.want {
+			t.Errorf("Status(%q).IsAwaitingChildren() = %v, want %v", tt.status, got, tt.want)
 		}
 	}
 }
@@ -216,6 +237,7 @@ func TestStatusValues(t *testing.T) {
 		{StatusInit, "init"},
 		{StatusRunning, "running"},
 		{StatusAwaitingApproval, "awaiting-approval"},
+		{StatusAwaitingChildren, "awaiting-children"},
 		{StatusTmux, "tmux"},
 		{StatusFinalizing, "finalizing"},
 		{StatusSummarizing, "summarizing"},

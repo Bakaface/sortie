@@ -547,6 +547,10 @@ func (db *DB) DeleteTask(id int64) error {
 	if err != nil {
 		return err
 	}
+	_, err = db.Exec("DELETE FROM task_waits_on WHERE task_id = ? OR waits_on_id = ?", id, id)
+	if err != nil {
+		return err
+	}
 	_, err = db.Exec("DELETE FROM tasks WHERE id = ?", id)
 	return err
 }

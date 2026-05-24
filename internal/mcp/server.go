@@ -50,6 +50,11 @@ func Serve(cfg *config.Config) error {
 // registerTools wires the public tool surface. Keep this list aligned with
 // the "Safe-by-default" promise: no destructive operations.
 //
+// create_tasks_and_wait and wait_for_tasks are intentionally additive: they
+// spawn children and gate the caller's own step, but never delete, stop, or
+// retry foreign tasks. They mutate task_waits_on edges only, which the engine
+// clears automatically on the parent's resume.
+//
 // update_step_context is included even though it mutates DB state because the
 // daemon enforces strict safety constraints: it only writes to the task's
 // currently-active step (verified against tasks.current_step AND task_steps
@@ -60,6 +65,8 @@ func registerTools(s *server.MCPServer, c *client.Client) {
 	registerCreateTask(s, c)
 	registerListWorkflows(s, c)
 	registerGetTask(s, c)
+	registerCreateTasksAndWait(s, c)
+	registerWaitForTasks(s, c)
 	registerUpdateStepContext(s, c)
 }
 
