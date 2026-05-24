@@ -82,7 +82,7 @@ GetLastCommitMessage(workDir string) (string, error)
 ## Commit Message Utilities
 
 - `ConventionalCommitFromTitle(title)` — freeform text -> conventional commit format
-- `GetSquashCommitMessage(repoRoot, baseBranch, branch, fallback)` — search branch commits for conventional format, fallback to first subject
+- `GetLastCommitMessage(workDir)` — most recent commit subject on the current branch
 
 ## Non-Worktree Mode
 

@@ -13,26 +13,33 @@ description: >
 
 ```go
 type Server struct {
-    cfg         *config.Config
-    listener    net.Listener         // Unix socket
-    manager     *agent.Manager       // Concurrent agent execution
-    database    *db.DB
-    notifier    *notify.Notifier     // Desktop/sound notifications
+    cfg      *config.Config
+    listener net.Listener        // Unix socket
+    manager  *agent.Manager      // Concurrent agent execution
+    database *db.DB
+    notifier *notify.Notifier    // Desktop/sound notifications
 
-    projectsMu  sync.RWMutex
-    projects    map[int64]*projectContext  // Lazy-loaded per-project config+engine
+    projectsMu sync.RWMutex
+    projects   map[int64]*projectContext  // Lazy-loaded per-project config+engine
 
-    mergeMus    map[string]*sync.Mutex    // Per-repo merge mutexes, keyed by repoRoot
-    mergeMusMu  sync.Mutex                // Protects mergeMus map
+    // Per-repo merge serialization is delegated to internal/merge. The daemon
+    // hands out per-repo *merge.Lock instances to engines via this registry,
+    // so locks survive engine reconstruction on config reloads.
+    mergeLocks *merge.Locks
 
     mu           sync.RWMutex
     clients      map[net.Conn]bool    // All connected clients
     subscribers  map[net.Conn]bool    // Pub/sub subscribers
     tmuxActivity map[int64]string     // Latest tmux activity per task ID
 
+    // Per-task tmux auto-advance bookkeeping (idle-since timestamp + advancing flag).
+    tmuxAutoState map[int64]*tmuxAutoEntry
+
     ctx    context.Context
     cancel context.CancelFunc
     wg     sync.WaitGroup
+
+    shutdownOnce sync.Once
 }
 ```
 
@@ -42,10 +49,11 @@ type Server struct {
 
 | File | Purpose |
 |------|---------|
-| `server.go` | Lifecycle, connection handling, project context caching |
+| `server.go` | Lifecycle, connection handling, project context caching (`getProjectContext`), `mergeLocks` registry |
 | `handlers_task.go` | Task CRUD & metadata: create, get, list, delete, retry, update priority/field/dependency, revert, step contexts, title generation |
 | `handlers_agent.go` | Agent ops, subscriptions, logs: list/start/stop agents, get output, subscribe/unsubscribe, get logs |
 | `handlers_continue.go` | Continuation flow: continue/finalize tasks, worktree/branch management, tmux setup, detach/attach branch |
+| `handlers_workflows.go` | `list_workflows` handler — projects → workflow listings (tasks/one-off/init) |
 | `tmux_monitor.go` | Background tmux activity monitoring loop, broadcasts activity changes to subscribers |
 | `broadcast.go` | Event broadcasting, agent state change handling |
 | `protocol.go` | Message types, request/response structs |

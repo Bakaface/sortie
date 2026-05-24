@@ -17,14 +17,14 @@ type Message struct {
 | `list_tasks` | `ListTasksRequest{ProjectID, ProjectName}` | List tasks (optionally filtered) |
 | `start_agent` | `StartAgentRequest{TaskID}` | Start agent for task |
 | `stop_agent` | `StopAgentRequest{AgentID}` | Stop running agent |
-| `create_task` | `CreateTaskRequest{Title, Description, Workflow, Priority, BranchName, TargetBranch, CheckoutBranch, ProjectPath, Worktree, TmuxDirect, Images, BlockedBy}` | Create new task |
+| `create_task` | `CreateTaskRequest{Title, Description, Workflow, Priority, BranchName, TargetBranch, CheckoutBranch, ProjectPath, Worktree, BranchMode, TmuxDirect, Images, BlockedBy}` | Create new task. `Worktree` is `*bool` (nil = default true). `BranchMode` is `*int` (nil = default 0). |
 | `get_task` | `GetTaskRequest{TaskID}` | Get single task |
 | `delete_task` | `DeleteTaskRequest{TaskID}` | Delete task + cleanup |
-| `retry_task` | `RetryTaskRequest{TaskID}` | Reset task to pending |
+| `retry_task` | `RetryTaskRequest{TaskID, StepName}` | Reset task. `StepName` (optional) restarts from a specific workflow step, preserving earlier completed step contexts. Empty `StepName` restarts from the beginning. |
 | `continue_task` | `ContinueTaskRequest{TaskID, Workflow, Prompt}` | Resume/continue task |
 | `finalize_task` | `FinalizeTaskRequest{TaskID}` | Finalize tmux session |
 | `get_output` | `GetOutputRequest{AgentID, FromLine}` | Agent output (paginated) |
-| `get_logs` | `GetLogsRequest{TaskID, Step, TailLines}` | Step logs |
+| `get_logs` | `GetLogsRequest{TaskID, Tail, Offset}` | Task logs. `Tail` = last N lines (0 = no tail), `Offset` skips the first N (for incremental loading). |
 | `send_input` | `SendInputRequest{AgentID, Input}` | Send input to agent |
 | `update_priority` | `UpdatePriorityRequest{TaskID, Priority}` | Change priority |
 | `update_field` | `UpdateFieldRequest{TaskID, Field, Value}` | Update title/description/context |
@@ -35,7 +35,10 @@ type Message struct {
 | `detach_branch` | `DetachBranchRequest{TaskID}` | Detach worktree HEAD from branch |
 | `attach_branch` | `AttachBranchRequest{TaskID}` | Reattach branch to worktree |
 | `update_dependency` | `UpdateDependencyRequest{TaskID, BlockedBy, Action}` | Add/remove task dependency |
-| `get_step_contexts` | `GetStepContextsRequest{TaskID}` | Get step context map |
+| `get_step_contexts` | `GetStepContextsRequest{TaskID}` | Get step context map (`step_name → context`) |
+| `get_task_steps` | `GetTaskStepsRequest{TaskID}` | Get per-step state (ordered, includes pending placeholders for workflow steps without DB rows) |
+| `update_step_context` | `UpdateStepContextRequest{TaskID, StepName, Context}` | Overwrite the captured context for a named step |
+| `list_workflows` | `ListWorkflowsRequest{ProjectPath}` | List workflows for a project, grouped by kind (tasks / one-off / init) |
 | `shutdown` | — | Graceful shutdown |
 
 ## Server -> Client Events

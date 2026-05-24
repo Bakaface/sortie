@@ -29,9 +29,25 @@ HasExited() bool
 ExitCode() int
 IsSuccess() bool
 PID() int
+SessionID() string                     // Claude session UUID parsed from the system init event (empty until the first NDJSON line is seen)
 ResultText() string                    // Final text output (after exit)
 CaptureOutput(maxLines int) ([]string, error)
 ```
+
+### Session Discovery (session_finder.go)
+
+For tmux-mode and resume flows the daemon needs to locate the on-disk Claude session file
+(`~/.claude/projects/<encoded-workdir>/<uuid>.jsonl`). Helpers:
+
+```go
+type SessionSnapshot map[string]time.Time  // session UUID -> file mtime
+
+SnapshotSessionsByWorkdir(workdir string) SessionSnapshot
+FindNewSessionByWorkdir(workdir string, existing SessionSnapshot, maxWait time.Duration) (string, error)
+```
+
+Typical usage: snapshot before spawning Claude, then poll `FindNewSessionByWorkdir` to pick up
+the newly-created session file.
 
 ### StreamParser
 

@@ -311,6 +311,31 @@ func TestBuildSystemPromptWithCustomSystemPrompt(t *testing.T) {
 	}
 }
 
+// TestBuildSystemPromptVerificationFooter ensures the project-agnostic
+// verification reminder is appended regardless of whether the project supplies
+// a custom SystemPrompt — spawned agents must be told to discover and run the
+// project's own test/lint commands rather than inventing them.
+func TestBuildSystemPromptVerificationFooter(t *testing.T) {
+	cases := []struct {
+		name         string
+		systemPrompt string
+	}{
+		{"default", ""},
+		{"custom", "You are a careful code reviewer."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := BuildSystemPrompt("Do the thing", tc.systemPrompt, nil)
+			if !strings.Contains(s, "Verification before declaring done") {
+				t.Errorf("expected verification footer in %s-prompt output", tc.name)
+			}
+			if !strings.Contains(s, "CLAUDE.md") {
+				t.Errorf("expected footer to reference CLAUDE.md so agents look there for canonical commands")
+			}
+		})
+	}
+}
+
 func TestWriteTmuxLogMessage(t *testing.T) {
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "step.log")

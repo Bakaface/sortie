@@ -27,19 +27,25 @@ LoadForProject(projectDir string) (*Config, error)  // From specific path
 
 ```go
 type ProjectConfig struct {
-    MaxWorkers               int
-    DefaultPriority          string
-    Yolo                     *bool               // Skip Claude permissions (pointer for merge)
-    Verification             *VerificationConfig
-    Git                      GitConfig            // BaseBranch, BranchTemplate, OnComplete
-    Workflows                ProjectWorkflows     // tasks, one-off, init
-    SystemPrompt             string
-    WorktreeSyncPaths        WorktreeSyncPathsConfig // Paths to copy/link into worktrees
-    WorktreeSetupCommand     string               // Command to run after worktree creation
-    TmuxSetupCommand         string               // Command to run after tmux session creation
-    Notifications            *NotificationsConfig
-    TmuxNestedAttachBehavior string               // "switch" (default) or "nest"
-    Options                  *OptionsConfig       // TUI display options
+    MaxWorkers                 int
+    DefaultPriority            string
+    Yolo                       *bool                   // Skip Claude permissions (pointer for merge)
+    PollInterval               string                  // Daemon task poll cadence (e.g. "2s")
+    Claude                     *ClaudeConfig           // Per-project claude binary / default args
+    Verification               *VerificationConfig
+    Git                        GitConfig               // BaseBranch, BranchTemplate, OnComplete
+    Workflows                  ProjectWorkflows        // tasks, one-off, init
+    Workflow                   WorkflowConfig          // deprecated, backward compat
+    Tasks                      []TaskConfig            // deprecated, use workflows.one-off
+    SystemPrompt               string
+    WorktreeSyncPaths          WorktreeSyncPathsConfig // Paths to copy/link into worktrees
+    WorktreeSetupCommand       string                  // Single setup command (legacy)
+    WorktreeSetupCommands      []string                // Ordered list of setup commands
+    TmuxSetupCommand           string                  // Command to run after tmux session creation
+    Notifications              *NotificationsConfig
+    TmuxNestedAttachBehavior   string                  // "switch" (default) or "nest"
+    Options                    *OptionsConfig          // TUI display options
+    AllowedSummarizationModels []string                // Allowlist of haiku/sonnet/opus for the summarizer
 }
 ```
 
@@ -67,16 +73,23 @@ Value options: `:set X=N`. See `command.go` `boolOptions`/`intOptions` registrie
 
 ```go
 type WorkflowConfig struct {
-    Name                 string
-    Description          string
-    Tmux                 bool
-    Steps                []StepConfig
-    SummarizerPrompt     string
-    WorktreeSyncPaths    WorktreeSyncPathsConfig // Per-workflow sync paths (override project-level)
-    WorktreeSetupCommand string                  // Per-workflow setup command (override project-level)
-    TmuxSetupCommand     string                  // Per-workflow tmux setup command (override project-level)
+    Name                  string
+    Description           string
+    Print                 bool                    // workflow-level default: true = headless `claude -p`, false = tmux. Step-level Print overrides.
+    Steps                 []StepConfig
+    SummarizerPrompt      string
+    WorktreeSyncPaths     WorktreeSyncPathsConfig // Per-workflow sync paths (override project-level)
+    WorktreeSetupCommand  string                  // Per-workflow setup command (override project-level)
+    WorktreeSetupCommands []string                // Per-workflow ordered setup commands
+    TmuxSetupCommand      string                  // Per-workflow tmux setup command (override project-level)
+
+    // Populated by the loader, not from YAML:
+    Hidden                bool                    // file-based workflow not referenced from .sortie.yml
+    Source                string                  // "inline" or path under .sortie/workflows/<cat>/
 }
 ```
+
+The legacy `tmux:` field is rejected at parse time with a migration error — the replacement is the inverted `Print` field.
 
 ### GlobalConfig (~/.config/sortie/config.yaml)
 
@@ -84,12 +97,17 @@ type WorkflowConfig struct {
 type GlobalConfig struct {
     MaxWorkers               int
     Yolo                     *bool
+    PollInterval             string
+    Claude                   *ClaudeConfig
     Verification             *VerificationConfig
     Notifications            NotificationsConfig
     TmuxNestedAttachBehavior string
     Options                  *OptionsConfig
 }
 ```
+
+The merged runtime `Config` (in `config.go`) flattens project + global settings and also holds
+`AllowedSummarizationModels`, `SystemPrompt`, and the resolved `WorktreeSyncPaths`.
 
 ### VerificationConfig
 
@@ -197,6 +215,7 @@ SanitizeProjectName(name string) string             // Replaces dots with unders
 | `config.go` | Loading, parsing, merging, defaults (`Load()`, `LoadForProject()`, `defaultConfig()`, `resolveWorkflows()`) |
 | `accessors.go` | Workflow accessors, branch templates, save (`GetWorkflow()`, `ListWorkflowNames()`, `ResolveBranchTemplate()`, `Save()`) |
 | `detect.go` | Project type detection (`DetectProject()`) |
+| `validate.go` | Cross-field validation (loop targets, model allowlist, deprecated fields) — invoked from `Load()` |
 
 ## Project Detection (detect.go)
 

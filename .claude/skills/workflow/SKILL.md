@@ -33,7 +33,8 @@ description: >
 |------|---------|
 | `engine.go` | Core orchestrator: `Engine` struct, `NewEngine()`, `RunTask()`, `ResumeAfterApproval()` |
 | `step.go` | Claude step execution: `runClaudeStep()`, `runClaudeStepTmux()`, `writeTmuxLogMessage()` |
-| `merge.go` | Merge operations: `executeOnComplete()`, `executeMerge()`, `resolveConflicts()`, `cleanupMergedWorktree()`, `waitForCleanTarget()`, `AcquireMergeLock()`/`ReleaseMergeLock()` |
+| `merge.go` | Engine-side glue to `internal/merge`: `executeOnComplete()` (calls `e.coord.Finalize()`), `bindConflictResolver()` (wires Claude-driven resolver into the Coordinator), `resolveConflicts()` (the resolver itself), `cleanupMergedWorktree()`. **Per-repo locking, retry, and target-clean wait live in `internal/merge`, not here.** |
+| `hooks.go` | Stop-hook installation in worktrees: `InstallStopHook()`, `SortieSettingsDir()`, `StepDoneDir()`, shell-quoting helpers |
 | `summarizer.go` | Summarization + finalization: `FinalizeTask()`, `runSummarizer()`, `summarizeChatLog()`, `RunWorktreeSetupCommand()`, `runClaudeSync()` |
 | `template.go` | `{{placeholder}}` interpolation via `ResolveTemplate()` |
 | `system-prompt.go` | `BuildSystemPrompt()` — builds system prompt string for spawned Claude agents |
@@ -103,7 +104,7 @@ When `task.Worktree == false`:
 
 ## Key Mechanisms
 
-- **Merge**: serialized via `mergeMu`; `--no-ff` merge into base (preserves task branch commit history), Claude resolves conflicts, up to 3 retries
+- **Merge**: delegated to `internal/merge`. The Engine calls `e.coord.Finalize(ctx, t, baseBranch, logFn)`; the Coordinator owns per-repo serialization (via `*merge.Lock` from the daemon's `*merge.Locks` registry), `--no-ff` merge into base (preserves task branch commit history), Claude-driven conflict resolution (wired via `bindConflictResolver()`), up to 3 retries, target-clean wait, and cleanup-on-failure.
 - **Loops**: evaluate at step end, check `MaxIterations` + `ExitCondition.StepContextEmpty`, persist iteration to DB
 - **Approval gates**: human steps pause at `AwaitingApproval`, tmux steps at `Tmux`
 - **Summarization strategy**: per-step `summarization_strategy` controls how step context is captured. `summarize_chat` (default when unset, see `StepConfig.EffectiveSummarizationStrategy()`) stores last_message immediately, then synchronously runs `summarizeChatLog()` against the chat JSONL and overwrites the context via `UpdateTaskStepContext()`. `last_message` keeps only Claude's result-event text — cheaper but loses decisions; for tmux steps it leaves context empty because there is no result event. Non-tmux + non-empty result text + chat < `smallChatBytes` (4 KB) short-circuits via `shouldSummarizeChat()` and keeps the result text. For tmux steps the summarization runs synchronously inside `ResumeAfterApproval` (the step itself returns immediately to pause at the tmux approval gate).

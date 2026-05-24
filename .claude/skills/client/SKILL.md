@@ -57,7 +57,7 @@ ListTasksByProjectName(name string) ([]daemon.TaskInfo, error)
 GetTask(id int64) (*daemon.TaskInfo, error)
 CreateTask(description, workflow, branchName, projectPath string, worktree bool, images []string) (*daemon.TaskInfo, error)
 CreateTaskWithOptions(req daemon.CreateTaskRequest) (*daemon.TaskInfo, error)
-RetryTask(id int64) error
+RetryTask(id int64, stepName string) error  // stepName="" restarts from the beginning; non-empty restarts at that step preserving earlier contexts
 RevertTask(id int64) error
 ContinueTask(id int64, workflow, prompt string) error
 FinalizeTask(id int64) error
@@ -65,8 +65,19 @@ UpdateTaskPriority(id int64, priority string) error
 UpdateTaskField(id int64, field, value string) error
 DeleteTask(id int64) error
 StopTask(id int64) error
-GetLogs(id int64, step string, tail int, offset int) ([]string, int, error)
-GetStepContexts(taskID int64) (map[string]string, error)
+GetLogs(id int64, tail int, offset int) ([]string, int, error)  // tail = last N lines (0 = no tail), offset skips first N for incremental loading
+```
+
+### Step Operations
+```go
+GetStepContexts(taskID int64) (map[string]string, error)        // step_name -> context
+GetTaskSteps(taskID int64) ([]daemon.TaskStepDetail, error)     // ordered, includes pending placeholders
+UpdateStepContext(taskID int64, stepName, context string) error // overwrite captured context
+```
+
+### Workflow Discovery
+```go
+ListWorkflows(projectPath string) (*daemon.ListWorkflowsResponse, error)  // grouped by tasks / one-off / init
 ```
 
 ### Dependency & Branch Operations
@@ -100,7 +111,7 @@ ParseAgentUpdate(msg *daemon.Message) (*daemon.AgentInfo, error)
 
 ## Patterns
 
-- RPC methods are synchronous (send request, wait on `respChan`), except `Unsubscribe` which is fire-and-forget (uses `send` not `sendAndWait`)
+- **All RPC methods are synchronous** (send request, wait on `respChan`). `Subscribe` uses `sendAndWait`; `Unsubscribe` uses `requestOK` (which also waits) — neither is fire-and-forget.
 - Subscription events arrive on `subChan`, consumed via `Messages()`
 - Background reader goroutine routes messages by type (broadcast types -> `subChan`, others -> `respChan`)
 - `Close()` uses `sync.Once` to prevent double-close panics

@@ -8,11 +8,11 @@ description: >
 
 # Database & Persistence
 
-SQLite with WAL mode, single writer (`MaxOpenConns=1`), foreign keys enabled. Schema versioned with progressive migrations (currently v16).
+SQLite with WAL mode, single writer (`MaxOpenConns=1`), foreign keys enabled. Schema versioned with progressive migrations (currently **v18**).
 
 ## Schema
 
-Read `internal/db/schema.sql` for the canonical table definitions. Core tables: `projects`, `tasks`, `task_dependencies`, `task_steps`. Migrations use `if version < N` blocks in `db.go:migrate()` — append the next version check; auto-applied on startup. Fresh databases apply the embedded `schema.sql` directly as version 16.
+Read `internal/db/schema.sql` for the canonical table definitions. Core tables: `projects`, `tasks`, `task_dependencies`, `task_steps`, plus `chats` for conversation tracking. Migrations use `if version < N` blocks in `db.go:migrate()` — append the next version check; auto-applied on startup. Fresh databases apply the embedded `schema.sql` directly and stamp version **18**. When adding a migration, bump the fresh-install version literal in `db.go` (currently `INSERT INTO schema_version (version) VALUES (18)`) in the same change.
 
 ### `task_steps` Table
 

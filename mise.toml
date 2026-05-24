@@ -10,7 +10,7 @@ run = "sortie daemon start"
 
 [tasks."daemon:fg"]
 description = "Start the daemon in foreground mode"
-run = "./sortie daemon start -f"
+run = "~/bin/sortie daemon start -f"
 depends = ["build"]
 
 [tasks.db]
@@ -23,16 +23,27 @@ description = "Launch the TUI"
 run = "sortie tui"
 
 [tasks.test]
-description = "Run unit tests"
+description = "Run unit tests (excludes integration- and e2e-tagged files)"
 run = "go test ./..."
 
 [tasks."test:integration"]
 alias = "ti"
-description = "Run all tests including integration tests"
+description = "Run unit + integration tests (-tags integration)"
 run = "go test -tags integration ./..."
 
+[tasks."test:e2e"]
+description = "Run end-to-end tests against the stubbed claude binary (-tags=e2e). See tests/e2e/README.md."
+run = "go test -tags=e2e ./tests/e2e/..."
+
+[tasks.lint]
+description = "Run go vet + gofmt check (no formatting, just reports unformatted files). No golangci-lint is configured."
+run = '''
+go vet ./... && \
+test -z "$(gofmt -l .)" || (echo "gofmt: the following files need formatting:" && gofmt -l . && exit 1)
+'''
+
 [tasks.e2e-test]
-description = "Run end-to-end test via Claude Code"
+description = "Drive an e2e via the Claude Code /e2e-test slash command (NOT the Go e2e suite — use 'mise run test:e2e' for that)."
 run = "claude --dangerously-skip-permissions 'Run the /e2e-test command'"
 
 [tasks.claude]

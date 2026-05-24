@@ -113,6 +113,27 @@ func NewServer(cfg *config.Config, database *db.DB) *Server {
 	}
 }
 
+// getProjectContext lazy-loads and caches per-project config (.sortie.yml) and
+// the workflow Engine bound to it. Callers MUST route through this function —
+// every site in internal/daemon/ does, and the only direct config.LoadForProject
+// call lives below.
+//
+// Design note (audited 2026-05, sortie#62): this is a private method, not a
+// ProjectContextStore module. The two direct reads of s.projects elsewhere are
+// intentional and would survive extraction — broadcast.go's taskToInfo() peeks
+// the map without triggering a load (a serializer should not issue DB queries),
+// and shutdown() iterates the live cache to kill tmux sessions. There is no
+// second adapter today (tests prime the real cache via this method), so
+// promoting the seam to an exported module + interface would be one-adapter
+// indirection without leverage. The natural cache key is projectID (carried on
+// every *task.Task), not repoRoot, so the conventional Store.Get(repoRoot)
+// shape would push an extra DB lookup into callers. Invalidation lives below
+// via .sortie.yml mod-time check; no handler needs an Invalidate() API.
+// Concurrent first-time loads can race, but the duplicated work is a YAML parse
+// and the loser's *projectContext is GC'd — per-repo merge locks (now owned by
+// internal/merge) are keyed independently, so merge serialization survives the
+// race. Revisit only if a second adapter (in-memory fake, alternate backing
+// store, cross-process cache) appears.
 func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 	s.projectsMu.RLock()
 	if pc, ok := s.projects[projectID]; ok {

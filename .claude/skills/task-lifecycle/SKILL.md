@@ -48,7 +48,8 @@ type Task struct {
 ## Status State Machine
 
 ```
-init -> pending -> running -+-> summarizing -> completed
+init -> pending -> running -+-> summarizing_step -> running (next step)
+                            +-> summarizing -> completed
                             +-> awaiting-approval -> running (resumed)
                             +-> tmux -> finalizing -> summarizing -> completed
                             +-> merge-blocked -> completed
@@ -58,12 +59,14 @@ init -> pending -> running -+-> summarizing -> completed
 **Title refinement**: During `init`, an async goroutine generates an AI title (haiku model, 30s timeout). On success, `FinalizeTaskIdentity()` updates title/slug/branch before transitioning to `pending`. On failure, the sanitized description is kept as title.
 
 **Terminal:** `completed`, `failed`
-**Active:** `running`, `awaiting-approval`, `tmux`, `finalizing`, `summarizing`, `merge-blocked`
+**Active:** `running`, `awaiting-approval`, `tmux`, `finalizing`, `summarizing`, `summarizing_step`, `merge-blocked`
 
 ```go
 func (s Status) IsTerminal() bool  // completed, failed
-func (s Status) IsActive() bool    // running, awaiting-approval, tmux, finalizing, summarizing, merge-blocked
+func (s Status) IsActive() bool    // running, awaiting-approval, tmux, finalizing, summarizing, summarizing_step, merge-blocked
 ```
+
+`StatusSummarizingStep` is a transient between-step state used when the workflow engine is running `summarize_chat` against the just-completed step before advancing to the next one.
 
 ## Priority
 

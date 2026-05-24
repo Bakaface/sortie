@@ -60,6 +60,8 @@ Model (app.go)
 | `command.go` | Vim-style `:` command parsing with declarative option registry (`boolOption`/`intOption` slices → `matchSetOption`/`execSetOption`). Add new `:set` options by appending to `boolOptions` or `intOptions`. Also: goto line, RunTask, noh. |
 | `selector.go` | Generic list-pick dialog: `selector` struct with `HandleKey()`/`View()`, vim navigation, number-key quick select. Used for workflow, task, init, priority, artifact selection. |
 | `search.go` | Forward/backward search with match highlighting via `performSearch()`, `nextMatch()`, `previousMatch()` |
+| `tree.go` | Task-tree view (parent/dependency tree rendering used in the list and detail views) |
+| `history.go` | Per-task history navigation (previous step contexts, log scrollback) |
 
 ### Misc
 
@@ -133,7 +135,7 @@ See CLAUDE.md for the general principle. Below are lipgloss/BubbleTea-specific t
 2. Assert every line in framed/boxed sections has exactly the expected `lipgloss.Width()`
 3. Test at multiple terminal widths (narrow <60, normal ~120, wide ~200)
 4. Test with both focused and unfocused states (cursor presence affects width)
-5. Run `go test ./internal/tui/...` — existing tests check structural properties
+5. Run `mise run test` (covers `./internal/tui/...` via `go test ./...`) — existing tests check structural properties. Add a new test file alongside the change rather than relying on the existing suite to catch new layouts.
 
 ## Pitfalls
 

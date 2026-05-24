@@ -14,13 +14,16 @@ internal/
   claude/            Claude Code process spawning and output parsing
   tui/               BubbleTea terminal UI for monitoring and approval
   db/                SQLite persistence for tasks and projects
-  git/               Git worktree and merge operations
+  git/               Git worktree operations
+  merge/             Per-repo merge serialization (Coordinator/Locks/Lock)
   agent/             Agent state management
   task/              Task lifecycle and state transitions
   tmux/              Tmux session management for interactive tasks
+  mcp/               MCP server exposing sortie tools (create_task, get_task, list_workflows)
   notify/            Notification support
   client/            Client for daemon communication
-claude-code-plugin/  Claude Code plugin with sortie-configurer skill
+tests/e2e/           End-to-end tests (build tag `e2e`; see tests/e2e/README.md)
+claude-code-plugin/  Claude Code plugin with sortie-configurer + worktree-parity-audit skills
 ```
 
 ## Key Concepts
@@ -32,11 +35,29 @@ claude-code-plugin/  Claude Code plugin with sortie-configurer skill
 
 ## Development
 
-```bash
-go build ./...        # Build
-go test ./...         # Test
-go build -o sortie ./cmd/sortie  # Build binary
-```
+All shortcuts are in `mise.toml` — prefer `mise run <task>` over raw `go` commands.
+
+| Task | Command | Notes |
+|------|---------|-------|
+| Build everything (no install) | `go build ./...` | Compiles every package. |
+| Build the `sortie` binary | `mise run build` (alias `b`) | Installs to `~/bin/sortie`. |
+| Unit tests | `mise run test` → `go test ./...` | Excludes `integration`- and `e2e`-tagged files. |
+| Integration tests | `mise run test:integration` (alias `ti`) → `go test -tags integration ./...` | Only `internal/claude/process_test.go` is tagged today. |
+| End-to-end tests | `mise run test:e2e` → `go test -tags=e2e ./tests/e2e/...` | **Not picked up by `go test ./...`** — the build tag gates compilation. See [tests/e2e/README.md](tests/e2e/README.md). |
+| Lint | `mise run lint` → `go vet ./...` + `gofmt -l .` check | No `golangci-lint` is configured. |
+
+### Canonical "what to run after a change" rule
+
+Before reporting work complete:
+
+1. **Always** run `mise run test`.
+2. If you touched `internal/claude/`, also run `mise run ti` (covers the `integration` build tag).
+3. If you touched `internal/workflow/`, `internal/daemon/`, `internal/merge/`, `cmd/sortie/`, or anything that affects task execution end-to-end, also run `mise run test:e2e`.
+4. Run `mise run lint` for any non-trivial code change.
+
+If a test command fails or hangs, surface the failure — never silently skip a layer.
+
+> **Do not invent commands.** There is no `make test`, no `Makefile`, no `justfile`, no `golangci-lint`. The full set of test/build/lint commands is the table above.
 
 ## Domain Context
 
@@ -62,4 +83,4 @@ Run this program via Bash to confirm correctness before telling the user it's fi
 
 - Follow existing patterns in the codebase
 - Keep changes minimal and focused
-- Use BubbleTea/Lip Gloss conventions for TUI code (see `/bubbletea` skill)
+- For TUI code, follow the patterns documented in the `/tui` skill (BubbleTea/Lip Gloss)
