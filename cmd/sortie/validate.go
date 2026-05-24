@@ -2,10 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 
-	"github.com/Bakaface/sortie/internal/config"
+	"github.com/Bakaface/sortie/internal/action"
 	"github.com/spf13/cobra"
 )
 
@@ -21,44 +19,17 @@ names, summarization strategies, enum values).
 With no argument, validates ./.sortie.yml. Otherwise validates the given path.`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		path, err := resolveConfigPath(args)
+		var p string
+		if len(args) == 1 {
+			p = args[0]
+		}
+		res, err := action.RunValidate(action.Ctx{Cfg: cfg, Out: cmd.OutOrStdout()}, action.ValidateArgs{Path: p})
 		if err != nil {
 			return err
 		}
-
-		diagnostics, err := config.Diagnose(path)
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+		if res.Message != "" {
+			fmt.Fprintln(cmd.OutOrStdout(), res.Message)
 		}
-
-		for _, d := range diagnostics {
-			fmt.Fprintf(os.Stderr, "%s: %s: %s\n", path, d.Severity, d.Message)
-		}
-
-		fmt.Printf("%s is valid\n", path)
 		return nil
 	},
-}
-
-func resolveConfigPath(args []string) (string, error) {
-	if len(args) == 1 {
-		abs, err := filepath.Abs(args[0])
-		if err != nil {
-			return "", err
-		}
-		if _, err := os.Stat(abs); err != nil {
-			return "", fmt.Errorf("config file not found: %s", abs)
-		}
-		return abs, nil
-	}
-
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(cwd, ".sortie.yml")
-	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("no .sortie.yml found in %s — pass a path explicitly", cwd)
-	}
-	return path, nil
 }

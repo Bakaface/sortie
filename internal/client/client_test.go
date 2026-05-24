@@ -75,7 +75,7 @@ func TestSendAndWait_ConcurrentCallsGetCorrectResponses(t *testing.T) {
 			resp, _ := daemon.NewMessage(daemon.MsgTaskList, daemon.TaskListResponse{Tasks: []daemon.TaskInfo{}})
 			return resp
 		case daemon.MsgContinueTask:
-			resp, _ := daemon.NewMessage(daemon.MsgOK, daemon.OKResponse{Message: "task continued and resumed"})
+			resp, _ := daemon.NewMessage(daemon.MsgContinueTask, daemon.ContinueTaskResponse{Task: daemon.TaskInfo{ID: 1}})
 			return resp
 		case daemon.MsgPing:
 			resp, _ := daemon.NewMessage(daemon.MsgPong, nil)
@@ -133,7 +133,7 @@ func TestSendAndWait_ConcurrentCallsGetCorrectResponses(t *testing.T) {
 				errCh <- "ContinueTask error: " + err.Error()
 				return
 			}
-			if msg.Type != daemon.MsgOK {
+			if msg.Type != daemon.MsgContinueTask {
 				errCh <- "ContinueTask got wrong response type: " + string(msg.Type)
 			}
 		}()

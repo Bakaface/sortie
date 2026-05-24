@@ -2,9 +2,11 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 
+	"github.com/Bakaface/sortie/internal/action"
 	"github.com/Bakaface/sortie/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -236,17 +238,22 @@ var commands = []command{
 	{
 		match: matchRunTask,
 		exec:  execRunTask,
-		help:  "run a tasks-category workflow (opens new-task prompt with workflow preselected)",
+		help:  "run a tasks-category workflow (deprecated alias for :create --workflow=<name>)",
 	},
 	{
 		match: matchRunOneOff,
 		exec:  execRunOneOff,
-		help:  "run a one-off workflow",
+		help:  "run a one-off workflow (deprecated alias for :create --workflow=oneoff:<name>)",
 	},
 	{
 		match: matchRunInit,
 		exec:  execRunInit,
-		help:  "run an init workflow",
+		help:  "run an init workflow (deprecated alias for :create --workflow=init:<name>)",
+	},
+	{
+		match: matchActionVerb,
+		exec:  execActionVerb,
+		help:  "run an action verb (see internal/action — :stop, :retry, :revert, ...)",
 	},
 	{
 		match: matchSetOption,
@@ -258,6 +265,97 @@ var commands = []command{
 		exec:  execNoh,
 		help:  "clear search highlights",
 	},
+}
+
+// matchActionVerb matches any registered action ID followed by an optional
+// space-delimited argument string. The kebab-case ID is treated literally
+// so callers cannot accidentally hit a verb with a typoed prefix.
+func matchActionVerb(input string) (string, bool) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", false
+	}
+	for id := range action.Registry {
+		if input == id {
+			return "", true
+		}
+		prefix := id + " "
+		if strings.HasPrefix(input, prefix) {
+			return strings.TrimSpace(input[len(prefix):]), true
+		}
+	}
+	return "", false
+}
+
+// execActionVerb dispatches the matched palette command to the action
+// registry. Parse converts the raw argument tail into the verb's typed Args;
+// Run executes via the shared TUI Ctx. The Result.Message is surfaced as a
+// status banner so the user sees feedback even though the TUI's Out is
+// io.Discard.
+func execActionVerb(m Model, rawArgs string) (tea.Model, tea.Cmd) {
+	// Re-resolve the original input by finding the verb prefix again.
+	verb, args := splitActionInput(m.commandInput, rawArgs)
+	if verb == "" {
+		m.err = fmt.Errorf("unknown action")
+		return m, nil
+	}
+	entry, ok := action.Registry[verb]
+	if !ok {
+		m.err = fmt.Errorf("unknown action: %s", verb)
+		return m, nil
+	}
+	if m.client == nil && verb != "validate" {
+		m.err = fmt.Errorf("not connected to daemon")
+		return m, nil
+	}
+	parsed, err := entry.Parse(args)
+	if err != nil {
+		m.err = err
+		return m, nil
+	}
+	if v, ok := parsed.(action.Args); ok {
+		if err := v.Validate(); err != nil {
+			m.err = err
+			return m, nil
+		}
+	}
+
+	return m, func() tea.Msg {
+		ctx := action.Ctx{Cfg: m.cfg, Client: m.client, Out: io.Discard}
+		res, err := entry.Run(ctx, parsed)
+		if err != nil {
+			return errorMsg(err)
+		}
+		return paletteActionMsg{verb: verb, result: res}
+	}
+}
+
+// splitActionInput finds the verb prefix of the palette input so the
+// dispatcher does not have to look it up a second time inside the closure.
+// rawArgs is already the post-verb tail (or empty if no args were supplied).
+func splitActionInput(input, rawArgs string) (string, string) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return "", ""
+	}
+	if _, ok := action.Registry[input]; ok {
+		return input, ""
+	}
+	for id := range action.Registry {
+		prefix := id + " "
+		if strings.HasPrefix(input, prefix) {
+			return id, rawArgs
+		}
+	}
+	return "", rawArgs
+}
+
+// paletteActionMsg carries the result of an action invoked through the
+// command palette. The Update reducer applies any Task / Tasks updates to
+// the list and surfaces Result.Message as a status banner.
+type paletteActionMsg struct {
+	verb   string
+	result action.Result
 }
 
 // quitCommands lists all vim-style quit commands that close the TUI.

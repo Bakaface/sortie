@@ -4,18 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strconv"
 	"text/tabwriter"
 	"time"
 
+	"github.com/Bakaface/sortie/internal/action"
 	"github.com/Bakaface/sortie/internal/client"
 	"github.com/Bakaface/sortie/internal/daemon"
 	"github.com/Bakaface/sortie/internal/db"
-	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
 	"github.com/Bakaface/sortie/internal/tmux"
-	"github.com/Bakaface/sortie/internal/workflow"
 	"github.com/spf13/cobra"
 )
 
@@ -302,19 +300,9 @@ var stopCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.StopTask(taskID); err != nil {
-			return fmt.Errorf("failed to stop task: %w", err)
-		}
-
-		fmt.Printf("Task #%d stopped\n", taskID)
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunStop(actx, action.StopArgs{ID: taskID})
+		})
 	},
 }
 
@@ -329,25 +317,10 @@ var retryCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
-
 		fromStep, _ := cmd.Flags().GetString("from-step")
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.RetryTask(taskID, fromStep); err != nil {
-			return fmt.Errorf("failed to retry task: %w", err)
-		}
-
-		if fromStep != "" {
-			fmt.Printf("Task #%d reset for retry from step %q\n", taskID, fromStep)
-		} else {
-			fmt.Printf("Task #%d reset for retry\n", taskID)
-		}
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunRetry(actx, action.RetryArgs{ID: taskID, FromStep: fromStep})
+		})
 	},
 }
 
@@ -361,19 +334,9 @@ var revertCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.RevertTask(taskID); err != nil {
-			return fmt.Errorf("failed to revert task: %w", err)
-		}
-
-		fmt.Printf("Task #%d reverted\n", taskID)
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunRevert(actx, action.RevertArgs{ID: taskID})
+		})
 	},
 }
 
@@ -387,19 +350,11 @@ var continueCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.ContinueTask(taskID, "", ""); err != nil {
-			return fmt.Errorf("failed to continue task: %w", err)
-		}
-
-		fmt.Printf("Continue session started for task #%d\n", taskID)
-		return nil
+		workflow, _ := cmd.Flags().GetString("workflow")
+		prompt, _ := cmd.Flags().GetString("prompt")
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunContinue(actx, action.ContinueArgs{ID: taskID, Workflow: workflow, Prompt: prompt})
+		})
 	},
 }
 
@@ -413,29 +368,10 @@ var logsCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
-
 		tail, _ := cmd.Flags().GetInt("tail")
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		lines, _, err := c.GetLogs(taskID, tail, 0)
-		if err != nil {
-			return fmt.Errorf("failed to get logs: %w", err)
-		}
-
-		if len(lines) == 0 {
-			fmt.Println("No logs available")
-			return nil
-		}
-
-		for _, line := range lines {
-			fmt.Println(line)
-		}
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunLogs(actx, action.LogsArgs{ID: taskID, Tail: tail})
+		})
 	},
 }
 
@@ -445,92 +381,18 @@ var cleanupCmd = &cobra.Command{
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeTaskIDs(task.StatusCompleted, task.StatusFailed),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		dbPath := cfg.GetDatabasePath("")
-		database, err := db.Open(dbPath)
-		if err != nil {
-			return fmt.Errorf("failed to open database: %w", err)
-		}
-		defer database.Close()
-
+		var taskID int64
 		if len(args) == 1 {
-			taskID, err := strconv.ParseInt(args[0], 10, 64)
+			id, err := strconv.ParseInt(args[0], 10, 64)
 			if err != nil {
 				return fmt.Errorf("invalid task ID: %s", args[0])
 			}
-			return cleanupTask(database, taskID)
+			taskID = id
 		}
-
-		tasks, err := database.GetAllTasks()
-		if err != nil {
-			return fmt.Errorf("failed to get tasks: %w", err)
-		}
-
-		cleaned := 0
-		for _, t := range tasks {
-			if t.Status == "completed" || t.Status == "failed" {
-				if err := cleanupTask(database, t.ID); err != nil {
-					fmt.Fprintf(os.Stderr, "Warning: failed to cleanup task #%d: %v\n", t.ID, err)
-				} else {
-					cleaned++
-				}
-			}
-		}
-
-		if cleaned == 0 {
-			fmt.Println("Nothing to clean up")
-		} else {
-			fmt.Printf("Cleaned up %d task(s)\n", cleaned)
-		}
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunCleanup(actx, action.CleanupArgs{TaskID: taskID})
+		})
 	},
-}
-
-func cleanupTask(database *db.DB, taskID int64) error {
-	t, err := database.GetTask(taskID)
-	if err != nil {
-		return fmt.Errorf("task not found: %w", err)
-	}
-
-	var repoRoot string
-	if proj, err := database.GetProject(t.ProjectID); err == nil {
-		repoRoot = proj.Path
-	}
-
-	cleaned := false
-
-	if t.Worktree && t.WorktreePath != "" && repoRoot != "" {
-		if err := gitpkg.RemoveWorktree(repoRoot, t.WorktreePath); err != nil {
-			return fmt.Errorf("failed to remove worktree: %w", err)
-		}
-		if err := database.ClearWorktreePath(taskID); err != nil {
-			return fmt.Errorf("failed to clear worktree path: %w", err)
-		}
-		cleaned = true
-	}
-
-	// Delete the task branch (but preserve branches the user provided via --checkout)
-	if t.Worktree && t.Branch != "" && repoRoot != "" && t.CheckoutBranch == "" {
-		if err := gitpkg.ForceDeleteBranch(repoRoot, t.Branch); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to delete branch %s for task #%d: %v\n", t.Branch, taskID, err)
-		} else {
-			cleaned = true
-		}
-	}
-
-	if repoRoot != "" {
-		dataDir := filepath.Join(repoRoot, ".sortie")
-		logDir := workflow.ProjectLogsDir(dataDir, taskID)
-		if err := os.RemoveAll(logDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to remove log dir for task #%d: %v\n", taskID, err)
-		} else {
-			cleaned = true
-		}
-	}
-
-	if cleaned {
-		fmt.Printf("Cleaned up task #%d\n", taskID)
-	}
-	return nil
 }
 
 var detachCmd = &cobra.Command{
@@ -542,18 +404,9 @@ var detachCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return err
-		}
-		defer c.Close()
-
-		if err := c.DetachBranch(taskID); err != nil {
-			return err
-		}
-		fmt.Printf("Branch detached from task #%d worktree\n", taskID)
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunDetach(actx, action.DetachArgs{ID: taskID})
+		})
 	},
 }
 
@@ -566,18 +419,9 @@ var attachBranchCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return err
-		}
-		defer c.Close()
-
-		if err := c.AttachBranch(taskID); err != nil {
-			return err
-		}
-		fmt.Printf("Branch reattached to task #%d worktree\n", taskID)
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunAttachBranch(actx, action.AttachBranchArgs{ID: taskID})
+		})
 	},
 }
 

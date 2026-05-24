@@ -51,6 +51,22 @@ func (s *Server) handleStopAgent(conn net.Conn, req StopAgentRequest) {
 	s.sendMessage(conn, MsgOK, OKResponse{Message: "agent stopped"})
 }
 
+func (s *Server) handleStopTask(conn net.Conn, req StopTaskRequest) {
+	agentID := strconv.FormatInt(req.TaskID, 10)
+	if err := s.manager.StopAgent(agentID); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to stop task: %v", err))
+		return
+	}
+
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after stop: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
+	s.sendMessage(conn, MsgStopTask, StopTaskResponse{Task: s.taskToInfo(t)})
+}
+
 func (s *Server) handleGetOutput(conn net.Conn, req GetOutputRequest) {
 	lines, total, err := s.manager.GetOutput(req.AgentID, req.FromLine)
 	if err != nil {

@@ -89,6 +89,8 @@ func init() {
 	editCmd.Flags().StringP("context", "c", "", "New context")
 	editCmd.Flags().StringP("priority", "p", "", "New priority (low, medium, high, urgent)")
 	deleteCmd.Flags().BoolP("yes", "y", false, "Skip confirmation prompt")
+	continueCmd.Flags().StringP("workflow", "w", "", "Workflow to continue with (resets a terminal task)")
+	continueCmd.Flags().String("prompt", "", "Optional follow-up prompt passed when continuing with a workflow")
 	retryCmd.Flags().String("from-step", "", "Restart from this workflow step (preserves earlier steps' captured context)")
 
 	rootCmd.AddCommand(tasksCmd)

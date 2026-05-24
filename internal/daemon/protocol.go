@@ -45,6 +45,8 @@ const (
 	MsgUpdateStepContext  MessageType = "update_step_context"
 	MsgGetTaskSteps       MessageType = "get_task_steps"
 	MsgListWorkflows      MessageType = "list_workflows"
+	MsgStopTask           MessageType = "stop_task"
+	MsgCleanup            MessageType = "cleanup"
 )
 
 type Message struct {
@@ -250,6 +252,64 @@ type ListWorkflowsResponse struct {
 
 type CreateTaskResponse struct {
 	Task TaskInfo `json:"task"`
+}
+
+// StopTaskRequest stops a running task by stopping its agent. The daemon
+// returns the post-state TaskInfo so callers can update their UI without an
+// extra fetch.
+type StopTaskRequest struct {
+	TaskID int64 `json:"task_id"`
+}
+
+type StopTaskResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+// RetryTaskResponse, RevertTaskResponse, ContinueTaskResponse,
+// UpdatePriorityResponse, UpdateFieldResponse, AttachBranchResponse,
+// DetachBranchResponse, UpdateDependencyResponse all return the post-mutation
+// task so the TUI can update its list row in place without re-fetching.
+type RetryTaskResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+type RevertTaskResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+type ContinueTaskResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+type UpdatePriorityResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+type UpdateFieldResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+type AttachBranchResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+type DetachBranchResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+type UpdateDependencyResponse struct {
+	Task TaskInfo `json:"task"`
+}
+
+// CleanupRequest removes worktrees, branches, and log directories for
+// completed or failed tasks. A TaskID of 0 cleans up every eligible task.
+type CleanupRequest struct {
+	TaskID int64 `json:"task_id,omitempty"`
+}
+
+type CleanupResponse struct {
+	Count int        `json:"count"`
+	Tasks []TaskInfo `json:"tasks"`
 }
 
 type AgentState string

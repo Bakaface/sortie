@@ -7,8 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Bakaface/sortie/internal/client"
-	"github.com/Bakaface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/action"
 	"github.com/Bakaface/sortie/internal/task"
 	"github.com/spf13/cobra"
 )
@@ -41,10 +40,6 @@ The daemon must be running.`,
 		description = strings.TrimSpace(description)
 
 		priority, _ := cmd.Flags().GetString("priority")
-		if priority != "" && !task.IsValidPriority(priority) {
-			return fmt.Errorf("invalid priority %q (valid: low, medium, high, urgent)", priority)
-		}
-
 		branch, _ := cmd.Flags().GetString("branch")
 		workflow, _ := cmd.Flags().GetString("workflow")
 		title, _ := cmd.Flags().GetString("title")
@@ -52,38 +47,32 @@ The daemon must be running.`,
 		target, _ := cmd.Flags().GetString("target")
 		checkout, _ := cmd.Flags().GetString("checkout")
 
-		if checkout != "" && branch != "" {
-			return fmt.Errorf("cannot specify both --checkout and --branch flags")
+		// Early priority validation gives the user immediate feedback before
+		// we try to load any project context. The action's own Validate() will
+		// repeat this check; both share task.IsValidPriority.
+		if priority != "" && !task.IsValidPriority(priority) {
+			return fmt.Errorf("invalid priority %q (allowed: low, medium, high, urgent)", priority)
 		}
 
 		if description == "" && checkout == "" && !workflowAllowsEmptyDescription(cfg, workflow) {
 			return fmt.Errorf("description is required (provide as argument or via stdin)")
 		}
 
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
+		createArgs := action.CreateArgs{
+			Title:       title,
+			Description: description,
+			Priority:    priority,
+			Branch:      branch,
+			Workflow:    workflow,
+			Target:      target,
+			Checkout:    checkout,
+			NoWorktree:  noWorktree,
+			ProjectPath: cfg.ProjectDir,
 		}
-		defer c.Close()
 
-		worktree := !noWorktree
-		t, err := c.CreateTaskWithOptions(daemon.CreateTaskRequest{
-			Title:          title,
-			Description:    description,
-			Workflow:       workflow,
-			Priority:       priority,
-			BranchName:     branch,
-			TargetBranch:   target,
-			CheckoutBranch: checkout,
-			ProjectPath:    cfg.ProjectDir,
-			Worktree:       &worktree,
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunCreate(actx, createArgs)
 		})
-		if err != nil {
-			return fmt.Errorf("failed to create task: %w", err)
-		}
-
-		fmt.Printf("Task #%d created\n", t.ID)
-		return nil
 	},
 }
 
@@ -101,57 +90,40 @@ At least one field flag must be provided.`,
 			return fmt.Errorf("invalid task ID: %s", args[0])
 		}
 
+		// Cobra's flag testing API trips Changed=true even when Set sets the
+		// flag to its zero value, so we keep a value-level "no flags provided"
+		// guard here to preserve the CLI contract that an empty edit is a
+		// usage error rather than a no-op patch.
 		title, _ := cmd.Flags().GetString("title")
 		description, _ := cmd.Flags().GetString("description")
-		context, _ := cmd.Flags().GetString("context")
+		ctxStr, _ := cmd.Flags().GetString("context")
 		priority, _ := cmd.Flags().GetString("priority")
 
-		if title == "" && description == "" && context == "" && priority == "" {
+		if title == "" && description == "" && ctxStr == "" && priority == "" {
 			return fmt.Errorf("at least one field flag is required (--title, --description, --context, --priority)")
 		}
 
-		if priority != "" && !task.IsValidPriority(priority) {
-			return fmt.Errorf("invalid priority %q (valid: low, medium, high, urgent)", priority)
-		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		updated := 0
-
+		editArgs := action.EditArgs{ID: taskID}
 		if title != "" {
-			if err := c.UpdateTaskField(taskID, "title", title); err != nil {
-				return fmt.Errorf("failed to update title: %w", err)
-			}
-			updated++
+			editArgs.Title = &title
 		}
-
 		if description != "" {
-			if err := c.UpdateTaskField(taskID, "description", description); err != nil {
-				return fmt.Errorf("failed to update description: %w", err)
-			}
-			updated++
+			editArgs.Description = &description
 		}
-
-		if context != "" {
-			if err := c.UpdateTaskField(taskID, "context", context); err != nil {
-				return fmt.Errorf("failed to update context: %w", err)
-			}
-			updated++
+		if ctxStr != "" {
+			editArgs.Context = &ctxStr
 		}
-
 		if priority != "" {
-			if err := c.UpdateTaskPriority(taskID, priority); err != nil {
-				return fmt.Errorf("failed to update priority: %w", err)
-			}
-			updated++
+			editArgs.Priority = &priority
 		}
 
-		fmt.Printf("Task #%d updated (%d field(s))\n", taskID, updated)
-		return nil
+		if err := editArgs.Validate(); err != nil {
+			return err
+		}
+
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunEdit(actx, editArgs)
+		})
 	},
 }
 
@@ -178,17 +150,8 @@ var deleteCmd = &cobra.Command{
 			}
 		}
 
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.DeleteTask(taskID); err != nil {
-			return fmt.Errorf("failed to delete task: %w", err)
-		}
-
-		fmt.Printf("Task #%d deleted\n", taskID)
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunDelete(actx, action.DeleteArgs{ID: taskID})
+		})
 	},
 }

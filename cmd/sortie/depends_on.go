@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/Bakaface/sortie/internal/action"
 	"github.com/Bakaface/sortie/internal/client"
 	"github.com/spf13/cobra"
 )
@@ -22,19 +23,9 @@ var dependsOnAddCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.AddTaskDependency(taskID, blockedBy); err != nil {
-			return fmt.Errorf("failed to add dependency: %w", err)
-		}
-
-		fmt.Printf("Task #%d now blocked by #%d\n", taskID, blockedBy)
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunDependsOn(actx, action.DependsOnArgs{TaskID: taskID, BlockedByID: blockedBy, Direction: "add"})
+		})
 	},
 }
 
@@ -47,19 +38,9 @@ var dependsOnRmCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
-		c := client.New(cfg)
-		if err := c.Connect(); err != nil {
-			return fmt.Errorf("failed to connect to daemon: %w", err)
-		}
-		defer c.Close()
-
-		if err := c.RemoveTaskDependency(taskID, blockedBy); err != nil {
-			return fmt.Errorf("failed to remove dependency: %w", err)
-		}
-
-		fmt.Printf("Task #%d no longer blocked by #%d\n", taskID, blockedBy)
-		return nil
+		return runAction(cmd, func(actx action.Ctx) (action.Result, error) {
+			return action.RunDependsOn(actx, action.DependsOnArgs{TaskID: taskID, BlockedByID: blockedBy, Direction: "remove"})
+		})
 	},
 }
 

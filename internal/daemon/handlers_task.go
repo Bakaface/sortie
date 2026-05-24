@@ -249,8 +249,13 @@ func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 			s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
 			return
 		}
-		s.broadcastTaskUpdate(req.TaskID)
-		s.sendMessage(conn, MsgOK, OKResponse{Message: "task reset for retry"})
+		refreshed, err := s.database.GetTask(req.TaskID)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to load task after retry: %v", err))
+			return
+		}
+		s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(refreshed)})
+		s.sendMessage(conn, MsgRetryTask, RetryTaskResponse{Task: s.taskToInfo(refreshed)})
 		return
 	}
 
@@ -285,8 +290,13 @@ func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 			s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
 			return
 		}
-		s.broadcastTaskUpdate(req.TaskID)
-		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task reset for retry from step %q", req.StepName)})
+		refreshed, err := s.database.GetTask(req.TaskID)
+		if err != nil {
+			s.sendError(conn, fmt.Sprintf("failed to load task after retry: %v", err))
+			return
+		}
+		s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(refreshed)})
+		s.sendMessage(conn, MsgRetryTask, RetryTaskResponse{Task: s.taskToInfo(refreshed)})
 		return
 	}
 
@@ -299,8 +309,13 @@ func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
 		return
 	}
 
-	s.broadcastTaskUpdate(req.TaskID)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task reset for retry from step %q", req.StepName)})
+	refreshed, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after retry: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(refreshed)})
+	s.sendMessage(conn, MsgRetryTask, RetryTaskResponse{Task: s.taskToInfo(refreshed)})
 }
 
 func (s *Server) handleUpdatePriority(conn net.Conn, req UpdatePriorityRequest) {
@@ -314,8 +329,13 @@ func (s *Server) handleUpdatePriority(conn net.Conn, req UpdatePriorityRequest) 
 		return
 	}
 
-	s.broadcastTaskUpdate(req.TaskID)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: "priority updated"})
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after priority update: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
+	s.sendMessage(conn, MsgUpdatePriority, UpdatePriorityResponse{Task: s.taskToInfo(t)})
 }
 
 func (s *Server) handleUpdateField(conn net.Conn, req UpdateFieldRequest) {
@@ -363,8 +383,13 @@ func (s *Server) handleUpdateField(conn net.Conn, req UpdateFieldRequest) {
 		}
 	}
 
-	s.broadcastTaskUpdate(req.TaskID)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("%s updated", req.Field)})
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after field update: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
+	s.sendMessage(conn, MsgUpdateField, UpdateFieldResponse{Task: s.taskToInfo(t)})
 }
 
 func (s *Server) handleRevertTask(conn net.Conn, req RevertTaskRequest) {
@@ -408,7 +433,14 @@ func (s *Server) handleRevertTask(conn net.Conn, req RevertTaskRequest) {
 	}
 
 	log.Printf("%sTask #%d reverted (%d commits)", s.projectLogPrefix(t.ProjectID), t.ID, len(commits))
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d reverted (%d commits)", t.ID, len(commits))})
+
+	refreshed, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after revert: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(refreshed)})
+	s.sendMessage(conn, MsgRevertTask, RevertTaskResponse{Task: s.taskToInfo(refreshed)})
 }
 
 func (s *Server) handleUpdateDependency(conn net.Conn, req UpdateDependencyRequest) {
@@ -448,8 +480,13 @@ func (s *Server) handleUpdateDependency(conn net.Conn, req UpdateDependencyReque
 		return
 	}
 
-	s.broadcastTaskUpdate(req.TaskID)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("dependency updated for task #%d", req.TaskID)})
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after dependency update: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(t)})
+	s.sendMessage(conn, MsgUpdateDependency, UpdateDependencyResponse{Task: s.taskToInfo(t)})
 }
 
 func (s *Server) handleGetStepContexts(conn net.Conn, req GetStepContextsRequest) {

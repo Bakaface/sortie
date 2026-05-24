@@ -55,7 +55,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 			return
 		}
 
-		s.sendMessage(conn, MsgOK, OKResponse{Message: "task continued and resumed"})
+		s.respondWithContinueTask(conn, req.TaskID)
 		return
 	}
 
@@ -71,9 +71,8 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 			s.sendError(conn, fmt.Sprintf("failed to reset task for continue: %v", err))
 			return
 		}
-		s.broadcastTaskUpdate(t.ID)
 		log.Printf("%sTask #%d continuing with workflow %q", s.projectLogPrefix(t.ProjectID), t.ID, req.Workflow)
-		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d continuing with workflow %q", t.ID, req.Workflow)})
+		s.respondWithContinueTask(conn, req.TaskID)
 		return
 	}
 
@@ -83,9 +82,8 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 			s.sendError(conn, fmt.Sprintf("failed to reset task: %v", err))
 			return
 		}
-		s.broadcastTaskUpdate(t.ID)
 		log.Printf("%sTask #%d retrying from step %d", s.projectLogPrefix(t.ProjectID), t.ID, t.StepIndex)
-		s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d retrying from step %d", t.ID, t.StepIndex)})
+		s.respondWithContinueTask(conn, req.TaskID)
 		return
 	}
 
@@ -193,10 +191,22 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 		return
 	}
 
-	s.broadcastTaskUpdate(t.ID)
-
 	log.Printf("%sContinue session started for task #%d (tmux: %s)", s.projectLogPrefix(t.ProjectID), t.ID, session.Name)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("continue session started for task #%d", t.ID)})
+	s.respondWithContinueTask(conn, req.TaskID)
+}
+
+// respondWithContinueTask refreshes the task from the DB, broadcasts the
+// update, and sends a ContinueTaskResponse to the caller. Used by every exit
+// path of handleContinueTask so callers receive a fresh TaskInfo without an
+// extra round trip.
+func (s *Server) respondWithContinueTask(conn net.Conn, taskID int64) {
+	refreshed, err := s.database.GetTask(taskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after continue: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(refreshed)})
+	s.sendMessage(conn, MsgContinueTask, ContinueTaskResponse{Task: s.taskToInfo(refreshed)})
 }
 
 func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
@@ -566,8 +576,13 @@ func (s *Server) handleDetachBranch(conn net.Conn, req DetachBranchRequest) {
 		return
 	}
 
-	s.broadcastTaskUpdate(t.ID)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("branch %s detached from worktree", t.Branch)})
+	refreshed, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after detach: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(refreshed)})
+	s.sendMessage(conn, MsgDetachBranch, DetachBranchResponse{Task: s.taskToInfo(refreshed)})
 }
 
 func (s *Server) handleAttachBranch(conn net.Conn, req AttachBranchRequest) {
@@ -606,8 +621,13 @@ func (s *Server) handleAttachBranch(conn net.Conn, req AttachBranchRequest) {
 		return
 	}
 
-	s.broadcastTaskUpdate(t.ID)
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("branch %s reattached to worktree", t.Branch)})
+	refreshed, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to load task after attach: %v", err))
+		return
+	}
+	s.broadcastToSubscribers(MsgTaskUpdate, TaskUpdateResponse{Task: s.taskToInfo(refreshed)})
+	s.sendMessage(conn, MsgAttachBranch, AttachBranchResponse{Task: s.taskToInfo(refreshed)})
 }
 
 func dirExists(path string) bool {

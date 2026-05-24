@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,9 +10,10 @@ import (
 	"strings"
 	"time"
 
-	gitpkg "github.com/Bakaface/sortie/internal/git"
+	"github.com/Bakaface/sortie/internal/action"
 	"github.com/Bakaface/sortie/internal/client"
 	"github.com/Bakaface/sortie/internal/daemon"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/tmux"
 	"github.com/Bakaface/sortie/internal/workflow"
 	tea "github.com/charmbracelet/bubbletea"
@@ -22,6 +24,16 @@ type taskFieldUpdatedMsg struct {
 }
 
 type taskDeletedMsg int64
+
+// taskUpdatedMsg carries the post-mutation TaskInfo. The list reducer
+// replaces the matching row in place so the user sees the new state without
+// waiting for the next refresh poll.
+type taskUpdatedMsg daemon.TaskInfo
+
+// actionCtx is the shared Ctx builder for TUI tea.Cmd factories.
+func (m Model) actionCtx() action.Ctx {
+	return action.Ctx{Cfg: m.cfg, Client: m.client, Out: io.Discard}
+}
 
 func (m Model) listTasks(c *client.Client) ([]daemon.TaskInfo, error) {
 	if m.projectID > 0 {
@@ -101,8 +113,12 @@ func (m Model) stopTask(taskID int64) tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.StopTask(taskID); err != nil {
+		res, err := action.RunStop(m.actionCtx(), action.StopArgs{ID: taskID})
+		if err != nil {
 			return errorMsg(err)
+		}
+		if res.Task != nil {
+			return taskUpdatedMsg(*res.Task)
 		}
 		return nil
 	}
@@ -116,8 +132,12 @@ func (m Model) retryTask(taskID int64, stepName string) tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.RetryTask(taskID, stepName); err != nil {
+		res, err := action.RunRetry(m.actionCtx(), action.RetryArgs{ID: taskID, FromStep: stepName})
+		if err != nil {
 			return errorMsg(err)
+		}
+		if res.Task != nil {
+			return taskUpdatedMsg(*res.Task)
 		}
 		return nil
 	}
@@ -128,8 +148,12 @@ func (m Model) revertTask(taskID int64) tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.RevertTask(taskID); err != nil {
+		res, err := action.RunRevert(m.actionCtx(), action.RevertArgs{ID: taskID})
+		if err != nil {
 			return errorMsg(err)
+		}
+		if res.Task != nil {
+			return taskUpdatedMsg(*res.Task)
 		}
 		return nil
 	}
@@ -140,8 +164,12 @@ func (m Model) detachBranch(taskID int64) tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.DetachBranch(taskID); err != nil {
+		res, err := action.RunDetach(m.actionCtx(), action.DetachArgs{ID: taskID})
+		if err != nil {
 			return errorMsg(err)
+		}
+		if res.Task != nil {
+			return taskUpdatedMsg(*res.Task)
 		}
 		return nil
 	}
@@ -152,20 +180,28 @@ func (m Model) attachBranch(taskID int64) tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.AttachBranch(taskID); err != nil {
+		res, err := action.RunAttachBranch(m.actionCtx(), action.AttachBranchArgs{ID: taskID})
+		if err != nil {
 			return errorMsg(err)
+		}
+		if res.Task != nil {
+			return taskUpdatedMsg(*res.Task)
 		}
 		return nil
 	}
 }
 
-func (m Model) continueTask(taskID int64, workflow, prompt string) tea.Cmd {
+func (m Model) continueTask(taskID int64, wf, prompt string) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.ContinueTask(taskID, workflow, prompt); err != nil {
+		res, err := action.RunContinue(m.actionCtx(), action.ContinueArgs{ID: taskID, Workflow: wf, Prompt: prompt})
+		if err != nil {
 			return errorMsg(err)
+		}
+		if res.Task != nil {
+			return taskUpdatedMsg(*res.Task)
 		}
 		return nil
 	}
@@ -188,7 +224,7 @@ func (m Model) deleteTask(taskID int64) tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.DeleteTask(taskID); err != nil {
+		if _, err := action.RunDelete(m.actionCtx(), action.DeleteArgs{ID: taskID}); err != nil {
 			return errorMsg(err)
 		}
 		return taskDeletedMsg(taskID)
@@ -200,8 +236,13 @@ func (m Model) updateTaskPriority(taskID int64, priority string) tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.UpdateTaskPriority(taskID, priority); err != nil {
+		p := priority
+		res, err := action.RunEdit(m.actionCtx(), action.EditArgs{ID: taskID, Priority: &p})
+		if err != nil {
 			return errorMsg(err)
+		}
+		if res.Task != nil {
+			return taskUpdatedMsg(*res.Task)
 		}
 		return nil
 	}
@@ -212,8 +253,12 @@ func (m Model) addTaskDependency(taskID, blockedByID int64) tea.Cmd {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.AddTaskDependency(taskID, blockedByID); err != nil {
-			return errorMsg(fmt.Errorf("failed to add dependency: %w", err))
+		res, err := action.RunDependsOn(m.actionCtx(), action.DependsOnArgs{TaskID: taskID, BlockedByID: blockedByID, Direction: "add"})
+		if err != nil {
+			return errorMsg(err)
+		}
+		if res.Task != nil {
+			return taskUpdatedMsg(*res.Task)
 		}
 		return nil
 	}
@@ -226,27 +271,26 @@ func (m Model) createTaskWithPrompt(title, description, branchName string, workt
 		}
 
 		bm := int(m.prompt.branchMode)
-		req := daemon.CreateTaskRequest{
-			Title:          title,
-			Description:    description,
-			Workflow:       m.selectedWorkflow,
-			BranchName:     branchName,
-			TargetBranch:   targetBranch,
-			CheckoutBranch: checkoutBranch,
-			ProjectPath:    m.projectPath,
-			Worktree:       &worktree,
-			BranchMode:     &bm,
-			Images:         images,
+		args := action.CreateArgs{
+			Title:       title,
+			Description: description,
+			Workflow:    m.selectedWorkflow,
+			Branch:      branchName,
+			Target:      targetBranch,
+			Checkout:    checkoutBranch,
+			NoWorktree:  !worktree,
+			ProjectPath: m.projectPath,
+			Images:      images,
+			BranchMode:  &bm,
 		}
 		if m.blockingTaskID != 0 {
-			req.BlockedBy = []int64{m.blockingTaskID}
+			args.DependsOn = []int64{m.blockingTaskID}
 		}
-		info, err := m.client.CreateTaskWithOptions(req)
+		res, err := action.RunCreate(m.actionCtx(), args)
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
-
-		return taskCreatedMsg(*info)
+		return taskCreatedMsg(*res.Task)
 	}
 }
 
@@ -268,19 +312,15 @@ func (m Model) handleEditorResult(path string) tea.Cmd {
 			return nil
 		}
 
-		worktree := true
-		req := daemon.CreateTaskRequest{
+		res, err := action.RunCreate(m.actionCtx(), action.CreateArgs{
 			Description: description,
 			Workflow:    m.selectedWorkflow,
 			ProjectPath: m.projectPath,
-			Worktree:    &worktree,
-		}
-		info, err := m.client.CreateTaskWithOptions(req)
+		})
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create task: %w", err))
 		}
-
-		return taskCreatedMsg(*info)
+		return taskCreatedMsg(*res.Task)
 	}
 }
 
@@ -302,7 +342,18 @@ func (m Model) handleFieldEditorResult(msg editorFieldFinishedMsg) tea.Cmd {
 			return nil
 		}
 
-		if err := m.client.UpdateTaskField(msg.taskID, msg.field, value); err != nil {
+		editArgs := action.EditArgs{ID: msg.taskID}
+		switch msg.field {
+		case "title":
+			editArgs.Title = &value
+		case "description":
+			editArgs.Description = &value
+		case "context":
+			editArgs.Context = &value
+		default:
+			return errorMsg(fmt.Errorf("unknown field: %s", msg.field))
+		}
+		if _, err := action.RunEdit(m.actionCtx(), editArgs); err != nil {
 			return errorMsg(fmt.Errorf("failed to update %s: %w", msg.field, err))
 		}
 
@@ -547,19 +598,15 @@ func (m Model) createBranchTask(branch string) tea.Cmd {
 			return nil
 		}
 
-		worktree := true
-		req := daemon.CreateTaskRequest{
-			CheckoutBranch: branch,
-			ProjectPath:    m.projectPath,
-			Worktree:       &worktree,
-			TmuxDirect:     true,
-		}
-		info, err := m.client.CreateTaskWithOptions(req)
+		res, err := action.RunCreate(m.actionCtx(), action.CreateArgs{
+			Checkout:    branch,
+			ProjectPath: m.projectPath,
+			TmuxDirect:  true,
+		})
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to create branch task: %w", err))
 		}
-
-		return taskCreatedMsg(*info)
+		return taskCreatedMsg(*res.Task)
 	}
 }
 

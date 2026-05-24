@@ -307,8 +307,16 @@ func (c *Client) GetTask(id int64) (*daemon.TaskInfo, error) {
 // reset). When non-empty, completed work for earlier steps is preserved and
 // the engine resumes from the named step. The daemon validates that the step
 // exists in the task's workflow.
-func (c *Client) RetryTask(id int64, stepName string) error {
-	return c.requestOK(daemon.MsgRetryTask, daemon.RetryTaskRequest{TaskID: id, StepName: stepName})
+func (c *Client) RetryTask(id int64, stepName string) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgRetryTask, daemon.RetryTaskRequest{TaskID: id, StepName: stepName})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.RetryTaskResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
 func (c *Client) CreateTask(description, workflow, branchName, projectPath string, worktree bool, images []string) (*daemon.TaskInfo, error) {
@@ -347,59 +355,123 @@ func (c *Client) CreateTaskWithOptions(req daemon.CreateTaskRequest) (*daemon.Ta
 	return &resp.Task, nil
 }
 
-func (c *Client) ContinueTask(id int64, workflow, prompt string) error {
-	return c.requestOK(daemon.MsgContinueTask, daemon.ContinueTaskRequest{TaskID: id, Workflow: workflow, Prompt: prompt})
+func (c *Client) ContinueTask(id int64, workflow, prompt string) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgContinueTask, daemon.ContinueTaskRequest{TaskID: id, Workflow: workflow, Prompt: prompt})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.ContinueTaskResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
 func (c *Client) FinalizeTask(id int64) error {
 	return c.requestOK(daemon.MsgFinalizeTask, daemon.FinalizeTaskRequest{TaskID: id})
 }
 
-func (c *Client) UpdateTaskPriority(id int64, priority string) error {
-	return c.requestOK(daemon.MsgUpdatePriority, daemon.UpdatePriorityRequest{
+func (c *Client) UpdateTaskPriority(id int64, priority string) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgUpdatePriority, daemon.UpdatePriorityRequest{
 		TaskID:   id,
 		Priority: priority,
 	})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.UpdatePriorityResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
-func (c *Client) UpdateTaskField(id int64, field, value string) error {
-	return c.requestOK(daemon.MsgUpdateField, daemon.UpdateFieldRequest{
+func (c *Client) UpdateTaskField(id int64, field, value string) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgUpdateField, daemon.UpdateFieldRequest{
 		TaskID: id,
 		Field:  field,
 		Value:  value,
 	})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.UpdateFieldResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
 func (c *Client) DeleteTask(id int64) error {
 	return c.requestOK(daemon.MsgDeleteTask, daemon.DeleteTaskRequest{TaskID: id})
 }
 
-func (c *Client) RevertTask(id int64) error {
-	return c.requestOK(daemon.MsgRevertTask, daemon.RevertTaskRequest{TaskID: id})
+func (c *Client) RevertTask(id int64) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgRevertTask, daemon.RevertTaskRequest{TaskID: id})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.RevertTaskResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
-func (c *Client) AddTaskDependency(taskID, blockedByID int64) error {
-	return c.requestOK(daemon.MsgUpdateDependency, daemon.UpdateDependencyRequest{
+func (c *Client) AddTaskDependency(taskID, blockedByID int64) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgUpdateDependency, daemon.UpdateDependencyRequest{
 		TaskID:    taskID,
 		BlockedBy: blockedByID,
 		Action:    "add",
 	})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.UpdateDependencyResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
-func (c *Client) RemoveTaskDependency(taskID, blockedByID int64) error {
-	return c.requestOK(daemon.MsgUpdateDependency, daemon.UpdateDependencyRequest{
+func (c *Client) RemoveTaskDependency(taskID, blockedByID int64) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgUpdateDependency, daemon.UpdateDependencyRequest{
 		TaskID:    taskID,
 		BlockedBy: blockedByID,
 		Action:    "remove",
 	})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.UpdateDependencyResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
-func (c *Client) DetachBranch(id int64) error {
-	return c.requestOK(daemon.MsgDetachBranch, daemon.DetachBranchRequest{TaskID: id})
+func (c *Client) DetachBranch(id int64) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgDetachBranch, daemon.DetachBranchRequest{TaskID: id})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.DetachBranchResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
-func (c *Client) AttachBranch(id int64) error {
-	return c.requestOK(daemon.MsgAttachBranch, daemon.AttachBranchRequest{TaskID: id})
+func (c *Client) AttachBranch(id int64) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgAttachBranch, daemon.AttachBranchRequest{TaskID: id})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.AttachBranchResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
 }
 
 func (c *Client) GetLogs(id int64, tail int, offset int) ([]string, int, error) {
@@ -420,10 +492,32 @@ func (c *Client) GetLogs(id int64, tail int, offset int) ([]string, int, error) 
 	return resp.Lines, resp.TotalLines, nil
 }
 
-func (c *Client) StopTask(id int64) error {
-	// Agent IDs are formatted as task ID in string form
-	agentID := fmt.Sprintf("%d", id)
-	return c.StopAgent(agentID)
+func (c *Client) StopTask(id int64) (*daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgStopTask, daemon.StopTaskRequest{TaskID: id})
+	if err != nil {
+		return nil, err
+	}
+	var resp daemon.StopTaskResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return nil, err
+	}
+	return &resp.Task, nil
+}
+
+// Cleanup removes worktrees, branches, and log directories for completed
+// and failed tasks. Passing taskID == 0 cleans up every eligible task.
+// The daemon returns the number of tasks cleaned and their post-cleanup
+// TaskInfo entries so the TUI can drop them from its list.
+func (c *Client) Cleanup(taskID int64) (int, []daemon.TaskInfo, error) {
+	msg, err := c.request(daemon.MsgCleanup, daemon.CleanupRequest{TaskID: taskID})
+	if err != nil {
+		return 0, nil, err
+	}
+	var resp daemon.CleanupResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return 0, nil, err
+	}
+	return resp.Count, resp.Tasks, nil
 }
 
 // GetStepContexts fetches all completed step contexts for a task.

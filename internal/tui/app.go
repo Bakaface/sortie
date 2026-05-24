@@ -405,6 +405,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.list.RemoveTask(int64(msg))
 		return m, nil
 
+	case taskUpdatedMsg:
+		m.list.UpdateTask(daemon.TaskInfo(msg))
+		return m, nil
+
+	case paletteActionMsg:
+		if msg.result.Task != nil {
+			m.list.UpdateTask(*msg.result.Task)
+		}
+		for _, t := range msg.result.Tasks {
+			m.list.RemoveTask(t.ID)
+		}
+		if msg.result.Message != "" {
+			m.statusMessage = msg.result.Message
+			m.statusMessageTTL = 4
+		}
+		return m, nil
+
 	case taskCreatedMsg:
 		m.list.UpdateTask(daemon.TaskInfo(msg))
 		m.list.GotoTop()

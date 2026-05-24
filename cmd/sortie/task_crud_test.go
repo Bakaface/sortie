@@ -35,7 +35,7 @@ func TestCreateCmd_InvalidPriority(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid priority")
 	}
-	expected := `invalid priority "invalid" (valid: low, medium, high, urgent)`
+	expected := `invalid priority "invalid" (allowed: low, medium, high, urgent)`
 	if got := err.Error(); got != expected {
 		t.Errorf("unexpected error: %q, want %q", got, expected)
 	}
@@ -102,7 +102,7 @@ func TestEditCmd_InvalidPriority(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for invalid priority")
 	}
-	expected := `invalid priority "banana" (valid: low, medium, high, urgent)`
+	expected := `invalid priority "banana" (allowed: low, medium, high, urgent)`
 	if got := err.Error(); got != expected {
 		t.Errorf("unexpected error: %q, want %q", got, expected)
 	}
