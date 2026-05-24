@@ -18,6 +18,7 @@ git:
 workflows:
   tasks:
     - name: plan-impl-review
+      print: true
       steps:
         - name: planning
           prompt: "Plan the task"

@@ -43,6 +43,7 @@ git:
 workflows:
   tasks:
     - name: looping
+      print: true
       steps:
         - name: implementing
           prompt: "Do the work"

@@ -19,6 +19,7 @@ git:
 workflows:
   tasks:
     - name: simple
+      print: true
       steps:
         - name: implementing
           prompt: "Implement the task"

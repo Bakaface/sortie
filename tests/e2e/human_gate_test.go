@@ -18,6 +18,7 @@ git:
 workflows:
   tasks:
     - name: human-approval
+      print: true
       steps:
         - name: implementing
           prompt: "Implement the task"

@@ -197,16 +197,17 @@ func (e *Env) DBQueryInt(query string, args ...any) int64 {
 }
 
 // AssertMergedFor asserts that the task's worktree branch was merged into main.
-// Heuristic: checks that main has at least one merge commit (two-parent commit).
-// If the branch name is available from the JSON, it also checks that the merge
-// subject line contains the branch name or task title.
+// Heuristic: checks that main has at least one commit beyond the two setup
+// commits (`initial` and `add .sortie.yml`). This handles both fast-forward
+// merges (linear history, no merge commit) and `--no-ff` merges (explicit
+// merge commit).
 func (e *Env) AssertMergedFor(taskID int64) {
 	e.t.Helper()
 
-	// Check main has at least one merge commit.
-	merges := gitInDir(e.ProjectDir, "log", "main", "--merges", "--pretty=%H", "-10")
-	if strings.TrimSpace(merges) == "" {
-		e.t.Errorf("AssertMergedFor(%d): no merge commits on main", taskID)
+	out := gitInDir(e.ProjectDir, "log", "main", "--oneline")
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) < 3 {
+		e.t.Errorf("AssertMergedFor(%d): expected at least 3 commits on main (2 setup + 1 task), got %d:\n%s", taskID, len(lines), out)
 	}
 }
 
