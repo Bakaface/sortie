@@ -92,6 +92,8 @@ func init() {
 	continueCmd.Flags().StringP("workflow", "w", "", "Workflow to continue with (resets a terminal task)")
 	continueCmd.Flags().String("prompt", "", "Optional follow-up prompt passed when continuing with a workflow")
 	retryCmd.Flags().String("from-step", "", "Restart from this workflow step (preserves earlier steps' captured context)")
+	stepContextCmd.Flags().String("step", "", "Workflow step name whose captured context should be printed")
+	stepContextCmd.Flags().Bool("all", false, "Print every completed step's context as a JSON object ({step_name: context})")
 
 	rootCmd.AddCommand(tasksCmd)
 	rootCmd.AddCommand(startCmd)
@@ -101,6 +103,7 @@ func init() {
 	rootCmd.AddCommand(revertCmd)
 	rootCmd.AddCommand(continueCmd)
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(stepContextCmd)
 	rootCmd.AddCommand(cleanupCmd)
 	rootCmd.AddCommand(attachCmd)
 	rootCmd.AddCommand(createCmd)
