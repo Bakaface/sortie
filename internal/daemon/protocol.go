@@ -9,44 +9,45 @@ import (
 type MessageType string
 
 const (
-	MsgListAgents   MessageType = "list_agents"
-	MsgListTasks    MessageType = "list_tasks"
-	MsgStartAgent   MessageType = "start_agent"
-	MsgStopAgent    MessageType = "stop_agent"
-	MsgSubscribe    MessageType = "subscribe"
-	MsgUnsubscribe  MessageType = "unsubscribe"
-	MsgSendInput    MessageType = "send_input"
-	MsgGetOutput    MessageType = "get_output"
-	MsgGetTask      MessageType = "get_task"
-	MsgRetryTask    MessageType = "retry_task"
-	MsgGetLogs      MessageType = "get_logs"
-	MsgCreateTask   MessageType = "create_task"
-	MsgContinueTask   MessageType = "continue_task"
-	MsgFinalizeTask   MessageType = "finalize_task"
-	MsgDeleteTask     MessageType = "delete_task"
-	MsgUpdatePriority MessageType = "update_priority"
-	MsgUpdateField    MessageType = "update_field"
-	MsgAgentList      MessageType = "agent_list"
-	MsgTaskList     MessageType = "task_list"
-	MsgAgentUpdate  MessageType = "agent_update"
-	MsgTaskUpdate   MessageType = "task_update"
-	MsgOutputChunk  MessageType = "output_chunk"
-	MsgError        MessageType = "error"
-	MsgOK           MessageType = "ok"
-	MsgPing         MessageType = "ping"
-	MsgPong         MessageType = "pong"
-	MsgShutdown       MessageType = "shutdown"
-	MsgTmuxActivity   MessageType = "tmux_activity"
-	MsgRevertTask         MessageType = "revert_task"
-	MsgUpdateDependency   MessageType = "update_dependency"
-	MsgDetachBranch       MessageType = "detach_branch"
-	MsgAttachBranch       MessageType = "attach_branch"
-	MsgGetStepContexts    MessageType = "get_step_contexts"
-	MsgUpdateStepContext  MessageType = "update_step_context"
-	MsgGetTaskSteps       MessageType = "get_task_steps"
-	MsgListWorkflows      MessageType = "list_workflows"
-	MsgStopTask           MessageType = "stop_task"
-	MsgCleanup            MessageType = "cleanup"
+	MsgListAgents              MessageType = "list_agents"
+	MsgListTasks               MessageType = "list_tasks"
+	MsgStartAgent              MessageType = "start_agent"
+	MsgStopAgent               MessageType = "stop_agent"
+	MsgSubscribe               MessageType = "subscribe"
+	MsgUnsubscribe             MessageType = "unsubscribe"
+	MsgSendInput               MessageType = "send_input"
+	MsgGetOutput               MessageType = "get_output"
+	MsgGetTask                 MessageType = "get_task"
+	MsgRetryTask               MessageType = "retry_task"
+	MsgGetLogs                 MessageType = "get_logs"
+	MsgCreateTask              MessageType = "create_task"
+	MsgContinueTask            MessageType = "continue_task"
+	MsgFinalizeTask            MessageType = "finalize_task"
+	MsgDeleteTask              MessageType = "delete_task"
+	MsgUpdatePriority          MessageType = "update_priority"
+	MsgUpdateField             MessageType = "update_field"
+	MsgAgentList               MessageType = "agent_list"
+	MsgTaskList                MessageType = "task_list"
+	MsgAgentUpdate             MessageType = "agent_update"
+	MsgTaskUpdate              MessageType = "task_update"
+	MsgOutputChunk             MessageType = "output_chunk"
+	MsgError                   MessageType = "error"
+	MsgOK                      MessageType = "ok"
+	MsgPing                    MessageType = "ping"
+	MsgPong                    MessageType = "pong"
+	MsgShutdown                MessageType = "shutdown"
+	MsgTmuxActivity            MessageType = "tmux_activity"
+	MsgRevertTask              MessageType = "revert_task"
+	MsgUpdateDependency        MessageType = "update_dependency"
+	MsgDetachBranch            MessageType = "detach_branch"
+	MsgAttachBranch            MessageType = "attach_branch"
+	MsgGetStepContexts         MessageType = "get_step_contexts"
+	MsgUpdateStepContext       MessageType = "update_step_context"
+	MsgUpdateActiveStepContext MessageType = "update_active_step_context"
+	MsgGetTaskSteps            MessageType = "get_task_steps"
+	MsgListWorkflows           MessageType = "list_workflows"
+	MsgStopTask                MessageType = "stop_task"
+	MsgCleanup                 MessageType = "cleanup"
 )
 
 type Message struct {
@@ -117,24 +118,24 @@ type GetLogsRequest struct {
 }
 
 type ListTasksRequest struct {
-	ProjectID   int64  `json:"project_id,omitempty"`    // 0 means all projects
-	ProjectName string `json:"project_name,omitempty"`  // filter by project name (repo basename)
+	ProjectID   int64  `json:"project_id,omitempty"`   // 0 means all projects
+	ProjectName string `json:"project_name,omitempty"` // filter by project name (repo basename)
 }
 
 type CreateTaskRequest struct {
-	Title       string   `json:"title,omitempty"`
-	Description string   `json:"description"`
-	Workflow    string   `json:"workflow,omitempty"`
-	Priority    string   `json:"priority,omitempty"`
-	BranchName     string   `json:"branch_name,omitempty"`  // user-provided branch template
+	Title          string   `json:"title,omitempty"`
+	Description    string   `json:"description"`
+	Workflow       string   `json:"workflow,omitempty"`
+	Priority       string   `json:"priority,omitempty"`
+	BranchName     string   `json:"branch_name,omitempty"` // user-provided branch template
 	TargetBranch   string   `json:"target_branch,omitempty"`
 	CheckoutBranch string   `json:"checkout_branch,omitempty"`
 	ProjectPath    string   `json:"project_path,omitempty"` // resolved to project_id by daemon
 	Worktree       *bool    `json:"worktree,omitempty"`     // nil means default (true)
 	BranchMode     *int     `json:"branch_mode,omitempty"`  // nil means default (0 = new branch)
 	TmuxDirect     bool     `json:"tmux_direct,omitempty"`  // when true, skip workflow and go straight to tmux
-	Images      []string `json:"images,omitempty"`
-	BlockedBy   []int64  `json:"blocked_by,omitempty"`   // task IDs that block this task
+	Images         []string `json:"images,omitempty"`
+	BlockedBy      []int64  `json:"blocked_by,omitempty"` // task IDs that block this task
 }
 
 type ContinueTaskRequest struct {
@@ -209,6 +210,18 @@ type UpdateStepContextRequest struct {
 	TaskID   int64  `json:"task_id"`
 	StepName string `json:"step_name"`
 	Context  string `json:"context"`
+}
+
+// UpdateActiveStepContextRequest is the payload for MsgUpdateActiveStepContext.
+// Unlike UpdateStepContextRequest (which targets a completed step from the TUI
+// editor), this path enforces that step_name matches the task's currently-
+// running step and supports replace/append semantics so an agent can update
+// its own step context mid-session.
+type UpdateActiveStepContextRequest struct {
+	TaskID   int64  `json:"task_id"`
+	StepName string `json:"step_name"`
+	Context  string `json:"context"`
+	Mode     string `json:"mode,omitempty"` // "replace" (default) or "append"
 }
 
 // ListWorkflowsRequest asks the daemon to return all workflows configured for
@@ -341,42 +354,42 @@ type ChatInfo struct {
 }
 
 type TaskInfo struct {
-	ID           int64      `json:"id"`
-	ProjectID    int64      `json:"project_id"`
-	ProjectName  string     `json:"project_name,omitempty"`
-	ProjectPath  string     `json:"project_path,omitempty"`
-	Title        string     `json:"title"`
-	Description  string     `json:"description"`
-	Slug         string     `json:"slug"`
-	Workflow     string     `json:"workflow,omitempty"`
-	Status       string     `json:"status"`
-	Priority     string     `json:"priority"`
-	StepIndex     int        `json:"step_index"`
-	CurrentStep   string     `json:"current_step"`
-	LoopIteration int        `json:"loop_iteration,omitempty"`
-	BranchName     string     `json:"branch_name,omitempty"`
-	Branch         string     `json:"branch"`
-	TargetBranch   string     `json:"target_branch,omitempty"`
-	CheckoutBranch string     `json:"checkout_branch,omitempty"`
+	ID               int64      `json:"id"`
+	ProjectID        int64      `json:"project_id"`
+	ProjectName      string     `json:"project_name,omitempty"`
+	ProjectPath      string     `json:"project_path,omitempty"`
+	Title            string     `json:"title"`
+	Description      string     `json:"description"`
+	Slug             string     `json:"slug"`
+	Workflow         string     `json:"workflow,omitempty"`
+	Status           string     `json:"status"`
+	Priority         string     `json:"priority"`
+	StepIndex        int        `json:"step_index"`
+	CurrentStep      string     `json:"current_step"`
+	LoopIteration    int        `json:"loop_iteration,omitempty"`
+	BranchName       string     `json:"branch_name,omitempty"`
+	Branch           string     `json:"branch"`
+	TargetBranch     string     `json:"target_branch,omitempty"`
+	CheckoutBranch   string     `json:"checkout_branch,omitempty"`
 	Worktree         bool       `json:"worktree"`
 	WorktreePath     string     `json:"worktree_path,omitempty"`
 	WorktreeDetached bool       `json:"worktree_detached,omitempty"`
-	ErrorMessage string     `json:"error_message,omitempty"`
-	Context      string     `json:"context,omitempty"`
-	Images       []string   `json:"images,omitempty"`
-	Commits      []string   `json:"commits,omitempty"`
-	BlockedBy    []int64    `json:"blocked_by,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	StartedAt    *time.Time `json:"started_at,omitempty"`
-	CompletedAt  *time.Time `json:"completed_at,omitempty"`
-	TmuxActivity string     `json:"tmux_activity,omitempty"`
+	ErrorMessage     string     `json:"error_message,omitempty"`
+	Context          string     `json:"context,omitempty"`
+	Images           []string   `json:"images,omitempty"`
+	Commits          []string   `json:"commits,omitempty"`
+	BlockedBy        []int64    `json:"blocked_by,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	StartedAt        *time.Time `json:"started_at,omitempty"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	TmuxActivity     string     `json:"tmux_activity,omitempty"`
 	// StepHuman reflects the Human flag on the workflow step that the task is
 	// currently paused at (when Status is "tmux" or "awaiting-approval").
 	// Used by the TUI to surface the "real" underlying state of a tmux task —
 	// human steps render as awaiting-approval with a [wip] postfix, non-human
 	// tmux steps render as running with a [T] postfix.
-	StepHuman    bool       `json:"step_human,omitempty"`
-	LatestChat   *ChatInfo  `json:"latest_chat,omitempty"`
+	StepHuman  bool      `json:"step_human,omitempty"`
+	LatestChat *ChatInfo `json:"latest_chat,omitempty"`
 }
 
 type TaskListResponse struct {

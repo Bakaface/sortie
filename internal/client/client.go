@@ -556,6 +556,20 @@ func (c *Client) UpdateStepContext(taskID int64, stepName, context string) error
 	})
 }
 
+// UpdateActiveStepContext writes context for the task's currently-active step.
+// The daemon rejects the call if step_name doesn't match the task's running
+// step. mode is "replace" (default) or "append". Used by the MCP
+// update_step_context tool so an agent can push its canonical artifact mid-
+// session instead of waiting for the post-session summarizer.
+func (c *Client) UpdateActiveStepContext(taskID int64, stepName, context, mode string) error {
+	return c.requestOK(daemon.MsgUpdateActiveStepContext, daemon.UpdateActiveStepContextRequest{
+		TaskID:   taskID,
+		StepName: stepName,
+		Context:  context,
+		Mode:     mode,
+	})
+}
+
 // ListWorkflows returns the workflows configured for the project rooted at
 // projectPath, grouped by kind (tasks, one-off, init).
 func (c *Client) ListWorkflows(projectPath string) (*daemon.ListWorkflowsResponse, error) {

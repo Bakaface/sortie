@@ -495,6 +495,14 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleUpdateStepContext(conn, req)
 
+	case MsgUpdateActiveStepContext:
+		var req UpdateActiveStepContextRequest
+		if err := msg.DecodePayload(&req); err != nil {
+			s.sendError(conn, "invalid payload")
+			return
+		}
+		s.handleUpdateActiveStepContext(conn, req)
+
 	case MsgListWorkflows:
 		var req ListWorkflowsRequest
 		if err := msg.DecodePayload(&req); err != nil {

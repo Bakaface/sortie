@@ -552,6 +552,62 @@ func (s *Server) handleUpdateStepContext(conn net.Conn, req UpdateStepContextReq
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("step %q context updated", req.StepName)})
 }
 
+// handleUpdateActiveStepContext writes context for the task's currently-active
+// (running) step. Used by the MCP update_step_context tool so an agent can
+// publish a canonical artifact mid-session instead of waiting for the post-
+// session summarizer. The handler enforces the safety invariants documented
+// on UpdateActiveStepContextRequest: the step must be the task's current step
+// AND its task_steps row must still be 'running'.
+func (s *Server) handleUpdateActiveStepContext(conn net.Conn, req UpdateActiveStepContextRequest) {
+	if strings.TrimSpace(req.StepName) == "" {
+		s.sendError(conn, "step_name is required")
+		return
+	}
+	if req.TaskID <= 0 {
+		s.sendError(conn, "task_id is required")
+		return
+	}
+
+	mode := strings.ToLower(strings.TrimSpace(req.Mode))
+	if mode == "" {
+		mode = "replace"
+	}
+	if mode != "replace" && mode != "append" {
+		s.sendError(conn, fmt.Sprintf("invalid mode %q: must be \"replace\" or \"append\"", req.Mode))
+		return
+	}
+
+	t, err := s.database.GetTask(req.TaskID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get task #%d: %v", req.TaskID, err))
+		return
+	}
+
+	if t.CurrentStep == "" {
+		s.sendError(conn, fmt.Sprintf("task #%d has no active step", req.TaskID))
+		return
+	}
+	if t.CurrentStep != req.StepName {
+		s.sendError(conn, fmt.Sprintf("step %q is not the active step (current: %q)", req.StepName, t.CurrentStep))
+		return
+	}
+
+	rows, err := s.database.UpdateRunningTaskStepContext(req.TaskID, req.StepName, req.Context, mode == "append")
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update step context: %v", err))
+		return
+	}
+	if rows == 0 {
+		// CurrentStep matched but no running task_steps row was updated — the
+		// step either hasn't started yet or has already been marked completed.
+		s.sendError(conn, fmt.Sprintf("step %q is not running for task #%d", req.StepName, req.TaskID))
+		return
+	}
+
+	s.broadcastTaskUpdate(req.TaskID)
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("step %q context updated (%s)", req.StepName, mode)})
+}
+
 func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string, initialTitle string, manualTitle string) {
 	projCfg := s.cfg
 	if pc, err := s.getProjectContext(projectID); err == nil {

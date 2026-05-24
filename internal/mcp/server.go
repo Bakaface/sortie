@@ -49,10 +49,18 @@ func Serve(cfg *config.Config) error {
 
 // registerTools wires the public tool surface. Keep this list aligned with
 // the "Safe-by-default" promise: no destructive operations.
+//
+// update_step_context is included even though it mutates DB state because the
+// daemon enforces strict safety constraints: it only writes to the task's
+// currently-active step (verified against tasks.current_step AND task_steps
+// row status), and it cannot affect any other task. It cannot delete data,
+// stop agents, or retry/revert tasks. The worst-case is that an agent
+// overwrites its own in-flight context — recoverable by re-running the step.
 func registerTools(s *server.MCPServer, c *client.Client) {
 	registerCreateTask(s, c)
 	registerListWorkflows(s, c)
 	registerGetTask(s, c)
+	registerUpdateStepContext(s, c)
 }
 
 // resultErr builds an MCP error result without losing the underlying error

@@ -6,8 +6,10 @@ destructive operations.
 
 ## Critical Invariants
 
-- **Safe surface only**: `create_task`, `get_task`, `list_workflows`. Do not add `delete_task`,
-  `stop_agent`, or `retry_task` here without an explicit design decision.
+- **Safe surface only**: `create_task`, `get_task`, `list_workflows`, `update_step_context`.
+  Do not add `delete_task`, `stop_agent`, or `retry_task` here without an explicit design
+  decision. `update_step_context` is admitted because the daemon enforces that it can only
+  write to the calling task's currently-active step (see `handleUpdateActiveStepContext`).
 - **Project resolution is per-call**: `resolveProjectPath()` in `project.go` falls back to
   `git rev-parse --show-toplevel` against the caller's cwd when `project_path` is omitted,
   matching how the TUI resolves projects so tasks land on the same project row.
@@ -23,6 +25,7 @@ destructive operations.
 | `tool_create_task.go` | `create_task` tool definition + handler |
 | `tool_get_task.go` | `get_task` tool definition + handler |
 | `tool_list_workflows.go` | `list_workflows` tool definition + handler |
+| `tool_update_step_context.go` | `update_step_context` tool definition + handler |
 
 ## Conventions
 

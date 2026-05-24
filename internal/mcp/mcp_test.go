@@ -169,7 +169,7 @@ func TestMCP_ListsToolsAdvertisedToClients(t *testing.T) {
 	for _, tool := range resp.Tools {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"create_task", "list_workflows", "get_task"} {
+	for _, want := range []string{"create_task", "list_workflows", "get_task", "update_step_context"} {
 		if !got[want] {
 			t.Errorf("tool %q not advertised; got %v", want, got)
 		}
@@ -488,6 +488,140 @@ func TestMCP_GetTask_RejectsInvalidID(t *testing.T) {
 
 	if len(fake.requestTypes()) != 0 {
 		t.Errorf("daemon should not be contacted for invalid id; got %v", fake.requestTypes())
+	}
+}
+
+func TestMCP_UpdateStepContext_ForwardsPayload(t *testing.T) {
+	fake := newFakeDaemon(t)
+
+	var captured daemon.UpdateActiveStepContextRequest
+	fake.handle(daemon.MsgUpdateActiveStepContext, func(msg *daemon.Message) *daemon.Message {
+		_ = msg.DecodePayload(&captured)
+		resp, _ := daemon.NewMessage(daemon.MsgOK, daemon.OKResponse{Message: "ok"})
+		return resp
+	})
+
+	c := startMCPServer(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "update_step_context",
+			Arguments: map[string]any{
+				"task_id":   42,
+				"step_name": "implement",
+				"context":   "canonical artifact body",
+				"mode":      "append",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", textOf(res))
+	}
+
+	if captured.TaskID != 42 {
+		t.Errorf("TaskID: %d, want 42", captured.TaskID)
+	}
+	if captured.StepName != "implement" {
+		t.Errorf("StepName: %q", captured.StepName)
+	}
+	if captured.Context != "canonical artifact body" {
+		t.Errorf("Context: %q", captured.Context)
+	}
+	if captured.Mode != "append" {
+		t.Errorf("Mode: %q", captured.Mode)
+	}
+}
+
+func TestMCP_UpdateStepContext_RejectsInvalidArgs(t *testing.T) {
+	fake := newFakeDaemon(t)
+	c := startMCPServer(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cases := []struct {
+		name      string
+		arguments map[string]any
+		wantErr   string
+	}{
+		{
+			name:      "task_id zero",
+			arguments: map[string]any{"task_id": 0, "step_name": "implement", "context": "x"},
+			wantErr:   "task_id must be a positive integer",
+		},
+		{
+			name:      "empty step_name",
+			arguments: map[string]any{"task_id": 1, "step_name": "  ", "context": "x"},
+			wantErr:   "step_name is required",
+		},
+		{
+			name:      "invalid mode",
+			arguments: map[string]any{"task_id": 1, "step_name": "implement", "context": "x", "mode": "overwrite"},
+			wantErr:   "invalid mode",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := c.CallTool(ctx, mcp.CallToolRequest{
+				Params: mcp.CallToolParams{
+					Name:      "update_step_context",
+					Arguments: tc.arguments,
+				},
+			})
+			if err != nil {
+				t.Fatalf("CallTool: %v", err)
+			}
+			if !res.IsError {
+				t.Fatalf("expected tool error, got success: %s", textOf(res))
+			}
+			if !strings.Contains(textOf(res), tc.wantErr) {
+				t.Errorf("error should contain %q, got %q", tc.wantErr, textOf(res))
+			}
+		})
+	}
+
+	// None of the rejected calls should have touched the daemon.
+	for _, mt := range fake.requestTypes() {
+		if mt == daemon.MsgUpdateActiveStepContext {
+			t.Errorf("invalid arg call leaked to daemon")
+		}
+	}
+}
+
+func TestMCP_UpdateStepContext_DefaultsModeToReplace(t *testing.T) {
+	fake := newFakeDaemon(t)
+
+	var captured daemon.UpdateActiveStepContextRequest
+	fake.handle(daemon.MsgUpdateActiveStepContext, func(msg *daemon.Message) *daemon.Message {
+		_ = msg.DecodePayload(&captured)
+		resp, _ := daemon.NewMessage(daemon.MsgOK, daemon.OKResponse{Message: "ok"})
+		return resp
+	})
+
+	c := startMCPServer(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if _, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "update_step_context",
+			Arguments: map[string]any{
+				"task_id":   7,
+				"step_name": "implement",
+				"context":   "value",
+			},
+		},
+	}); err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+
+	if captured.Mode != "replace" {
+		t.Errorf("expected default mode=replace, got %q", captured.Mode)
 	}
 }
 

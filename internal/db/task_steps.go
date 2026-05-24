@@ -38,6 +38,42 @@ func (db *DB) UpdateTaskStepContext(taskID int64, stepName string, context strin
 	return err
 }
 
+// UpdateRunningTaskStepContext sets the context of a running step. When
+// appendMode is true, value is concatenated to the existing context with a
+// newline separator (empty/NULL existing context is treated as the empty
+// string, so no leading newline is introduced). Returns the number of rows
+// affected — callers can detect "no running step with that name" when this
+// is zero. Used by the MCP update_step_context tool so an agent can push the
+// canonical artifact for its active step directly, without waiting for the
+// post-session summarizer.
+func (db *DB) UpdateRunningTaskStepContext(taskID int64, stepName, value string, appendMode bool) (int64, error) {
+	var (
+		result sql.Result
+		err    error
+	)
+	if appendMode {
+		result, err = db.Exec(
+			`UPDATE task_steps
+			 SET context = CASE
+			     WHEN context IS NULL OR context = '' THEN ?
+			     ELSE context || char(10) || ?
+			 END
+			 WHERE task_id = ? AND step_name = ? AND status = 'running'`,
+			value, value, taskID, stepName,
+		)
+	} else {
+		result, err = db.Exec(
+			`UPDATE task_steps SET context = ?
+			 WHERE task_id = ? AND step_name = ? AND status = 'running'`,
+			value, taskID, stepName,
+		)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 // GetTaskStepContext returns the context for a single completed step.
 func (db *DB) GetTaskStepContext(taskID int64, stepName string) (string, error) {
 	var context sql.NullString
