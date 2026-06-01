@@ -4,6 +4,8 @@ Sortie is a daemon that orchestrates [Claude Code](https://docs.anthropic.com/en
 
 You decide what runs, how many run at once, where the human gates go, and how finished work lands on your base branch. Sortie just keeps the agents on the rails.
 
+> ⚠️ **Early days — breaking changes expected.** Sortie is under active development. Config formats, CLI flags, and the database schema may change without notice between releases. Pin to a tagged version if you need stability.
+
 ```
 ┌─────────────┐    ┌────────────────┐    ┌─────────────────┐
 │  sortie tui │ ←→ │ sortie daemon  │ ←→ │ Claude Code     │
