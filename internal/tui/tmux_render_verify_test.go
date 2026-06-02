@@ -24,18 +24,18 @@ func TestStatusText_TmuxRealStatusMatrix(t *testing.T) {
 		wantLabel string
 	}{
 		{
-			name:      "non-human tmux step renders as running with [T]",
+			name:      "non-human tmux step renders as running with [wip]",
 			task:      daemon.TaskInfo{ID: 1, Status: "tmux", CurrentStep: "implement", StepHuman: false},
 			sessions:  map[int64]bool{1: true},
 			wantIcon:  "●",
-			wantLabel: "implement [T]",
+			wantLabel: "implement [wip]",
 		},
 		{
-			name:      "human tmux step renders as awaiting-approval with [wip]",
+			name:      "human tmux step renders as awaiting-approval with [T]",
 			task:      daemon.TaskInfo{ID: 2, Status: "tmux", CurrentStep: "review", StepHuman: true},
 			sessions:  map[int64]bool{2: true},
 			wantIcon:  "◷",
-			wantLabel: "review [wip]",
+			wantLabel: "review [T]",
 		},
 		{
 			name:      "detached worktree wins over any tmux postfix",
@@ -45,18 +45,18 @@ func TestStatusText_TmuxRealStatusMatrix(t *testing.T) {
 			wantLabel: "dev [detached]",
 		},
 		{
-			name:      "tmux status without live session still gets [T] postfix",
+			name:      "tmux status without live session still gets [wip] postfix",
 			task:      daemon.TaskInfo{ID: 4, Status: "tmux", CurrentStep: "implement"},
 			sessions:  nil,
 			wantIcon:  "●",
-			wantLabel: "implement [T]",
+			wantLabel: "implement [wip]",
 		},
 		{
-			name:      "running status with live tmux session gets [T] postfix",
+			name:      "running status with live tmux session gets [wip] postfix",
 			task:      daemon.TaskInfo{ID: 5, Status: "running", CurrentStep: "implement"},
 			sessions:  map[int64]bool{5: true},
 			wantIcon:  "●",
-			wantLabel: "implement [T]",
+			wantLabel: "implement [wip]",
 		},
 		{
 			name:      "running status without tmux session: no postfix",
@@ -66,18 +66,18 @@ func TestStatusText_TmuxRealStatusMatrix(t *testing.T) {
 			wantLabel: "implement",
 		},
 		{
-			name:      "tmux_direct (no step name) falls back to status label with [wip]",
+			name:      "tmux_direct (no step name) falls back to status label with [T]",
 			task:      daemon.TaskInfo{ID: 7, Status: "tmux", StepHuman: true},
 			sessions:  map[int64]bool{7: true},
 			wantIcon:  "◷",
-			wantLabel: "awaiting-approval [wip]",
+			wantLabel: "awaiting-approval [T]",
 		},
 		{
 			name:      "loop iteration counter survives the new tmux mapping",
 			task:      daemon.TaskInfo{ID: 8, Status: "tmux", CurrentStep: "implement", StepHuman: false, LoopIteration: 2},
 			sessions:  map[int64]bool{8: true},
 			wantIcon:  "●",
-			wantLabel: "implement [L2] [T]",
+			wantLabel: "implement [L2] [wip]",
 		},
 		{
 			name:      "human tmux step flips to [T] when monitor reports idle",
@@ -101,11 +101,11 @@ func TestStatusText_TmuxRealStatusMatrix(t *testing.T) {
 			wantLabel: "implement [wip]",
 		},
 		{
-			name:      "unknown activity falls back to StepHuman default ([wip] for human)",
+			name:      "unknown activity falls back to StepHuman default ([T] for human)",
 			task:      daemon.TaskInfo{ID: 12, Status: "tmux", CurrentStep: "review", StepHuman: true, TmuxActivity: "unknown"},
 			sessions:  map[int64]bool{12: true},
 			wantIcon:  "◷",
-			wantLabel: "review [wip]",
+			wantLabel: "review [T]",
 		},
 		{
 			// Regression for sortie#95: when the coordinator transitions to

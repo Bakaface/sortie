@@ -599,9 +599,9 @@ func (l *listView) renderHeader() string {
 // trailing postfix: [wip] when the Claude pane is actively working, [T] when
 // it has gone idle. The live signal comes from the daemon's tmux activity
 // monitor (`task.TmuxActivity`); when no monitor data has arrived yet we fall
-// back to the static `StepHuman` flag — human steps default to [wip] (Claude
-// just finished and the user is being handed the wheel) and non-human steps
-// to [T] (auto-advance will pick them up shortly).
+// back to the static `StepHuman` flag — non-human steps default to [wip]
+// (Claude is working in the pane until the monitor says otherwise) and human
+// steps to [T] (Claude has finished and the user has been handed the wheel).
 func (l *listView) statusText(task daemon.TaskInfo) string {
 	effectiveStatus := effectiveStatusFor(task)
 	statusIcon := statusIconFor(effectiveStatus)
@@ -647,9 +647,9 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 			statusLabel += " [T]"
 		default:
 			if task.StepHuman {
-				statusLabel += " [wip]"
-			} else {
 				statusLabel += " [T]"
+			} else {
+				statusLabel += " [wip]"
 			}
 		}
 	}

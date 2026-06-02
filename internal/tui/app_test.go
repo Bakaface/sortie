@@ -102,15 +102,15 @@ func TestListView_RendersTmuxIndicator(t *testing.T) {
 
 	output := l.View()
 
-	if !strings.Contains(output, "[T]") {
-		t.Error("expected task list to contain [T] indicator for task with tmux session")
+	if !strings.Contains(output, "[wip]") {
+		t.Error("expected task list to contain [wip] indicator for non-human task with tmux session")
 	}
 }
 
 func TestListView_RendersTmuxStatus(t *testing.T) {
 	// Non-human tmux step renders as "running" (the engine has paused at a
-	// tmux step where Claude is still working) with a [T] postfix to signal
-	// the tmux session.
+	// tmux step where Claude is still working) with a [wip] postfix — until
+	// the monitor says otherwise, a Claude-owned pane is assumed working.
 	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task with tmux status", Status: "tmux", CurrentStep: "implement"},
@@ -125,14 +125,14 @@ func TestListView_RendersTmuxStatus(t *testing.T) {
 	if !strings.Contains(output, "●") {
 		t.Error("expected task list to contain ● icon (running) for non-human tmux task")
 	}
-	if !strings.Contains(output, "[T]") {
-		t.Error("expected task list to contain [T] postfix for non-human tmux task")
+	if !strings.Contains(output, "[wip]") {
+		t.Error("expected task list to contain [wip] postfix for non-human tmux task")
 	}
 }
 
 func TestListView_RendersHumanTmuxStatus(t *testing.T) {
 	// Human tmux step renders as "awaiting-approval" (user has been handed
-	// the wheel) with a [wip] postfix to signal work-in-progress.
+	// the wheel) with a [T] postfix — Claude has finished, the pane is idle.
 	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Human tmux task", Status: "tmux", CurrentStep: "review", StepHuman: true},
@@ -147,8 +147,8 @@ func TestListView_RendersHumanTmuxStatus(t *testing.T) {
 	if !strings.Contains(output, "◷") {
 		t.Error("expected task list to contain ◷ icon (awaiting-approval) for human tmux task")
 	}
-	if !strings.Contains(output, "[wip]") {
-		t.Error("expected task list to contain [wip] postfix for human tmux task")
+	if !strings.Contains(output, "[T]") {
+		t.Error("expected task list to contain [T] postfix for human tmux task")
 	}
 }
 
@@ -208,10 +208,10 @@ func TestListView_TmuxTasksFloatToTop(t *testing.T) {
 }
 
 func TestListView_NotDetachedShowsTmuxPostfix(t *testing.T) {
-	// Non-detached tmux task gets a tmux postfix — [wip] for human steps,
-	// [T] for non-human. The postfix is driven by StepHuman, matching the
-	// same human/non-human distinction the engine uses to decide whether
-	// auto-advance is allowed.
+	// Non-detached tmux task gets a tmux postfix — [T] for human steps
+	// (Claude idle, wheel handed over), [wip] for non-human (Claude working).
+	// The postfix is driven by StepHuman, matching the same human/non-human
+	// distinction the engine uses to decide whether auto-advance is allowed.
 	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Active tmux task", Status: "tmux", CurrentStep: "implement", StepHuman: true, WorktreeDetached: false},
@@ -221,8 +221,8 @@ func TestListView_NotDetachedShowsTmuxPostfix(t *testing.T) {
 
 	output := l.View()
 
-	if !strings.Contains(output, "[wip]") {
-		t.Error("expected task list to contain [wip] for non-detached human tmux task")
+	if !strings.Contains(output, "[T]") {
+		t.Error("expected task list to contain [T] for non-detached human tmux task")
 	}
 	if strings.Contains(output, "[detached]") {
 		t.Error("expected task list to NOT contain [detached] for non-detached task")
