@@ -3,7 +3,6 @@ package tmux
 import (
 	"crypto/sha256"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -17,27 +16,22 @@ const (
 	ActivityUnknown Activity = "unknown"
 )
 
+// captureScrollbackLines is how many lines of pane content (visible + recent
+// scrollback) the monitor hashes each poll. Enough to capture meaningful
+// change while a turn is in flight without hashing the entire history.
+const captureScrollbackLines = 50
+
 // MonitorConfig configures the tmux activity monitor.
 type MonitorConfig struct {
-	PollInterval      time.Duration    // how often to check sessions (default: 2s)
-	StableThreshold   int              // consecutive identical hashes needed when pattern matches (default: 3)
-	FallbackThreshold int              // hash-only threshold when no pattern configured (default: 6)
-	IdlePatterns      []*regexp.Regexp // patterns to match against tail lines (default: Claude Code prompt)
-	PatternScanLines  int              // number of lines from bottom to scan for patterns (default: 5)
+	PollInterval    time.Duration // how often to check sessions (default: 2s)
+	StableThreshold int           // consecutive identical pane captures before declaring idle (default: 6 ≈ 12s)
 }
 
 // DefaultMonitorConfig returns sensible defaults for monitoring Claude Code sessions.
 func DefaultMonitorConfig() MonitorConfig {
 	return MonitorConfig{
-		PollInterval:      2 * time.Second,
-		StableThreshold:   3,
-		FallbackThreshold: 6,
-		IdlePatterns: []*regexp.Regexp{
-			regexp.MustCompile(`╰─>`),          // Claude Code input prompt
-			regexp.MustCompile(`\$\s*$`),        // Shell prompt ending with $
-			regexp.MustCompile(`>\s*$`),          // Generic prompt ending with >
-		},
-		PatternScanLines: 5,
+		PollInterval:    2 * time.Second,
+		StableThreshold: 6,
 	}
 }
 
@@ -67,7 +61,7 @@ func NewMonitor(cfg MonitorConfig) *Monitor {
 // its activity state. Returns the activity and whether it changed from
 // the previous check.
 func (m *Monitor) Check(session *Session) (Activity, bool) {
-	lines, err := session.CapturePane(m.config.PatternScanLines + 50)
+	lines, err := session.CapturePane(captureScrollbackLines)
 	if err != nil {
 		return ActivityUnknown, false
 	}
@@ -93,15 +87,15 @@ func (m *Monitor) Check(session *Session) (Activity, bool) {
 		state.lastHash = hash
 	}
 
-	// Determine activity
+	// Idle once the pane content has held identical across StableThreshold
+	// consecutive polls. This is deliberately UI-agnostic: while a Claude
+	// agent is working it continuously repaints the pane (spinner frames,
+	// elapsed timer, token counter), so a static capture means the turn has
+	// ended. We do NOT scrape for a prompt glyph — that coupled idle
+	// detection to Claude Code's UI and silently broke when the prompt
+	// changed (╰─> → ❯), leaving idle panes stuck reporting "wip".
 	var activity Activity
-
-	hasPatterns := len(m.config.IdlePatterns) > 0
-	patternMatched := hasPatterns && m.matchesIdlePattern(tailLines(lines, m.config.PatternScanLines))
-
-	if hasPatterns && state.stableCount >= m.config.StableThreshold && patternMatched {
-		activity = ActivityIdle
-	} else if !hasPatterns && state.stableCount >= m.config.FallbackThreshold {
+	if state.stableCount >= m.config.StableThreshold {
 		activity = ActivityIdle
 	} else {
 		activity = ActivityWIP
@@ -123,30 +117,9 @@ func (m *Monitor) Sessions() map[string]*sessionState {
 	return m.sessions
 }
 
-// matchesIdlePattern checks if any of the configured idle patterns
-// match within the given lines.
-func (m *Monitor) matchesIdlePattern(lines []string) bool {
-	for _, line := range lines {
-		for _, pattern := range m.config.IdlePatterns {
-			if pattern.MatchString(line) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 // hashLines computes a SHA-256 hash of the joined lines.
 func hashLines(lines []string) string {
 	h := sha256.New()
 	h.Write([]byte(strings.Join(lines, "\n")))
 	return fmt.Sprintf("%x", h.Sum(nil))
-}
-
-// tailLines returns the last n lines from a slice.
-func tailLines(lines []string, n int) []string {
-	if len(lines) <= n {
-		return lines
-	}
-	return lines[len(lines)-n:]
 }
