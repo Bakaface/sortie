@@ -599,9 +599,10 @@ func (l *listView) renderHeader() string {
 // trailing postfix: [wip] when the Claude pane is actively working, [T] when
 // it has gone idle. The live signal comes from the daemon's tmux activity
 // monitor (`task.TmuxActivity`); when no monitor data has arrived yet we fall
-// back to the static `StepHuman` flag — non-human steps default to [wip]
-// (Claude is working in the pane until the monitor says otherwise) and human
-// steps to [T] (Claude has finished and the user has been handed the wheel).
+// back to a heuristic: only a Claude-owned (non-human) step with a *live*
+// tmux session reads as [wip] (working until the monitor says otherwise).
+// Everything else — a human step (Claude finished, wheel handed over) or a
+// dead session (e.g. after a daemon restart) — reads as stale [T].
 func (l *listView) statusText(task daemon.TaskInfo) string {
 	effectiveStatus := effectiveStatusFor(task)
 	statusIcon := statusIconFor(effectiveStatus)
@@ -646,10 +647,14 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 		case "idle":
 			statusLabel += " [T]"
 		default:
-			if task.StepHuman {
-				statusLabel += " [T]"
-			} else {
+			// No live monitor signal. Only claim work-in-progress when the
+			// pane is both Claude-owned (non-human step) AND actually live;
+			// a dead session (e.g. after a daemon restart) or a human step
+			// where Claude has handed over the wheel reads as stale [T].
+			if !task.StepHuman && l.tmuxSessions[task.ID] {
 				statusLabel += " [wip]"
+			} else {
+				statusLabel += " [T]"
 			}
 		}
 	}

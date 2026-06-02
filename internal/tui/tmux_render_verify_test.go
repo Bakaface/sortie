@@ -45,11 +45,11 @@ func TestStatusText_TmuxRealStatusMatrix(t *testing.T) {
 			wantLabel: "dev [detached]",
 		},
 		{
-			name:      "tmux status without live session still gets [wip] postfix",
+			name:      "tmux status without live session reads as stale [T]",
 			task:      daemon.TaskInfo{ID: 4, Status: "tmux", CurrentStep: "implement"},
 			sessions:  nil,
 			wantIcon:  "●",
-			wantLabel: "implement [wip]",
+			wantLabel: "implement [T]",
 		},
 		{
 			name:      "running status with live tmux session gets [wip] postfix",

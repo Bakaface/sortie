@@ -108,9 +108,8 @@ func TestListView_RendersTmuxIndicator(t *testing.T) {
 }
 
 func TestListView_RendersTmuxStatus(t *testing.T) {
-	// Non-human tmux step renders as "running" (the engine has paused at a
-	// tmux step where Claude is still working) with a [wip] postfix — until
-	// the monitor says otherwise, a Claude-owned pane is assumed working.
+	// Non-human tmux step with NO live session (none registered here) renders
+	// as "running" with a stale [T] postfix — a dead pane is never [wip].
 	l := newListView(false, "")
 	l.SetTasks([]daemon.TaskInfo{
 		{ID: 1, Title: "Task with tmux status", Status: "tmux", CurrentStep: "implement"},
@@ -125,8 +124,8 @@ func TestListView_RendersTmuxStatus(t *testing.T) {
 	if !strings.Contains(output, "●") {
 		t.Error("expected task list to contain ● icon (running) for non-human tmux task")
 	}
-	if !strings.Contains(output, "[wip]") {
-		t.Error("expected task list to contain [wip] postfix for non-human tmux task")
+	if !strings.Contains(output, "[T]") {
+		t.Error("expected task list to contain [T] postfix for non-human tmux task without a live session")
 	}
 }
 
