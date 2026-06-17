@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1272,3 +1273,82 @@ func TestTmuxScriptNonEmptyPromptPassesPrompt(t *testing.T) {
 		t.Error("non-empty prompt script should pass $PROMPT to claude")
 	}
 }
+
+// TestSummarizePreviousTmuxStepRequireContextBlocks verifies that a tmux
+// summarize_chat step which fails to capture its context returns a blocking
+// error when require_context is set, and proceeds (nil) when it is not. The
+// failure is induced by recording no chat for the step, so loadStepChatContent
+// returns "" — the same condition that silently dropped grilling context.
+func TestSummarizePreviousTmuxStepRequireContextBlocks(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		requireContext bool
+		wantBlock      bool
+	}{
+		{"require_context blocks", true, true},
+		{"best-effort proceeds", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			database, err := db.Open(":memory:")
+			if err != nil {
+				t.Fatalf("db.Open: %v", err)
+			}
+			defer database.Close()
+
+			project, err := database.GetOrCreateProject(dir)
+			if err != nil {
+				t.Fatalf("GetOrCreateProject: %v", err)
+			}
+			tk, err := database.CreateTask(project.ID, "grill task", "desc", "slug", "wf", "", task.StatusRunning, nil)
+			if err != nil {
+				t.Fatalf("CreateTask: %v", err)
+			}
+			tk.WorktreePath = dir
+			// StepIndex points PAST the just-finished tmux step, so prevStep =
+			// Steps[0] = "grill" (the engine bumps the index before pausing).
+			tk.StepIndex = 1
+
+			// Mark the grill step completed with no context, matching the real
+			// state after a tmux step pauses at the approval gate.
+			if err := database.CreateTaskStep(tk.ID, "grill"); err != nil {
+				t.Fatal(err)
+			}
+			if err := database.CompleteTaskStep(tk.ID, "grill", nil, 0); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &config.Config{
+				Git: config.GitConfig{OnComplete: "none"},
+				Workflows: []config.WorkflowConfig{{
+					Name:  "wf",
+					Print: false, // steps default to tmux
+					Steps: []config.StepConfig{
+						{
+							Name:                  "grill",
+							SummarizationStrategy: config.SummarizationStrategySummarizeChat,
+							Human:                 true,
+							RequireContext:        tc.requireContext,
+						},
+						{Name: "implement", Print: boolPtr(true)},
+					},
+				}},
+			}
+			engine := NewEngine(cfg, database, nil, dir)
+
+			err = engine.summarizePreviousTmuxStep(context.Background(), tk, nil)
+			if tc.wantBlock {
+				if err == nil {
+					t.Fatal("expected a blocking error, got nil")
+				}
+				if !errors.Is(err, ErrStepContextRequired) {
+					t.Errorf("expected error to wrap ErrStepContextRequired, got %v", err)
+				}
+			} else if err != nil {
+				t.Errorf("expected nil (best-effort), got %v", err)
+			}
+		})
+	}
+}
+
+func boolPtr(b bool) *bool { return &b }

@@ -473,12 +473,26 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	return nil
 }
 
+// ErrStepContextRequired is returned by summarizePreviousTmuxStep when a step
+// marked `require_context: true` fails to capture its summarize_chat context.
+// Callers wrap it; the daemon checks it with errors.Is to decide whether to
+// block the task (fail) instead of advancing/finalizing with an empty context.
+var ErrStepContextRequired = errors.New("required step context could not be captured")
+
 // ResumeAfterApproval resumes a task from its current step index.
 // If the previously-completed step was a tmux step with summarize_chat strategy,
 // summarisation runs synchronously here (it could not run during the step itself
 // because tmux steps return early and pause the engine).
+//
+// When the previous step is marked `require_context: true` and its context
+// cannot be captured, the task is NOT advanced: the error is recorded and
+// returned so the agent-completion path fails the task instead of running the
+// next step with an empty {{steps.<name>.context}}.
 func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn func([]string)) error {
-	e.summarizePreviousTmuxStep(ctx, t, nil)
+	if err := e.summarizePreviousTmuxStep(ctx, t, nil); err != nil {
+		e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
+		return err
+	}
 	return e.RunTask(ctx, t, outputFn)
 }
 
@@ -489,9 +503,11 @@ func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn
 //   - ResumeAfterApproval calls it when the user advances to the next step
 //   - FinalizeTask calls it when the last step is a tmux step
 //
-// Failures are logged but never returned: the surrounding finalization or
-// resume flow should proceed even if the summary cannot be produced.
-func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, logFn func(string, ...any)) {
+// Best-effort by default: a failure to capture context is logged and nil is
+// returned so the surrounding flow proceeds. When the step sets
+// `require_context: true`, the same failure instead returns an error wrapping
+// ErrStepContextRequired so the caller can block the task.
+func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, logFn func(string, ...any)) error {
 	logMsg := func(format string, args ...any) {
 		log.Printf(format, args...)
 		if logFn != nil {
@@ -501,20 +517,34 @@ func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, lo
 
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	if wf == nil || t.StepIndex <= 0 || t.StepIndex > len(wf.Steps) {
-		return
+		return nil
 	}
 	prevStep := wf.Steps[t.StepIndex-1]
 	if !prevStep.UseTmux(wf.Print) || prevStep.EffectiveSummarizationStrategy() != config.SummarizationStrategySummarizeChat {
-		return
+		return nil
+	}
+
+	// fail records a context-capture failure. When the step demands context it
+	// returns a blocking error (wrapping ErrStepContextRequired); otherwise it
+	// logs a warning and returns nil so the flow proceeds best-effort.
+	fail := func(format string, args ...any) error {
+		if prevStep.RequireContext {
+			return fmt.Errorf("step %q: %w: "+format, append([]any{prevStep.Name, ErrStepContextRequired}, args...)...)
+		}
+		logMsg("Warning: "+format, args...)
+		return nil
 	}
 
 	chat, err := e.loadStepChatContent(t, prevStep.Name, true)
 	if err != nil {
-		logMsg("Warning: failed to load chat for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
-		return
+		return fail("failed to load chat for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
 	}
 	if chat == "" {
-		return
+		// The step completed but yielded no chat content to summarize, so its
+		// context stays empty — and downstream steps that template
+		// {{steps.<name>.context}} will silently receive nothing. loadStepChatContent
+		// logs the specific cause (missing JSONL, no recorded session) below.
+		return fail("tmux step %q of task #%d produced no chat content; its step context will be empty", prevStep.Name, t.ID)
 	}
 	// Surface the step summarization phase via the task status so
 	// the TUI can distinguish it from regular step execution.
@@ -522,17 +552,16 @@ func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, lo
 	summary, err := e.summarizeChatLog(ctx, t, prevStep.Name, prevStep.SummarizationPrompt, chat, prevStep.EffectiveAllowedSummarizationModels(e.cfg.AllowedSummarizationModels))
 	restore()
 	if err != nil {
-		logMsg("Warning: summarize_chat failed for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
-		return
+		return fail("summarize_chat failed for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
 	}
 	if summary == "" {
-		return
+		return fail("summarize_chat produced an empty summary for tmux step %q of task #%d", prevStep.Name, t.ID)
 	}
 	if err := e.database.UpdateTaskStepContext(t.ID, prevStep.Name, summary); err != nil {
-		logMsg("Warning: failed to write step context for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
-		return
+		return fail("failed to write step context for tmux step %q of task #%d: %v", prevStep.Name, t.ID, err)
 	}
 	logMsg("summarize_chat updated step context for tmux step %q of task #%d (%d chars)", prevStep.Name, t.ID, len(summary))
+	return nil
 }
 
 // loadAndClearChildren loads all task_waits_on children for t, converts them

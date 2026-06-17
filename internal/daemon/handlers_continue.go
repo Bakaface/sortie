@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -326,6 +327,17 @@ func (s *Server) advanceTmuxTask(t *task.Task) (tmuxAdvanceOutcome, error) {
 func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 	repoRoot := s.getProjectRepoRoot(t)
 	if err := pc.engine.FinalizeTask(s.ctx, t); err != nil {
+		// A required-context capture failure blocks the task: fail it instead
+		// of merging/completing with an empty step context. Preserve the
+		// worktree and branch so the user can inspect and retry.
+		if errors.Is(err, workflow.ErrStepContextRequired) {
+			log.Printf("%sBlocking task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+			if dbErr := s.database.UpdateTaskError(t.ID, err.Error()); dbErr != nil {
+				log.Printf("%sError: failed to mark task #%d failed: %v", s.projectLogPrefix(t.ProjectID), t.ID, dbErr)
+			}
+			s.broadcastTaskUpdate(t.ID)
+			return
+		}
 		log.Printf("%sWarning: finalize failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		// Don't fail the whole operation — still mark as completed.
 		// Best-effort cleanup of worktree and branch so they don't linger.

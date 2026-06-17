@@ -313,3 +313,49 @@ func TestExtractLatestStepRegion(t *testing.T) {
 		}
 	})
 }
+
+func TestEncodeClaudeProjectDir(t *testing.T) {
+	tests := []struct {
+		name    string
+		workdir string
+		want    string
+	}{
+		{
+			// Regression: underscores must encode to '-' like Claude Code does.
+			// Previously only '/' and '.' were replaced, so this project's tmux
+			// step chat JSONL was looked up at a non-existent path and its
+			// summarize_chat context was silently dropped.
+			name:    "underscore in path",
+			workdir: "/Users/aface/dev/github.com/Uscreen-video/uscreen_2",
+			want:    "-Users-aface-dev-github-com-Uscreen-video-uscreen-2",
+		},
+		{
+			name:    "dotted segment and slashes",
+			workdir: "/home/me/proj.app",
+			want:    "-home-me-proj-app",
+		},
+		{
+			// Consecutive separators are NOT collapsed: '/.sortie' -> '--sortie'.
+			name:    "worktree path keeps repeated separators",
+			workdir: "/Users/aface/uscreen_2/.sortie/worktrees/em-3-spec",
+			want:    "-Users-aface-uscreen-2--sortie-worktrees-em-3-spec",
+		},
+		{
+			name:    "case is preserved",
+			workdir: "/Users/Foo/Bar",
+			want:    "-Users-Foo-Bar",
+		},
+		{
+			name:    "hyphens pass through unchanged",
+			workdir: "/a/b-c/d",
+			want:    "-a-b-c-d",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := encodeClaudeProjectDir(tt.workdir); got != tt.want {
+				t.Errorf("encodeClaudeProjectDir(%q) = %q, want %q", tt.workdir, got, tt.want)
+			}
+		})
+	}
+}

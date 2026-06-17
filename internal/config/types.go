@@ -249,6 +249,15 @@ type StepConfig struct {
 	// field — auto-selection picks the cheapest allowed model that fits the
 	// prompt. When empty, the project-level setting is used.
 	AllowedSummarizationModels []string `yaml:"allowed_summarization_models,omitempty"`
+	// RequireContext, when true, makes a failure to capture this step's
+	// `summarize_chat` context BLOCK the task instead of advancing with an
+	// empty context. Use it on steps whose output later steps template via
+	// {{steps.<name>.context}} (e.g. a grilling step feeding implementing): if
+	// the chat transcript can't be loaded or summarized, the task fails loudly
+	// rather than silently running the next step with no plan. Only meaningful
+	// for tmux steps with summarization_strategy "summarize_chat"; ignored
+	// otherwise. Defaults to false (best-effort: warn and proceed).
+	RequireContext bool `yaml:"require_context,omitempty"`
 }
 
 // UnmarshalYAML decodes a StepConfig and rejects the legacy `tmux:` field

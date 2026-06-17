@@ -55,8 +55,13 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	// its chat summary now — RunTask cannot do this synchronously (the chat is
 	// still being written when the step pauses) and advanceTmuxTask bypasses
 	// ResumeAfterApproval when there are no more steps, so this is the only
-	// remaining hook.
-	e.summarizePreviousTmuxStep(ctx, t, logFn)
+	// remaining hook. When the step is marked require_context and capture
+	// fails, block finalization (before on_complete/merge) so the task fails
+	// loudly instead of merging with an empty step context.
+	if err := e.summarizePreviousTmuxStep(ctx, t, logFn); err != nil {
+		logFn("Error: blocking finalization — %v", err)
+		return err
+	}
 
 	// Capture the diff stat BEFORE on_complete runs. After the task branch
 	// is merged into main, it's fully reachable from main, which makes
@@ -266,10 +271,22 @@ func BuildDiffStatSummaryPrompt(taskID int64, title, description, diffStat strin
 }
 
 // encodeClaudeProjectDir encodes a workdir path to the directory name format used by
-// Claude Code under ~/.claude/projects/. The encoding replaces both '/' and '.' with '-'.
+// Claude Code under ~/.claude/projects/. Claude Code replaces every non-alphanumeric
+// character (e.g. '/', '.', '_', spaces) with '-', preserving case and NOT collapsing
+// runs of separators. Replacing only '/' and '.' would mis-encode paths containing
+// underscores (e.g. "uscreen_2" → "uscreen-2"), pointing at a non-existent JSONL and
+// silently dropping the chat content for tmux steps.
 func encodeClaudeProjectDir(workdir string) string {
-	r := strings.NewReplacer("/", "-", ".", "-")
-	return r.Replace(workdir)
+	var b strings.Builder
+	b.Grow(len(workdir))
+	for _, r := range workdir {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 // loadStepChatContent returns the raw chat content for a step.
@@ -294,6 +311,13 @@ func (e *Engine) loadStepChatContent(t *task.Task, stepName string, useTmux bool
 		data, err := os.ReadFile(jsonlPath)
 		if err != nil {
 			if os.IsNotExist(err) {
+				// A session id was persisted for this step, so its transcript
+				// JSONL must exist somewhere. A missing file means the path we
+				// derived does not match where Claude Code actually stored the
+				// session (e.g. a project-dir encoding mismatch). Surface it
+				// loudly — silently returning "" here drops the entire step's
+				// chat and leaves the step context empty with no breadcrumb.
+				log.Printf("Warning: recorded session %q for tmux step %q of task #%d has no JSONL at %s; step context will be empty", chat.SessionID, stepName, t.ID, jsonlPath)
 				return "", nil
 			}
 			return "", fmt.Errorf("failed to read claude session JSONL for step %q: %w", stepName, err)
