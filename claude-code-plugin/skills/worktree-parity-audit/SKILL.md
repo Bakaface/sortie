@@ -34,21 +34,21 @@ Run from the project root. Work through the steps in order; later steps depend o
 
 ### Step 1: Detect project type(s)
 
-Look for marker files. Projects may be polyglot (e.g., Rails + Node assets):
+Look for marker files. Projects may be polyglot (e.g., Rails + Node assets) — load every matching recipe.
 
-| Marker | Stack |
-|---|---|
-| `package.json` | Node / TypeScript |
-| `go.mod` | Go |
-| `Cargo.toml` | Rust |
-| `Gemfile` | Ruby / Rails |
-| `pyproject.toml`, `requirements.txt`, `Pipfile`, `setup.py` | Python |
-| `mix.exs` | Elixir / Phoenix |
-| `build.gradle`, `pom.xml` | JVM (Gradle / Maven) |
-| `composer.json` | PHP |
-| `Package.swift` | Swift |
+| Marker | Stack | Recipe |
+|---|---|---|
+| `package.json` | Node / TypeScript | `references/stacks/node.md` |
+| `pyproject.toml`, `requirements.txt`, `Pipfile`, `setup.py` | Python | `references/stacks/python.md` |
+| `go.mod` | Go | `references/stacks/go.md` |
+| `Cargo.toml` | Rust | `references/stacks/rust.md` |
+| `Gemfile` | Ruby / Rails | `references/stacks/ruby.md` |
+| `mix.exs` | Elixir / Phoenix | `references/stacks/elixir.md` |
+| `build.gradle`, `pom.xml` | JVM (Gradle / Maven) | `references/stacks/jvm.md` |
+| `composer.json` | PHP | `references/stacks/php.md` |
+| `Package.swift` | Swift | `references/stacks/swift.md` |
 
-For each detected stack, load the matching section of `references/project-type-recipes.md` for typical gitignored items, standard install commands, and known gotchas.
+Read only the recipe files for stacks you actually detected. Each recipe documents typical gitignored items, standard install commands, and known gotchas for that stack.
 
 ### Step 2: Find the golden command
 
@@ -65,7 +65,11 @@ Extract three things:
 - The **verify command(s)** — the actual test/lint/typecheck invocations.
 - Any **env vars** the CI job sets explicitly (`env:` blocks in workflow files).
 
-If no CI exists, ask the user for the canonical local recipe — do not invent one.
+If no CI exists, fall back in this order before guessing:
+
+1. **`README.md` / `CONTRIBUTING.md` / `docs/development.md`** — search for "Getting started", "Running tests", "Local setup".
+2. **`bin/setup`, `script/setup`, `script/bootstrap`** — convention scripts that codify the local recipe even when CI doesn't.
+3. **Ask the user** for the canonical local recipe — do not invent one.
 
 ### Step 3: Classify `.gitignore` entries
 
@@ -84,10 +88,12 @@ Read every `.gitignore` (root + nested). For each rule, place it in one of these
 #### Recreate vs. share — trade-offs
 
 - **Recreate (`worktree-setup-commands`)**: clean isolation, deterministic. Slower per-worktree but right default when install is fast (`go mod download`, `pnpm install --frozen-lockfile` on a warm cache, `uv sync`).
-- **Share via `link:`**: instant. But Sortie uses **hard-links, not symlinks** — implications:
-  - Hard-links cannot cross filesystems. If `.sortie/worktrees/` lives on a different volume from the main checkout, `link:` fails — fall back to `copy:` or recreate.
-  - Edits propagate (shared inode). Right for env files and read-only deps; wrong for anything stateful per task.
-- **Share via `copy:`**: independent per-worktree, no inode sharing. Fast but uses more disk. Use for env files where each task may mutate values.
+- **Share via `link:`**: instant. **Sortie uses hard-links, not symlinks** (verified in `internal/workflow/sync.go`). Implications:
+  - Hard-links cannot cross filesystems. If `.sortie/worktrees/` lives on a different volume from the main checkout, `link:` fails at sync time — fall back to `copy:` or recreate.
+  - Hard-links cannot target directories. For a dir, Sortie recreates the tree and hard-links individual files. Sub-directories created later in the source won't auto-appear in the worktree.
+  - Edits to file contents propagate (shared inode). Right for env files and read-only deps; wrong for anything stateful per task.
+  - Symlinks at the source are copied as symlinks, not hard-linked (macOS `link(2)` returns EPERM on symlink sources).
+- **Share via `copy:`**: independent per-worktree, no inode sharing. Use when (a) source and `.sortie/worktrees/` are on different filesystems, (b) the worktree needs a writable, divergent copy (e.g., per-task `.env` mutation), or (c) the source tree has symlinks `link:` can't handle. Costs disk and copy time.
 
 ### Step 4: Audit env var usage
 
@@ -129,19 +135,22 @@ Quick sanity checks:
 
 ### Step 7: Verify parity (optional but recommended)
 
-The only true confirmation is running the golden command in a fresh worktree:
+The only true confirmation is running the golden command in a fresh worktree. Create the worktree **on the same filesystem as the real `.sortie/worktrees/` location** — otherwise the test will silently succeed under conditions Sortie can't reproduce (hard-link cross-FS failure).
 
 ```bash
-# From repo root
-git worktree add /tmp/parity-test HEAD
-cd /tmp/parity-test
-# Run the install/setup steps from Step 5 in order, then the verify command
-# (and any required env-file copies / symlinks that mirror the planned config).
+# From repo root. Adjacent path on the same volume as the repo.
+git worktree add ../parity-test HEAD
+cd ../parity-test
+# Mirror the planned config: copy/link the env files and other gitignored deps
+# the recommendation calls out, then run the setup commands from Step 5 in
+# order, then the verify command.
 ```
 
-If it passes here, it will pass in Sortie's worktrees (modulo the hard-link cross-FS caveat). If it fails, the audit missed something — iterate.
+Avoid `/tmp/parity-test`: on Linux `/tmp` is often tmpfs, and on macOS the boundary between `/private/tmp` and the user's volume varies — neither reliably matches the real worktree volume.
 
-Clean up: `git worktree remove /tmp/parity-test`.
+If it passes here, it will pass in Sortie's worktrees. If it fails, the audit missed something — iterate.
+
+Clean up: `git worktree remove ../parity-test`.
 
 ## Output Format
 
