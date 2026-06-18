@@ -1,7 +1,7 @@
 [tasks.build]
 alias = "b"
-description = "Build the sortie binary"
-run = "go build -o ~/bin/sortie ./cmd/sortie"
+description = "Build + install the sortie binary into GOBIN (first on PATH, so `sortie ...` runs this build)"
+run = "go install ./cmd/sortie"
 
 [tasks.daemon]
 alias = "d"
@@ -10,7 +10,7 @@ run = "sortie daemon start"
 
 [tasks."daemon:fg"]
 description = "Start the daemon in foreground mode"
-run = "~/bin/sortie daemon start -f"
+run = "sortie daemon start -f"
 depends = ["build"]
 
 [tasks.db]
