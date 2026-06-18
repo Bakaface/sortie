@@ -10,7 +10,7 @@ import (
 )
 
 func TestBuildTmuxClaudeCmd_HonorsCommand(t *testing.T) {
-	got := buildTmuxClaudeCmd("/tmp/stub-claude", false, "")
+	got := buildTmuxClaudeCmd("/tmp/stub-claude", false, "", nil)
 	if !strings.Contains(got, "/tmp/stub-claude") {
 		t.Errorf("expected configured path in command, got %q", got)
 	}
@@ -20,16 +20,27 @@ func TestBuildTmuxClaudeCmd_HonorsCommand(t *testing.T) {
 }
 
 func TestBuildTmuxClaudeCmd_FallsBackToClaude(t *testing.T) {
-	got := buildTmuxClaudeCmd("", false, "")
+	got := buildTmuxClaudeCmd("", false, "", nil)
 	if got != `"claude"` {
 		t.Errorf("expected fallback %q, got %q", `"claude"`, got)
 	}
 }
 
 func TestBuildTmuxClaudeCmd_YoloAddsFlag(t *testing.T) {
-	got := buildTmuxClaudeCmd("/tmp/stub", true, "")
+	got := buildTmuxClaudeCmd("/tmp/stub", true, "", nil)
 	if !strings.Contains(got, "--dangerously-skip-permissions") {
 		t.Errorf("expected --dangerously-skip-permissions, got %q", got)
+	}
+}
+
+// TestBuildTmuxClaudeCmd_IncludesDefaultArgs verifies configured default_args
+// (e.g. --plugin-dir for the sortie plugin) reach interactive tmux steps, so
+// the chat launches with sortie's MCP tools available. Regression guard for
+// tmux/resume steps silently dropping the plugin and losing update_step_context.
+func TestBuildTmuxClaudeCmd_IncludesDefaultArgs(t *testing.T) {
+	got := buildTmuxClaudeCmd("/tmp/stub", true, "", []string{"--plugin-dir", "/path with spaces/plugin"})
+	if !strings.Contains(got, `"--plugin-dir" "/path with spaces/plugin"`) {
+		t.Errorf("expected quoted --plugin-dir default args in command, got %q", got)
 	}
 }
 
@@ -39,7 +50,7 @@ func TestBuildTmuxClaudeCmd_YoloAddsFlag(t *testing.T) {
 // would hide OAuth/onboarding state). Regression guard for the
 // CLAUDE_CONFIG_DIR re-auth bug.
 func TestBuildTmuxClaudeCmd_SettingsFlagWiresStopHook(t *testing.T) {
-	got := buildTmuxClaudeCmd("/tmp/stub", false, "/wt/.sortie/claude-settings/settings.json")
+	got := buildTmuxClaudeCmd("/tmp/stub", false, "/wt/.sortie/claude-settings/settings.json", nil)
 	want := `--settings "/wt/.sortie/claude-settings/settings.json"`
 	if !strings.Contains(got, want) {
 		t.Errorf("expected %q in command, got %q", want, got)
@@ -60,7 +71,7 @@ func TestBuildTmuxClaudeCmd_ScriptIsValidBash(t *testing.T) {
 	if err := os.WriteFile(settingsFile, []byte("{}"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	claudeCmd := buildTmuxClaudeCmd("/path with spaces/claude", true, settingsFile)
+	claudeCmd := buildTmuxClaudeCmd("/path with spaces/claude", true, settingsFile, []string{"--plugin-dir", "/plugins/sortie"})
 	sysPromptFile := filepath.Join(dir, "sys.txt")
 	if err := os.WriteFile(sysPromptFile, []byte("sys"), 0644); err != nil {
 		t.Fatal(err)

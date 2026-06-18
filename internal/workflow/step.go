@@ -28,13 +28,19 @@ import (
 // directory, which would hide ~/.claude/.credentials.json and ~/.claude.json
 // (OAuth, onboarding state, per-project trust acceptance) from the spawned
 // agent and force re-onboarding on every launch.
-func buildTmuxClaudeCmd(claudeBin string, yolo bool, settingsPath string) string {
+func buildTmuxClaudeCmd(claudeBin string, yolo bool, settingsPath string, defaultArgs []string) string {
 	if claudeBin == "" {
 		claudeBin = "claude"
 	}
 	cmd := fmt.Sprintf("%q", claudeBin)
 	if yolo {
 		cmd += " --dangerously-skip-permissions"
+	}
+	// Configured default_args (e.g. --plugin-dir for the sortie plugin) must
+	// apply to interactive tmux steps too, not just headless ones — otherwise
+	// the chat launches without sortie's MCP tools (update_step_context, etc.).
+	for _, a := range defaultArgs {
+		cmd += fmt.Sprintf(" %q", a)
 	}
 	if settingsPath != "" {
 		cmd += fmt.Sprintf(" --settings %q", settingsPath)
@@ -231,7 +237,7 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 	// Write wrapper script: run Claude interactively, then drop to bash for inspection.
 	// Honor cfg.Claude.Command so e2e tests / custom installs route through a stub.
 	sortieSettingsFile := filepath.Join(SortieSettingsDir(t.WorktreePath), "settings.json")
-	claudeCmd := buildTmuxClaudeCmd(e.cfg.Claude.Command, e.cfg.Claude.Yolo, sortieSettingsFile)
+	claudeCmd := buildTmuxClaudeCmd(e.cfg.Claude.Command, e.cfg.Claude.Yolo, sortieSettingsFile, e.cfg.Claude.DefaultArgs)
 	if len(systemPrompt) > 0 && systemPrompt[0] != "" {
 		// Write system prompt to file to avoid shell quoting issues
 		sysPromptFile := filepath.Join(sortieDir, fmt.Sprintf("step-sysprompt-%s.txt", step.Name))
