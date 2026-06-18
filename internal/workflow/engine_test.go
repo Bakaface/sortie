@@ -1351,4 +1351,69 @@ func TestSummarizePreviousTmuxStepRequireContextBlocks(t *testing.T) {
 	}
 }
 
+// TestSummarizePreviousTmuxStepSkipsManualContext verifies that when a tmux
+// step's context was already folded manually (via the update_step_context MCP
+// tool), the auto summarizer leaves it untouched and reports success — even
+// with require_context set, because the context IS present. Without the skip
+// guard this case would either clobber the manual artifact with a chat summary
+// or, with no chat recorded, block the task on ErrStepContextRequired.
+func TestSummarizePreviousTmuxStepSkipsManualContext(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("GetOrCreateProject: %v", err)
+	}
+	tk, err := database.CreateTask(project.ID, "grill task", "desc", "slug", "wf", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	tk.WorktreePath = dir
+	tk.StepIndex = 1
+
+	const manual = "FINAL PLAN folded by the agent"
+	if err := database.CreateTaskStep(tk.ID, "grill"); err != nil {
+		t.Fatal(err)
+	}
+	ctx := manual
+	if err := database.CompleteTaskStep(tk.ID, "grill", &ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Git: config.GitConfig{OnComplete: "none"},
+		Workflows: []config.WorkflowConfig{{
+			Name:  "wf",
+			Print: false,
+			Steps: []config.StepConfig{
+				{
+					Name:                  "grill",
+					SummarizationStrategy: config.SummarizationStrategySummarizeChat,
+					Human:                 true,
+					RequireContext:        true,
+				},
+				{Name: "implement", Print: boolPtr(true)},
+			},
+		}},
+	}
+	engine := NewEngine(cfg, database, nil, dir)
+
+	if err := engine.summarizePreviousTmuxStep(context.Background(), tk, nil); err != nil {
+		t.Fatalf("expected nil (manual context present), got %v", err)
+	}
+
+	got, err := database.GetTaskStepContext(tk.ID, "grill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != manual {
+		t.Errorf("manual context must be preserved, got %q", got)
+	}
+}
+
 func boolPtr(b bool) *bool { return &b }

@@ -602,29 +602,74 @@ func (s *Server) handleUpdateActiveStepContext(conn net.Conn, req UpdateActiveSt
 		return
 	}
 
-	if t.CurrentStep == "" {
+	activeStep, pausedTmux := s.resolveActiveStep(t)
+	if activeStep == "" {
 		s.sendError(conn, fmt.Sprintf("task #%d has no active step", req.TaskID))
 		return
 	}
-	if t.CurrentStep != req.StepName {
-		s.sendError(conn, fmt.Sprintf("step %q is not the active step (current: %q)", req.StepName, t.CurrentStep))
+	if activeStep != req.StepName {
+		s.sendError(conn, fmt.Sprintf("step %q is not the active step (current: %q)", req.StepName, activeStep))
 		return
 	}
 
-	rows, err := s.database.UpdateRunningTaskStepContext(req.TaskID, req.StepName, req.Context, mode == "append")
+	// A running agent step's task_steps row is 'running'; a tmux/human step
+	// paused at its approval gate is 'completed' (the engine marks it so and
+	// clears current_step the moment it spawns the session). Pick the writer
+	// that matches the resolved step's row status.
+	var rows int64
+	if pausedTmux {
+		rows, err = s.database.UpdatePausedTmuxStepContext(req.TaskID, req.StepName, req.Context, mode == "append")
+	} else {
+		rows, err = s.database.UpdateRunningTaskStepContext(req.TaskID, req.StepName, req.Context, mode == "append")
+	}
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to update step context: %v", err))
 		return
 	}
 	if rows == 0 {
-		// CurrentStep matched but no running task_steps row was updated — the
-		// step either hasn't started yet or has already been marked completed.
-		s.sendError(conn, fmt.Sprintf("step %q is not running for task #%d", req.StepName, req.TaskID))
+		// The step matched but no task_steps row was updated — it either hasn't
+		// started yet or its status no longer matches what we resolved.
+		s.sendError(conn, fmt.Sprintf("step %q has no writable row for task #%d", req.StepName, req.TaskID))
 		return
 	}
 
 	s.broadcastTaskUpdate(req.TaskID)
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("step %q context updated (%s)", req.StepName, mode)})
+}
+
+// resolveActiveStep returns the name of the step a task is currently "in" for
+// the purposes of update_step_context, and whether that step is a tmux/human
+// step paused at its approval gate (whose task_steps row is 'completed' rather
+// than 'running').
+//
+// For a running agent step the active step is tasks.current_step. For a tmux/
+// human step the engine has already marked the step's row 'completed' and
+// cleared current_step the instant it spawned the session — so the task can
+// pause — even though the agent inside that session is still live and may want
+// to fold its chat into the step context. In that case the active step is the
+// one that owns the session, at StepIndex-1, matching how taskToInfo
+// reconstructs CurrentStep for paused tmux tasks. Returns ("", false) when no
+// step can be resolved.
+func (s *Server) resolveActiveStep(t *task.Task) (stepName string, pausedTmux bool) {
+	if t.CurrentStep != "" {
+		return t.CurrentStep, false
+	}
+	if t.Status != task.StatusTmux || t.Workflow == "" {
+		return "", false
+	}
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		return "", false
+	}
+	wf := pc.cfg.GetWorkflow(t.Workflow)
+	if wf == nil {
+		return "", false
+	}
+	idx := t.StepIndex - 1
+	if idx < 0 || idx >= len(wf.Steps) {
+		return "", false
+	}
+	return wf.Steps[idx].Name, true
 }
 
 func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string, initialTitle string, manualTitle string) {

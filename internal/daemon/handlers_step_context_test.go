@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Bakaface/sortie/internal/config"
 	"github.com/Bakaface/sortie/internal/task"
 )
 
@@ -59,6 +60,112 @@ func createRunningStep(t *testing.T, s *Server, projID int64, stepName string) *
 		t.Fatal(err)
 	}
 	return refreshed
+}
+
+// createPausedTmuxStep builds the exact on-disk state of a tmux/human step
+// paused at its approval gate: status 'tmux', current_step cleared, StepIndex
+// bumped one past the step, and the step's task_steps row 'completed' — plus a
+// cached project workflow so the handler can resolve the step at StepIndex-1.
+// stepName is placed at workflow index 1 (StepIndex 2 -> StepIndex-1 = 1).
+func createPausedTmuxStep(t *testing.T, s *Server, projID int64, stepName string) *task.Task {
+	t.Helper()
+	s.projectsMu.Lock()
+	s.projects[projID] = &projectContext{
+		cfg: &config.Config{Workflows: []config.WorkflowConfig{{
+			Name: "wf",
+			Steps: []config.StepConfig{
+				{Name: "initial_planning"},
+				{Name: stepName, Human: true},
+			},
+		}}},
+		repoRoot: "/tmp/sortie-test",
+	}
+	s.projectsMu.Unlock()
+
+	tk, err := s.database.CreateTask(projID, "tmux task", "desc", "slug", "wf", "main", task.StatusTmux, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The engine clears current_step and bumps StepIndex past the tmux step
+	// before pausing at the approval gate.
+	if err := s.database.UpdateTaskStep(tk.ID, 2, ""); err != nil {
+		t.Fatal(err)
+	}
+	// The step row is created (running) then completed the instant the session
+	// is spawned — its context starts empty.
+	if err := s.database.CreateTaskStep(tk.ID, stepName); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.database.CompleteTaskStep(tk.ID, stepName, nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	refreshed, err := s.database.GetTask(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return refreshed
+}
+
+// TestHandleUpdateActiveStepContext_TmuxPausedStep is the regression test for
+// the original failure ("task #N has no active step"): an agent inside a live
+// tmux step must be able to fold its chat into the step context even though the
+// engine has already cleared current_step and marked the step row completed.
+func TestHandleUpdateActiveStepContext_TmuxPausedStep(t *testing.T) {
+	s, projID := setupServerWithProject(t)
+	tk := createPausedTmuxStep(t, s, projID, "grilling")
+
+	clientConn, serverConn := pipeForHandler(t)
+
+	go s.handleUpdateActiveStepContext(serverConn, UpdateActiveStepContextRequest{
+		TaskID:   tk.ID,
+		StepName: "grilling",
+		Context:  "final plan body",
+	})
+
+	msg := readOneMessage(t, clientConn)
+	if msg.Type != MsgOK {
+		t.Fatalf("expected MsgOK, got %s: %s", msg.Type, string(msg.Payload))
+	}
+
+	rows, err := s.database.GetTaskStepRows(tk.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := rows["grilling"].Context; got != "final plan body" {
+		t.Errorf("context after fold: got %q", got)
+	}
+	if rows["grilling"].Status != "completed" {
+		t.Errorf("paused tmux step should stay completed, got status %q", rows["grilling"].Status)
+	}
+}
+
+// TestHandleUpdateActiveStepContext_TmuxRejectsNonActiveStep verifies the
+// safety boundary still holds for paused tmux tasks: only the step that owns
+// the live session (StepIndex-1) is writable, not some other completed step.
+func TestHandleUpdateActiveStepContext_TmuxRejectsNonActiveStep(t *testing.T) {
+	s, projID := setupServerWithProject(t)
+	tk := createPausedTmuxStep(t, s, projID, "grilling")
+
+	clientConn, serverConn := pipeForHandler(t)
+
+	go s.handleUpdateActiveStepContext(serverConn, UpdateActiveStepContextRequest{
+		TaskID:   tk.ID,
+		StepName: "initial_planning",
+		Context:  "should not stick",
+	})
+
+	msg := readOneMessage(t, clientConn)
+	if msg.Type != MsgError {
+		t.Fatalf("expected MsgError, got %s: %s", msg.Type, string(msg.Payload))
+	}
+	var resp ErrorResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		t.Fatalf("decode error payload: %v", err)
+	}
+	if !strings.Contains(resp.Message, `step "initial_planning" is not the active step`) ||
+		!strings.Contains(resp.Message, `current: "grilling"`) {
+		t.Errorf("error should name the mismatched and active steps, got %q", resp.Message)
+	}
 }
 
 func TestHandleUpdateActiveStepContext_ReplaceDefaultMode(t *testing.T) {

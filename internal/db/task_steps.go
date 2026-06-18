@@ -47,6 +47,28 @@ func (db *DB) UpdateTaskStepContext(taskID int64, stepName string, context strin
 // canonical artifact for its active step directly, without waiting for the
 // post-session summarizer.
 func (db *DB) UpdateRunningTaskStepContext(taskID int64, stepName, value string, appendMode bool) (int64, error) {
+	return db.updateStepContextWithStatus(taskID, stepName, value, appendMode, "running")
+}
+
+// UpdatePausedTmuxStepContext sets the context of a tmux/human step that is
+// paused at its approval gate. The engine marks such a step's row 'completed'
+// and clears tasks.current_step the instant it spawns the session (so the task
+// can pause), yet the agent inside that session is still live — this is the
+// path the MCP update_step_context tool uses to let it fold its chat into the
+// step context mid-session. The handler resolves and verifies the target is the
+// task's active paused step before calling this, so matching 'completed' here
+// is scoped to exactly that step. append/return semantics match
+// UpdateRunningTaskStepContext.
+func (db *DB) UpdatePausedTmuxStepContext(taskID int64, stepName, value string, appendMode bool) (int64, error) {
+	return db.updateStepContextWithStatus(taskID, stepName, value, appendMode, "completed")
+}
+
+// updateStepContextWithStatus is the shared implementation behind the
+// running/paused step-context writers. It updates the context of the single
+// task_steps row matching (taskID, stepName, status), supporting both replace
+// and newline-joined append. Returns rows affected so callers can detect a
+// no-match.
+func (db *DB) updateStepContextWithStatus(taskID int64, stepName, value string, appendMode bool, status string) (int64, error) {
 	var (
 		result sql.Result
 		err    error
@@ -58,14 +80,14 @@ func (db *DB) UpdateRunningTaskStepContext(taskID int64, stepName, value string,
 			     WHEN context IS NULL OR context = '' THEN ?
 			     ELSE context || char(10) || ?
 			 END
-			 WHERE task_id = ? AND step_name = ? AND status = 'running'`,
-			value, value, taskID, stepName,
+			 WHERE task_id = ? AND step_name = ? AND status = ?`,
+			value, value, taskID, stepName, status,
 		)
 	} else {
 		result, err = db.Exec(
 			`UPDATE task_steps SET context = ?
-			 WHERE task_id = ? AND step_name = ? AND status = 'running'`,
-			value, taskID, stepName,
+			 WHERE task_id = ? AND step_name = ? AND status = ?`,
+			value, taskID, stepName, status,
 		)
 	}
 	if err != nil {

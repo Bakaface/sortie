@@ -223,3 +223,62 @@ func TestUpdateRunningTaskStepContext_UnknownStep(t *testing.T) {
 		t.Fatalf("expected 0 rows affected for unknown step, got %d", rows)
 	}
 }
+
+// TestUpdatePausedTmuxStepContext targets a 'completed' step row — the state of
+// a tmux/human step paused at its approval gate — and confirms it writes there
+// (replace and append) while leaving a still-running step untouched.
+func TestUpdatePausedTmuxStepContext(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := database.CreateTask(proj.ID, "Test", "Test task", "test", "", "", "tmux", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// "grilling" is the paused tmux step (completed); "implement" is still running.
+	if err := database.CreateTaskStep(tk.ID, "grilling"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CompleteTaskStep(tk.ID, "grilling", nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateTaskStep(tk.ID, "implement"); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := database.UpdatePausedTmuxStepContext(tk.ID, "grilling", "folded plan", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("expected 1 row affected for completed step, got %d", rows)
+	}
+	if got := stepContext(t, database, tk.ID, "grilling"); got != "folded plan" {
+		t.Errorf("completed step context: got %q", got)
+	}
+
+	if _, err := database.UpdatePausedTmuxStepContext(tk.ID, "grilling", "addendum", true); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if got := stepContext(t, database, tk.ID, "grilling"); got != "folded plan\naddendum" {
+		t.Errorf("after append: got %q", got)
+	}
+
+	// A running step must NOT be matched by the paused (completed) writer.
+	running, err := database.UpdatePausedTmuxStepContext(tk.ID, "implement", "nope", false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if running != 0 {
+		t.Fatalf("expected 0 rows affected for a running step, got %d", running)
+	}
+}

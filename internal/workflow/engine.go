@@ -524,6 +524,17 @@ func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, lo
 		return nil
 	}
 
+	// If the step's context was already published manually — the agent folded
+	// its chat into the step context via the update_step_context MCP tool — that
+	// is the canonical artifact and must not be clobbered by the auto
+	// summarizer. Folding manually is the whole point of update_step_context for
+	// tmux steps, so respecting an existing context is the expected behaviour
+	// (and it satisfies require_context: the context IS captured).
+	if existing, ctxErr := e.database.GetTaskStepContext(t.ID, prevStep.Name); ctxErr == nil && strings.TrimSpace(existing) != "" {
+		logMsg("Step %q of task #%d already has a manually-folded context (%d chars); skipping summarize_chat", prevStep.Name, t.ID, len(existing))
+		return nil
+	}
+
 	// fail records a context-capture failure. When the step demands context it
 	// returns a blocking error (wrapping ErrStepContextRequired); otherwise it
 	// logs a warning and returns nil so the flow proceeds best-effort.
