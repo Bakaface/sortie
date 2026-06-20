@@ -3,7 +3,6 @@ package daemon
 import (
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/Bakaface/sortie/internal/task"
@@ -156,16 +155,27 @@ func (s *Server) maybeAutoAdvance(t *task.Task, activity tmux.Activity) {
 	}
 	justFinished := wf.Steps[t.StepIndex-1]
 
+	// Capture the authoritative session id from the Stop-hook sentinel payload
+	// before anything consumes it. The cwd-matched async finder that records the
+	// session at launch can latch onto an unrelated agent when several share a
+	// working directory (notably non-worktree mode); the sentinel is written by
+	// the agent that actually ran THIS step, so its session_id is correct. Done
+	// for human steps too — they summarize their chat on user finalize — and is
+	// idempotent across the multiple turn-end sentinels a single session emits.
+	s.captureSentinelSession(t, justFinished.Name)
+
 	// Steps that the user explicitly wants to approve are out of scope for
 	// auto-advance. Consume any stray sentinel so it doesn't trigger advance
 	// the next time the user attaches an interactive session.
 	if justFinished.Human {
-		consumeSentinels(t.WorktreePath)
+		workflow.ClearStepSentinels(t.WorktreePath, justFinished.Name)
 		return
 	}
 
-	// Primary signal: presence of any sentinel file written by the Stop hook.
-	hasSentinel := stopHookSentinelExists(t.WorktreePath)
+	// Primary signal: presence of a sentinel file written by the Stop hook for
+	// THIS step (scoped by step name so a stale sentinel from a different step
+	// in the same worktree can't trigger a premature advance).
+	hasSentinel := workflow.StepSentinelExists(t.WorktreePath, justFinished.Name)
 
 	// Fallback signal: pane has been idle for tmuxIdleFallbackDuration.
 	fallbackReady := false
@@ -200,7 +210,7 @@ func (s *Server) maybeAutoAdvance(t *task.Task, activity tmux.Activity) {
 
 	// Sentinel files have served their purpose — clear them so they don't
 	// resurrect advance attempts after a manual finalize/retry.
-	consumeSentinels(t.WorktreePath)
+	workflow.ClearStepSentinels(t.WorktreePath, justFinished.Name)
 
 	signal := "stop-hook sentinel"
 	if !hasSentinel {
@@ -224,48 +234,28 @@ func (s *Server) maybeAutoAdvance(t *task.Task, activity tmux.Activity) {
 	log.Printf("%sTask #%d: auto-advance result: %s", s.projectLogPrefix(t.ProjectID), t.ID, outcome.message)
 }
 
-// stopHookSentinelExists returns true when the Stop-hook step-done directory
-// contains at least one sentinel JSON file. Reading errors (missing dir,
-// permission denied) are treated as "no sentinel" — the fallback timer
-// remains the safety net.
-func stopHookSentinelExists(worktreePath string) bool {
-	if worktreePath == "" {
-		return false
-	}
-	entries, err := os.ReadDir(workflow.StepDoneDir(worktreePath))
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		// Skip dotfiles (the hook command writes its temp file as `.<pid>...`
-		// and renames it on success; transient dotfiles are not sentinels).
-		if len(e.Name()) > 0 && e.Name()[0] == '.' {
-			continue
-		}
-		if !e.IsDir() {
-			return true
-		}
-	}
-	return false
-}
-
-// consumeSentinels removes every sentinel JSON file from the step-done
-// directory. Errors are intentionally swallowed: a leftover sentinel only
-// triggers a single redundant auto-advance attempt at worst, and the
-// monitor's `advancing` flag guards against double-firing within one task.
-func consumeSentinels(worktreePath string) {
-	if worktreePath == "" {
+// captureSentinelSession records the authoritative Claude session id for the
+// just-finished tmux step from its Stop-hook sentinel payload, if one is
+// present. This corrects the session captured at launch by the cwd-matched
+// async finder, which can record an unrelated session when several agents share
+// a working directory. No-op when there is no sentinel, it carries no session
+// id, or the recorded session already matches.
+func (s *Server) captureSentinelSession(t *task.Task, stepName string) {
+	sentinel, ok := workflow.LatestStepSentinel(t.WorktreePath, stepName)
+	if !ok || sentinel.SessionID == "" {
 		return
 	}
-	dir := workflow.StepDoneDir(worktreePath)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+	existing, err := s.database.GetChatByStep(t.ID, stepName)
+	if err == nil && existing != nil && existing.SessionID == sentinel.SessionID {
+		return // already correct
+	}
+	if err := s.database.SetChatSessionID(t.ID, stepName, sentinel.SessionID); err != nil {
+		log.Printf("%sWarning: failed to record sentinel session for task #%d step %q: %v",
+			s.projectLogPrefix(t.ProjectID), t.ID, stepName, err)
 		return
 	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		_ = os.Remove(dir + "/" + e.Name())
+	if existing != nil && existing.SessionID != "" && existing.SessionID != sentinel.SessionID {
+		log.Printf("%sTask #%d step %q: corrected chat session %q -> %q from Stop-hook sentinel",
+			s.projectLogPrefix(t.ProjectID), t.ID, stepName, existing.SessionID, sentinel.SessionID)
 	}
 }

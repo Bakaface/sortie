@@ -185,7 +185,6 @@ func readLogTail(path string, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-
 // runClaudeStepTmux starts a Claude session in a detached tmux session and returns
 // immediately. The tmux session persists for the user to attach and interact with.
 // The workflow engine treats tmux steps as human steps, so the task will pause
@@ -218,6 +217,14 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 	if err := InstallStopHook(t.WorktreePath, step.Name); err != nil {
 		log.Printf("Warning: failed to install Claude Stop hook for task #%d step %q: %v", t.ID, step.Name, err)
 	}
+
+	// Clear any Stop-hook sentinels left from a previous pass of THIS step.
+	// Without this, a stale turn-end marker (e.g. from a per-step retry, or one
+	// that survived a daemon restart) would let the monitor auto-advance the
+	// freshly-launched session before its agent does any work — handing the next
+	// step an empty context. Scoped to the step name so concurrent or earlier
+	// steps in the same worktree are untouched.
+	ClearStepSentinels(t.WorktreePath, step.Name)
 
 	// Write prompt to file (avoids shell quoting issues)
 	if err := os.WriteFile(promptFile, []byte(prompt), 0644); err != nil {
