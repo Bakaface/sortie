@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Bakaface/sortie/internal/config"
 	"github.com/Bakaface/sortie/internal/db"
@@ -445,7 +446,6 @@ func TestRunClaudeSyncEmptyWorkDir(t *testing.T) {
 		t.Error("expected non-empty output from pwd")
 	}
 }
-
 
 func TestSummarizerDiffStatPromptIncludesReadInstruction(t *testing.T) {
 	// Verify that the no-artifacts summarizer prompt instructs Claude to read files
@@ -1038,6 +1038,99 @@ func TestRunTaskSummarizationStrategyNoneSkipsContext(t *testing.T) {
 	}
 	if gotCtx != "" {
 		t.Errorf("expected empty step context for summarization_strategy=none, got %q", gotCtx)
+	}
+}
+
+// TestRunTaskManualContextOverridesLastMessage verifies that a context pushed
+// via the update_step_context MCP tool while the step is running (simulated
+// here by writing to the running task_steps row mid-step) survives
+// CompleteTaskStep and is NOT clobbered by the agent's last-message capture.
+func TestRunTaskManualContextOverridesLastMessage(t *testing.T) {
+	dir := t.TempDir()
+
+	// Fake Claude sleeps long enough for the test to inject a manual context
+	// while the step row is still 'running', then emits a non-empty result that
+	// would otherwise be captured as the step context.
+	script := filepath.Join(t.TempDir(), "fake-claude.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nsleep 2\necho 'agent last message'\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	dbPath := filepath.Join(dir, ".sortie", "test.db")
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	database, err := db.Open(dbPath)
+	if err != nil {
+		t.Fatalf("failed to open test database: %v", err)
+	}
+	defer database.Close()
+
+	project, err := database.GetOrCreateProject(dir)
+	if err != nil {
+		t.Fatalf("failed to create project: %v", err)
+	}
+
+	tk, err := database.CreateTask(project.ID, "Test task", "desc", "slug", "default", "", task.StatusRunning, nil)
+	if err != nil {
+		t.Fatalf("failed to create task: %v", err)
+	}
+	tk.Worktree = false
+	tk.WorktreePath = dir
+
+	cfg := &config.Config{
+		Claude: config.ClaudeConfig{Command: script},
+		Git:    config.GitConfig{OnComplete: "none"},
+		Workflows: []config.WorkflowConfig{
+			{
+				Name:  "default",
+				Print: true, // headless/synchronous path so the step blocks on the fake-claude exec
+				Steps: []config.StepConfig{
+					{Name: "implement", Prompt: "do a thing"},
+				},
+			},
+		},
+	}
+	engine := NewEngine(cfg, database, nil, dir)
+
+	const manual = "MANUAL OVERRIDE ARTIFACT"
+
+	// Inject the manual context once the step row exists as 'running' — this is
+	// what the update_step_context MCP tool does via the daemon. The engine is
+	// blocked in the fake-claude exec at this point, so the write lands on the
+	// running row before CompleteTaskStep.
+	injected := make(chan error, 1)
+	go func() {
+		for i := 0; i < 200; i++ {
+			rows, err := database.UpdateRunningTaskStepContext(tk.ID, "implement", manual, false)
+			if err != nil {
+				injected <- err
+				return
+			}
+			if rows == 1 {
+				injected <- nil
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		injected <- fmt.Errorf("timed out waiting for running step row")
+	}()
+
+	ctx := context.Background()
+	if err := engine.RunTask(ctx, tk, nil); err != nil {
+		t.Fatalf("RunTask failed: %v", err)
+	}
+
+	if err := <-injected; err != nil {
+		t.Fatalf("failed to inject manual context: %v", err)
+	}
+
+	gotCtx, err := database.GetTaskStepContext(tk.ID, "implement")
+	if err != nil {
+		t.Fatalf("GetTaskStepContext failed: %v", err)
+	}
+	if gotCtx != manual {
+		t.Errorf("expected manual override %q to survive completion, got %q", manual, gotCtx)
 	}
 }
 

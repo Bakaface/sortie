@@ -96,6 +96,28 @@ func (db *DB) updateStepContextWithStatus(taskID int64, stepName, value string, 
 	return result.RowsAffected()
 }
 
+// GetRunningTaskStepContext returns the context for a single running step.
+// A non-empty result indicates a manual override pushed via the
+// update_step_context MCP tool while the step was still executing. Returns the
+// empty string (no error) when no running row exists or its context is NULL.
+func (db *DB) GetRunningTaskStepContext(taskID int64, stepName string) (string, error) {
+	var context sql.NullString
+	err := db.QueryRow(
+		`SELECT context FROM task_steps WHERE task_id = ? AND step_name = ? AND status = 'running'`,
+		taskID, stepName,
+	).Scan(&context)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	if context.Valid {
+		return context.String, nil
+	}
+	return "", nil
+}
+
 // GetTaskStepContext returns the context for a single completed step.
 func (db *DB) GetTaskStepContext(taskID int64, stepName string) (string, error) {
 	var context sql.NullString

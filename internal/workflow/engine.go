@@ -372,21 +372,40 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 			}
 		}
 
+		// Detect a manual context override pushed via the update_step_context
+		// MCP tool while the step was running. The step row is still 'running'
+		// at this point (CompleteTaskStep below flips it to 'completed'), and
+		// CreateTaskStep resets the context on each run, so a non-empty value
+		// here can only be a deliberate manual write. When present it takes
+		// precedence over both last_message capture and summarize_chat.
+		manualContext, mErr := e.database.GetRunningTaskStepContext(t.ID, step.Name)
+		if mErr != nil {
+			log.Printf("Warning: failed to read running step context for step %q of task #%d: %v", step.Name, t.ID, mErr)
+		}
+		hasManualContext := strings.TrimSpace(manualContext) != ""
+
 		// Record step completion with context.
 		// For summarize_chat, store last_message immediately and kick off
 		// background summarization that will overwrite the context when done.
 		// For "none", skip context capture entirely so later steps see no context.
+		// A manual override is preserved verbatim regardless of strategy.
 		strategy := step.EffectiveSummarizationStrategy()
 		stepContextText := resultText
 		var ctxPtr *string
-		if strategy != config.SummarizationStrategyNone && stepContextText != "" {
+		if hasManualContext {
+			ctxPtr = &manualContext
+		} else if strategy != config.SummarizationStrategyNone && stepContextText != "" {
 			ctxPtr = &stepContextText
 		}
 		if err := e.database.CompleteTaskStep(t.ID, step.Name, ctxPtr, exitCode); err != nil {
 			log.Printf("Warning: failed to complete task step record: %v", err)
 		}
 
-		if strategy == config.SummarizationStrategySummarizeChat {
+		if hasManualContext {
+			log.Printf("Step %q of task #%d has a manual context override (%d chars); skipping summarize_chat", step.Name, t.ID, len(manualContext))
+		}
+
+		if !hasManualContext && strategy == config.SummarizationStrategySummarizeChat {
 			chat, chatErr := e.loadStepChatContent(t, step.Name, useTmux)
 			if chatErr != nil {
 				log.Printf("Warning: failed to load chat content for step %q of task #%d: %v", step.Name, t.ID, chatErr)

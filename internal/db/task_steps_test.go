@@ -282,3 +282,66 @@ func TestUpdatePausedTmuxStepContext(t *testing.T) {
 		t.Fatalf("expected 0 rows affected for a running step, got %d", running)
 	}
 }
+
+func TestGetRunningTaskStepContext(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	database, err := Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	proj, err := database.GetOrCreateProject("/home/user/myproject")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, err := database.CreateTask(proj.ID, "Test", "Test task", "test", "", "", "running", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.CreateTaskStep(tk.ID, "implement"); err != nil {
+		t.Fatal(err)
+	}
+
+	// A freshly-created running step has no context.
+	got, err := database.GetRunningTaskStepContext(tk.ID, "implement")
+	if err != nil {
+		t.Fatalf("GetRunningTaskStepContext: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected empty context for fresh step, got %q", got)
+	}
+
+	// A manual MCP write on the running step is visible.
+	if _, err := database.UpdateRunningTaskStepContext(tk.ID, "implement", "manual override", false); err != nil {
+		t.Fatal(err)
+	}
+	got, err = database.GetRunningTaskStepContext(tk.ID, "implement")
+	if err != nil {
+		t.Fatalf("GetRunningTaskStepContext: %v", err)
+	}
+	if got != "manual override" {
+		t.Fatalf("expected %q, got %q", "manual override", got)
+	}
+
+	// Once completed, the running-status query no longer returns it.
+	if err := database.CompleteTaskStep(tk.ID, "implement", nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	got, err = database.GetRunningTaskStepContext(tk.ID, "implement")
+	if err != nil {
+		t.Fatalf("GetRunningTaskStepContext: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected empty context once step completed, got %q", got)
+	}
+
+	// Unknown step returns empty, no error.
+	got, err = database.GetRunningTaskStepContext(tk.ID, "never-created")
+	if err != nil {
+		t.Fatalf("GetRunningTaskStepContext for unknown step: %v", err)
+	}
+	if got != "" {
+		t.Fatalf("expected empty context for unknown step, got %q", got)
+	}
+}
