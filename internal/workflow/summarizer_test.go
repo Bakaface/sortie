@@ -359,3 +359,64 @@ func TestEncodeClaudeProjectDir(t *testing.T) {
 		})
 	}
 }
+
+// TestExtractSessionTranscript covers the parse-and-empty-guard fix for tmux step
+// context capture. The critical regression: a (re-)spawned grilling session that
+// contains only the injected prompt plus metadata lines — no assistant turn — must
+// report hasConversation == false so summarize_chat is skipped instead of
+// re-enacting the prompt's instructions and confabulating a bogus context.
+func TestExtractSessionTranscript(t *testing.T) {
+	// A grilling session that was spawned but never used: only the prompt (a user
+	// turn) and the non-conversational metadata lines Claude Code writes.
+	emptySession := strings.Join([]string{
+		`{"type":"mode","mode":"normal","sessionId":"s1"}`,
+		`{"type":"permission-mode","permissionMode":"bypassPermissions"}`,
+		`{"type":"file-history-snapshot","messageId":"m1"}`,
+		`{"type":"user","message":{"role":"user","content":"Grilling session: interview the user, ask one question at a time."}}`,
+		`{"type":"attachment","attachment":{}}`,
+		`{"type":"last-prompt"}`,
+		`{"type":"ai-title"}`,
+	}, "\n")
+
+	if tr, has := extractSessionTranscript(emptySession); has {
+		t.Errorf("empty session: hasConversation = true, want false (transcript=%q)", tr)
+	}
+
+	// A real conversation: user prompt, assistant text + tool use, tool result,
+	// and a follow-up answer.
+	realSession := strings.Join([]string{
+		`{"type":"mode","mode":"normal"}`,
+		`{"type":"user","message":{"role":"user","content":"Grill me on the plan."}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"internal musing"},{"type":"text","text":"Reading the code first."},{"type":"tool_use","name":"Read","input":{"file_path":"/app/api.rb"}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"class Api; end"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Question 1: keep the legacy key?"}]}}`,
+		`{"type":"user","message":{"role":"user","content":"Yes, as a fallback."}}`,
+	}, "\n")
+
+	tr, has := extractSessionTranscript(realSession)
+	if !has {
+		t.Fatal("real session: hasConversation = false, want true")
+	}
+	for _, want := range []string{
+		"User: Grill me on the plan.",
+		"Assistant: Reading the code first.",
+		"[tool: Read",
+		"/app/api.rb",
+		"[tool result: class Api; end]",
+		"Assistant: Question 1: keep the legacy key?",
+		"User: Yes, as a fallback.",
+	} {
+		if !strings.Contains(tr, want) {
+			t.Errorf("real session transcript missing %q\n--- got ---\n%s", want, tr)
+		}
+	}
+	// Internal reasoning must not leak into the summarizer prompt.
+	if strings.Contains(tr, "internal musing") {
+		t.Errorf("transcript leaked thinking block:\n%s", tr)
+	}
+
+	// Whitespace/garbage only -> no conversation.
+	if tr, has := extractSessionTranscript("\n  \n{not json}\n"); has || tr != "" {
+		t.Errorf("garbage input: got (%q, %v), want (\"\", false)", tr, has)
+	}
+}

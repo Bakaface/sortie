@@ -3,6 +3,7 @@ package workflow
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -11,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/config"
+	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
 )
 
@@ -322,7 +323,23 @@ func (e *Engine) loadStepChatContent(t *task.Task, stepName string, useTmux bool
 			}
 			return "", fmt.Errorf("failed to read claude session JSONL for step %q: %w", stepName, err)
 		}
-		return strings.TrimSpace(string(data)), nil
+		transcript, hasConversation := extractSessionTranscript(string(data))
+		if !hasConversation {
+			// The session JSONL exists but holds no actual assistant turn — only the
+			// injected step prompt plus metadata lines (mode, permission-mode,
+			// file-history-snapshot, attachment, ...). This happens when a tmux step
+			// is (re-)spawned but no conversation runs in it (e.g. the step is
+			// restarted and advanced without anyone grilling). Feeding the raw prompt
+			// to summarize_chat makes the summarizer RE-ENACT the prompt's embedded
+			// instructions instead of summarizing — confabulating a bogus context
+			// (e.g. emitting the grilling agent's opening question as the "summary").
+			// Treat it as no content so the caller's empty-guard fires: a prior
+			// manually-folded context is preserved, and require_context fails loudly,
+			// instead of overwriting good context with garbage.
+			log.Printf("Step %q of task #%d: session %q has no conversational turns; treating as empty chat", stepName, t.ID, chat.SessionID)
+			return "", nil
+		}
+		return transcript, nil
 	}
 
 	// Headless step: slice the most recent run of this step out of the unified
@@ -338,6 +355,149 @@ func (e *Engine) loadStepChatContent(t *task.Task, stepName string, useTmux bool
 		return "", fmt.Errorf("failed to read task log for step %q: %w", stepName, err)
 	}
 	return extractLatestStepRegion(string(data), stepName), nil
+}
+
+// sessionEntry decodes the fields we need from one line of a Claude Code
+// interactive session JSONL transcript (the per-session files under
+// ~/.claude/projects/<encoded>/<id>.jsonl). These files interleave conversational
+// turns ("user"/"assistant") with many non-conversational line types — mode,
+// permission-mode, file-history-snapshot, attachment, last-prompt, ai-title,
+// queue-operation — which are ignored.
+type sessionEntry struct {
+	Type        string          `json:"type"`
+	IsSidechain bool            `json:"isSidechain"`
+	Message     *sessionMessage `json:"message"`
+}
+
+type sessionMessage struct {
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"` // a plain string OR an array of blocks
+}
+
+type sessionBlock struct {
+	Type    string          `json:"type"` // "text", "tool_use", "tool_result", "thinking"
+	Text    string          `json:"text"`
+	Name    string          `json:"name"`    // tool name for tool_use
+	Input   json.RawMessage `json:"input"`   // tool_use input
+	Content json.RawMessage `json:"content"` // tool_result content (string OR array of {text})
+}
+
+// extractSessionTranscript parses a Claude Code session JSONL file into a clean,
+// human-readable transcript, dropping the non-conversational metadata lines and the
+// verbose internals (thinking blocks, raw tool I/O) that would otherwise bloat the
+// summarizer prompt and tempt the model into re-enacting embedded instructions
+// rather than summarizing.
+//
+// It returns the rendered transcript and whether the session contains any actual
+// assistant turn. A session with no assistant turn carries no conversation worth
+// summarizing — only the injected step prompt — so callers treat hasConversation
+// == false as "no chat content".
+func extractSessionTranscript(raw string) (string, bool) {
+	var b strings.Builder
+	hasAssistant := false
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var e sessionEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		if e.Message == nil || (e.Type != "user" && e.Type != "assistant") {
+			continue
+		}
+		rendered := renderSessionContent(e.Message.Content)
+		if rendered == "" {
+			continue
+		}
+		role := e.Type
+		if e.IsSidechain {
+			role = "subagent-" + role
+		}
+		if e.Type == "assistant" {
+			hasAssistant = true
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(strings.ToUpper(role[:1]) + role[1:])
+		b.WriteString(": ")
+		b.WriteString(rendered)
+	}
+	return b.String(), hasAssistant
+}
+
+// renderSessionContent renders a session message's content, which is either a plain
+// string (typical user message) or an array of content blocks (assistant turns and
+// tool-result user turns). Thinking blocks are dropped; tool calls/results are
+// rendered as compact, truncated markers so identifiers and error strings survive
+// without dragging full file dumps into the summarizer prompt.
+func renderSessionContent(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	var blocks []sessionBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	var parts []string
+	for _, blk := range blocks {
+		switch blk.Type {
+		case "text":
+			if t := strings.TrimSpace(blk.Text); t != "" {
+				parts = append(parts, t)
+			}
+		case "tool_use":
+			if in := truncateTranscript(strings.TrimSpace(string(blk.Input)), 200); in != "" {
+				parts = append(parts, fmt.Sprintf("[tool: %s %s]", blk.Name, in))
+			} else {
+				parts = append(parts, fmt.Sprintf("[tool: %s]", blk.Name))
+			}
+		case "tool_result":
+			if r := strings.TrimSpace(renderToolResult(blk.Content)); r != "" {
+				parts = append(parts, "[tool result: "+truncateTranscript(r, 500)+"]")
+			}
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
+}
+
+// renderToolResult flattens a tool_result block's content, which Claude Code stores
+// as either a plain string or an array of {"type":"text","text":...} blocks.
+func renderToolResult(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	var blocks []sessionBlock
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return ""
+	}
+	var parts []string
+	for _, blk := range blocks {
+		if t := strings.TrimSpace(blk.Text); t != "" {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// truncateTranscript collapses a value to a single-line, length-bounded form for the
+// transcript. Newlines become spaces so tool I/O stays on one marker line.
+func truncateTranscript(s string, maxLen int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // extractLatestStepRegion returns the slice of the unified task log corresponding
