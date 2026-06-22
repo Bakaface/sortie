@@ -10,17 +10,6 @@ import (
 	"github.com/Bakaface/sortie/internal/workflow"
 )
 
-// tmuxIdleFallbackDuration is how long a tmux pane must remain in the
-// ActivityIdle state before the daemon assumes the Claude turn has finished
-// and triggers auto-advance. The hash-stability detector already requires
-// several stable polls before flagging idle; this additional dwell time
-// provides margin against very-slow streaming output that briefly stabilises.
-//
-// Why 30s: balances tail-latency tolerance against operator wait time when
-// the Stop hook has been disabled by managed-settings policy and we have to
-// rely on the fallback. Pulled from the brief.
-const tmuxIdleFallbackDuration = 30 * time.Second
-
 func (s *Server) tmuxMonitorLoop() {
 	defer s.wg.Done()
 
@@ -88,10 +77,10 @@ func (s *Server) checkTmuxActivity(monitor *tmux.Monitor) {
 			s.broadcastTaskUpdate(t.ID)
 		}
 
-		// Evaluate auto-advance every tick (not only on `changed`) so the
-		// fallback timer can fire even when the activity state has held at
-		// `idle` across multiple polls.
-		s.maybeAutoAdvance(t, activity)
+		// Poll for the step-done sentinel every tick (not only on `changed`):
+		// the sentinel can land while the pane is sitting idle with no further
+		// repaints, so an activity-change-gated check would miss it.
+		s.maybeAutoAdvance(t)
 	}
 
 	// Cleanup: remove sessions / state for tasks that are no longer in tmux mode.
@@ -119,19 +108,23 @@ func (s *Server) checkTmuxActivity(monitor *tmux.Monitor) {
 	}
 }
 
-// maybeAutoAdvance inspects a tmux-state task and triggers auto-advance when
-// the just-finished step is configured for it AND either:
+// maybeAutoAdvance inspects a tmux-state task and triggers auto-advance only
+// when a step-done sentinel file has appeared in <worktree>/.sortie/step-done/
+// for the just-finished step.
 //
-//   - the Claude Code Stop hook has dropped a sentinel file in
-//     <worktree>/.sortie/step-done/ (primary signal), or
-//   - the tmux pane has been ActivityIdle for tmuxIdleFallbackDuration
-//     (fallback signal, in case hooks were disabled).
+// The sentinel-file convention is the SOLE auto-advance signal. Sortie does not
+// infer completion from terminal state: an idle pane is indistinguishable from
+// an agent that never started, is waiting for input, or is stalled mid-turn, so
+// using idleness as a trigger advances the workflow with empty context (see
+// .docs/context/auto-advance-sentinel-convention.md). Whatever runs inside the
+// tmux session is responsible for creating the sentinel when the work is done
+// (e.g. a Claude Code Stop hook, or the agent itself as its final action).
 //
 // Tasks whose just-finished step is marked `human: true` are never
 // auto-advanced — they pause at the approval gate until the user acts. The
 // sentinel is still consumed (and discarded) so it doesn't leak across the
 // next attach/continue.
-func (s *Server) maybeAutoAdvance(t *task.Task, activity tmux.Activity) {
+func (s *Server) maybeAutoAdvance(t *task.Task) {
 	// Don't double-advance if a prior tick already kicked off the engine.
 	s.mu.RLock()
 	entry, hasEntry := s.tmuxAutoState[t.ID]
@@ -172,39 +165,19 @@ func (s *Server) maybeAutoAdvance(t *task.Task, activity tmux.Activity) {
 		return
 	}
 
-	// Primary signal: presence of a sentinel file written by the Stop hook for
-	// THIS step (scoped by step name so a stale sentinel from a different step
-	// in the same worktree can't trigger a premature advance).
-	hasSentinel := workflow.StepSentinelExists(t.WorktreePath, justFinished.Name)
-
-	// Fallback signal: pane has been idle for tmuxIdleFallbackDuration.
-	fallbackReady := false
-	now := time.Now()
-	s.mu.Lock()
-	if entry == nil {
-		entry = &tmuxAutoEntry{}
-		s.tmuxAutoState[t.ID] = entry
-	}
-	if activity == tmux.ActivityIdle {
-		if entry.firstIdleAt.IsZero() {
-			entry.firstIdleAt = now
-		}
-		if now.Sub(entry.firstIdleAt) >= tmuxIdleFallbackDuration {
-			fallbackReady = true
-		}
-	} else {
-		// Any non-idle state resets the idle timer so we don't accumulate
-		// dwell time across WIP transitions.
-		entry.firstIdleAt = time.Time{}
-	}
-	s.mu.Unlock()
-
-	if !hasSentinel && !fallbackReady {
+	// Sole signal: presence of a sentinel file for THIS step (scoped by step
+	// name so a stale sentinel from a different step in the same worktree can't
+	// trigger a premature advance).
+	if !workflow.StepSentinelExists(t.WorktreePath, justFinished.Name) {
 		return
 	}
 
 	// Mark advancing before any side-effects so the next tick is a no-op.
 	s.mu.Lock()
+	if entry == nil {
+		entry = &tmuxAutoEntry{}
+		s.tmuxAutoState[t.ID] = entry
+	}
 	entry.advancing = true
 	s.mu.Unlock()
 
@@ -212,12 +185,8 @@ func (s *Server) maybeAutoAdvance(t *task.Task, activity tmux.Activity) {
 	// resurrect advance attempts after a manual finalize/retry.
 	workflow.ClearStepSentinels(t.WorktreePath, justFinished.Name)
 
-	signal := "stop-hook sentinel"
-	if !hasSentinel {
-		signal = fmt.Sprintf("idle for %s (fallback)", tmuxIdleFallbackDuration)
-	}
-	log.Printf("%sTask #%d: auto-advancing via %s (step %q done)",
-		s.projectLogPrefix(t.ProjectID), t.ID, signal, justFinished.Name)
+	log.Printf("%sTask #%d: auto-advancing via step-done sentinel (step %q done)",
+		s.projectLogPrefix(t.ProjectID), t.ID, justFinished.Name)
 
 	outcome, err := s.advanceTmuxTask(t)
 	if err != nil {

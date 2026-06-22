@@ -79,19 +79,12 @@ type Server struct {
 
 // tmuxAutoEntry holds the daemon's per-task state for tmux auto-advance.
 //
-// firstIdleAt is the timestamp at which the tmux pane was first observed
-// in the ActivityIdle state since the most recent WIP transition. It is
-// cleared on every transition back to WIP. The fallback path advances
-// the workflow when (now - firstIdleAt) exceeds tmuxIdleFallbackDuration
-// and no Stop-hook sentinel has shown up.
-//
 // advancing is set true the moment the daemon decides to advance the
 // task, so re-entrant ticks of the monitor loop don't fire StartAgent
 // twice while ResumeAfterApproval is still spinning up. Cleared when
 // the task leaves StatusTmux.
 type tmuxAutoEntry struct {
-	firstIdleAt time.Time
-	advancing   bool
+	advancing bool
 }
 
 func NewServer(cfg *config.Config, database *db.DB) *Server {
