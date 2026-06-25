@@ -35,7 +35,7 @@ func TestRecoverOrphanedTasks_FinalizingRestartsAgent(t *testing.T) {
 	defer database.Close()
 
 	cfg := &config.Config{
-		Git: config.GitConfig{OnComplete: "none"},
+		OnComplete: "none",
 		Workflows: []config.WorkflowConfig{
 			{Name: "default", Steps: []config.StepConfig{{Name: "implement", Prompt: "do something"}}},
 		},
@@ -125,7 +125,7 @@ func TestRecoverOrphanedTasks_SummarizingRestartsAgent(t *testing.T) {
 	defer database.Close()
 
 	cfg := &config.Config{
-		Git: config.GitConfig{OnComplete: "none"},
+		OnComplete: "none",
 		Workflows: []config.WorkflowConfig{
 			{Name: "default", Steps: []config.StepConfig{{Name: "implement", Prompt: "do something"}}},
 		},

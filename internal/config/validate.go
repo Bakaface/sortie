@@ -17,7 +17,7 @@ type Diagnostic struct {
 	Message  string
 }
 
-// validOnCompleteValues lists the accepted git.on_complete values.
+// validOnCompleteValues lists the accepted on_complete values.
 var validOnCompleteValues = map[string]bool{
 	"":       true, // empty falls back to default
 	"commit": true,
@@ -131,8 +131,8 @@ func loadGlobalPoolForValidation(skipPath string) (*globalWorkflowPool, error) {
 // validate without surfacing "missing file" errors.
 func validateProject(proj *ProjectConfig, filePool *workflowFilePool, globalPool *globalWorkflowPool) ([]Diagnostic, error) {
 	// Enum sanity
-	if !validOnCompleteValues[proj.Git.OnComplete] {
-		return nil, fmt.Errorf(`git.on_complete: invalid value %q (must be "commit", "merge", or "none")`, proj.Git.OnComplete)
+	if !validOnCompleteValues[proj.OnComplete] {
+		return nil, fmt.Errorf(`on_complete: invalid value %q (must be "commit", "merge", or "none")`, proj.OnComplete)
 	}
 	if !validTmuxNestedAttachBehaviors[proj.TmuxNestedAttachBehavior] {
 		return nil, fmt.Errorf(`tmux_nested_attach_behavior: invalid value %q (must be "switch" or "nest")`, proj.TmuxNestedAttachBehavior)

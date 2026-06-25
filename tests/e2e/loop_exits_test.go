@@ -39,7 +39,7 @@ func TestLoopExitsOnEmptyContext(t *testing.T) {
 poll_interval: 100ms
 git:
   base_branch: main
-  on_complete: merge
+on_complete: merge
 workflows:
   tasks:
     - name: looping

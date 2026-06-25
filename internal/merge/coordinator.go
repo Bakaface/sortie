@@ -47,9 +47,6 @@ const (
 // Config holds the per-coordinator knobs. These are stable across tasks; the
 // per-task action and branch are passed to Finalize.
 type Config struct {
-	// OnComplete is the configured on_complete action ("merge" | "commit" | "none" | "").
-	OnComplete Action
-
 	// MaxAttempts caps the merge-retry loop. Defaults to 3 when zero.
 	MaxAttempts int
 
@@ -144,13 +141,16 @@ func (c *Coordinator) RepoRoot() string { return c.repoRoot }
 //     returns an error — regardless of whether the failure came from
 //     MergeBranch, RebaseInto, ContinueRebase, or the conflict resolver.
 //
-// For Action == "" / "none", or for non-worktree tasks, Finalize is a no-op.
-// For Action == "merge" on a non-worktree task, Finalize falls back to a
+// The action ("merge" | "commit" | "none" | "") is resolved per-task by the
+// caller (workflow-level override falling back to the project-level setting)
+// and passed in explicitly.
+//
+// For action == "" / "none", or for non-worktree tasks, Finalize is a no-op.
+// For action == "merge" on a non-worktree task, Finalize falls back to a
 // commit (because there is no task branch to merge from).
-func (c *Coordinator) Finalize(ctx context.Context, t *task.Task, baseBranch string, logFn LogFunc) error {
+func (c *Coordinator) Finalize(ctx context.Context, t *task.Task, baseBranch string, action Action, logFn LogFunc) error {
 	logf := normalizeLog(logFn)
 
-	action := c.cfg.OnComplete
 	switch action {
 	case "", ActionNone:
 		logf("No on_complete action configured, skipping")

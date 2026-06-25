@@ -28,9 +28,9 @@ func defaultConfig() *Config {
 		MaxWorkers: 3,
 		Git: GitConfig{
 			BranchTemplate: "sortie/{{task_id}}-{{task_slug}}",
-			OnComplete:     "commit",
 		},
-		Workflows: nil, // Empty - DefaultWorkflow() handles fallback
+		OnComplete: "commit",
+		Workflows:  nil, // Empty - DefaultWorkflow() handles fallback
 		Notifications: NotificationsConfig{
 			Enabled:        true,
 			OnComplete:     true,
@@ -256,8 +256,8 @@ func loadProjectConfig(path string, cfg *Config) error {
 	if proj.Git.BranchTemplate != "" {
 		cfg.Git.BranchTemplate = proj.Git.BranchTemplate
 	}
-	if proj.Git.OnComplete != "" {
-		cfg.Git.OnComplete = proj.Git.OnComplete
+	if proj.OnComplete != "" {
+		cfg.OnComplete = proj.OnComplete
 	}
 	if proj.DefaultPriority != "" {
 		cfg.DefaultPriority = proj.DefaultPriority
@@ -692,6 +692,9 @@ func resolveWorkflows(cfg *Config, proj *ProjectConfig, filePool *workflowFilePo
 			return fmt.Errorf("workflow %q: %w", cfg.Workflows[i].Name, err)
 		}
 		if err := cfg.Workflows[i].ValidateSteps(); err != nil {
+			return fmt.Errorf("workflow %q: %w", cfg.Workflows[i].Name, err)
+		}
+		if err := cfg.Workflows[i].ValidateOnComplete(); err != nil {
 			return fmt.Errorf("workflow %q: %w", cfg.Workflows[i].Name, err)
 		}
 	}

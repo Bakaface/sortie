@@ -18,8 +18,9 @@ Controls the preamble written to each task worktree's `CLAUDE.md`. When omitted,
 git:
   base_branch: main                              # Base branch for worktrees (default: system default)
   branch_template: "sortie/{{task_id}}-{{task_slug}}"  # Branch naming template
-  on_complete: commit                            # "commit", "merge", or "none"
 ```
+
+> **Note:** `on_complete` is a **top-level** key (see "Finalization" below), not part of the `git:` section. The legacy `git.on_complete` location was removed — configs that still use it produce a migration error.
 
 ### Branch Template Variables
 
@@ -31,11 +32,25 @@ git:
 | `{{task.title}}` | Raw task title |
 | `{{task.slug}}` | Same as `{{task_slug}}` |
 
-### `on_complete` Behavior
+---
+
+## Finalization (`on_complete`)
+
+```yaml
+on_complete: commit    # top-level: "commit", "merge", or "none" (default: "commit")
+```
+
+Controls what Sortie does after a task's workflow finishes:
 
 - `"commit"` — Commits changes in the worktree (default)
 - `"merge"` — Merges the task branch into base branch
 - `"none"` — Leaves changes in the worktree branch without action
+
+It can be overridden per-workflow via a workflow-level `on_complete:` key
+(see the Workflows section). Resolution precedence: **workflow-level →
+project-level → default (`commit`)**.
+
+> Moved here from the former `git.on_complete`. The old location now errors.
 
 ---
 
@@ -371,7 +386,8 @@ verification:
 git:
   base_branch: main
   branch_template: "sortie/{{task_id}}-{{task_slug}}"
-  on_complete: merge
+
+on_complete: merge
 
 notifications:
   enabled: true
@@ -383,6 +399,7 @@ workflows:
   tasks:
     - name: sensible
       summarizer_prompt: "Summarize what was implemented and any decisions made"
+      on_complete: commit    # optional per-workflow override of the top-level on_complete
       steps:
         - name: implementing
           prompt: |

@@ -52,9 +52,7 @@ func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, r
 	e.coord = merge.NewCoordinator(
 		repoRoot,
 		lk,
-		merge.Config{
-			OnComplete: cfg.Git.OnComplete,
-		},
+		merge.Config{},
 		e.bindConflictResolver(),
 		database.UpdateTaskStatus,
 		database.AppendTaskCommit,
@@ -105,6 +103,15 @@ func (e *Engine) effectiveBaseBranch(t *task.Task) string {
 		return e.cfg.Git.BaseBranch
 	}
 	return "main"
+}
+
+// effectiveOnComplete returns the finalization action for a task: the workflow's
+// on_complete override when set, otherwise the project-level on_complete.
+func (e *Engine) effectiveOnComplete(t *task.Task) string {
+	if wf := e.cfg.GetWorkflow(t.Workflow); wf != nil && wf.OnComplete != "" {
+		return wf.OnComplete
+	}
+	return e.cfg.OnComplete
 }
 
 // RunTask executes the full workflow pipeline for a task.

@@ -29,7 +29,7 @@ agents:
   max_concurrent: 5
 git:
   base_branch: main
-  on_complete: commit
+on_complete: commit
 workflows:
   tasks:
     - name: parent

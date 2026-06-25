@@ -19,7 +19,7 @@ import (
 // resolve the effective base branch and forward a log function; both are
 // engine-level concerns.
 func (e *Engine) executeOnComplete(ctx context.Context, t *task.Task, _ func([]string), logFn func(string, ...any)) error {
-	return e.coord.Finalize(ctx, t, e.effectiveBaseBranch(t), logFn)
+	return e.coord.Finalize(ctx, t, e.effectiveBaseBranch(t), e.effectiveOnComplete(t), logFn)
 }
 
 // bindConflictResolver returns a merge.ConflictResolver closure that spawns a

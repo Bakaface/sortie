@@ -46,8 +46,8 @@ func TestRunTask_NoWorktreePersistsWorktreePath(t *testing.T) {
 	// Intentionally leave tk.WorktreePath empty — simulates a fresh task.
 
 	cfg := &config.Config{
-		Claude: config.ClaudeConfig{Command: script},
-		Git:    config.GitConfig{OnComplete: "none"},
+		Claude:     config.ClaudeConfig{Command: script},
+		OnComplete: "none",
 		Workflows: []config.WorkflowConfig{
 			{Name: "default", Steps: []config.StepConfig{{Name: "step1", Prompt: "do it"}}},
 		},

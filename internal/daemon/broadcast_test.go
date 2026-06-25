@@ -70,7 +70,7 @@ func TestFinalizeCompletedTaskSetsFinalizingBeforeCompletion(t *testing.T) {
 	defer database.Close()
 
 	cfg := &config.Config{
-		Git: config.GitConfig{OnComplete: "none"},
+		OnComplete: "none",
 		Workflows: []config.WorkflowConfig{
 			{
 				Name: "default",
@@ -254,7 +254,7 @@ func TestFinalizeCompletedTaskCompletesSuccessfully(t *testing.T) {
 	defer database.Close()
 
 	cfg := &config.Config{
-		Git: config.GitConfig{OnComplete: "none"},
+		OnComplete: "none",
 	}
 	s := NewServer(cfg, database)
 

@@ -23,7 +23,7 @@ max_workers: 2
 default_priority: high
 git:
   branch_template: "sortie/{{task_id}}-{{task_slug}}"
-  on_complete: commit
+on_complete: commit
 workflows:
   tasks:
     - name: default
@@ -62,10 +62,36 @@ func TestValidateFile_UnknownTopLevelField(t *testing.T) {
 }
 
 func TestValidateFile_InvalidOnComplete(t *testing.T) {
-	path := writeTempConfig(t, "git:\n  on_complete: yeet\n")
+	path := writeTempConfig(t, "on_complete: yeet\n")
 	err := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "on_complete") {
 		t.Fatalf("expected on_complete error, got: %v", err)
+	}
+}
+
+func TestValidateFile_GitOnCompleteRemoved(t *testing.T) {
+	// git.on_complete moved to the top level; the legacy location must surface a
+	// migration error rather than being silently ignored.
+	path := writeTempConfig(t, "git:\n  on_complete: merge\n")
+	err := ValidateFile(path)
+	if err == nil || !strings.Contains(err.Error(), "git.on_complete was moved") {
+		t.Fatalf("expected git.on_complete migration error, got: %v", err)
+	}
+}
+
+func TestValidateFile_InvalidWorkflowOnComplete(t *testing.T) {
+	path := writeTempConfig(t, `
+workflows:
+  tasks:
+    - name: default
+      on_complete: yeet
+      steps:
+        - name: implementing
+          prompt: "do the thing"
+`)
+	err := ValidateFile(path)
+	if err == nil || !strings.Contains(err.Error(), "on_complete") {
+		t.Fatalf("expected workflow on_complete error, got: %v", err)
 	}
 }
 

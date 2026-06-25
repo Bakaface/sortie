@@ -76,7 +76,7 @@ sortie tasks                                     # list, or `sortie tasks <id>` 
 4. **Each workflow step spawns a Claude Code agent** in that worktree with the rendered prompt and a Sortie-built system prompt. Output is parsed live (NDJSON), persisted to per-step log files, and broadcast to the TUI.
 5. **Step context is captured** at the end of each step (the agent's last message by default, or a Haiku summary when `summarization_strategy: summarize_chat`) and made available to later steps via `{{steps.<name>.context}}`.
 6. **Human gates pause** the workflow on `human: true` steps; **tmux gates** suspend until you detach from the agent's tmux session. **Loops** jump back to an earlier step until an exit condition is met or `max_iterations` is reached.
-7. **On completion**, depending on `git.on_complete`, Sortie either leaves the work as a `commit` on the branch or `merge`s it into the base branch.
+7. **On completion**, depending on `on_complete` (project-level, or the running workflow's override), Sortie either leaves the work as a `commit` on the branch or `merge`s it into the base branch.
 
 ## Workflow configuration
 
@@ -95,11 +95,13 @@ yolo: false                       # pass --dangerously-skip-permissions to claud
 git:
   base_branch: main
   branch_template: sortie/{{task_id}}-{{task_slug}}
-  on_complete: merge              # commit | merge
+
+on_complete: merge                # commit | merge | none (per-workflow overridable)
 
 workflows:
   tasks:
     - name: sensible workflow
+      on_complete: commit         # optional: override the project-level on_complete
       steps:
         - name: implementing
           prompt: |

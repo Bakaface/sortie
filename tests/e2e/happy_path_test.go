@@ -15,7 +15,7 @@ func simpleWorkflowYAML(stubPath string) string {
 poll_interval: 100ms
 git:
   base_branch: main
-  on_complete: merge
+on_complete: merge
 workflows:
   tasks:
     - name: simple

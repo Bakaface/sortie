@@ -7,7 +7,7 @@ across the daemon, the workflow engine, and `internal/git`.
 ## Critical Invariants
 
 - **All merges go through `Coordinator.Finalize()`** — the public surface is intentionally tiny.
-  Workflow engine calls `e.coord.Finalize(ctx, t, baseBranch, logFn)` and nothing else.
+  Workflow engine calls `e.coord.Finalize(ctx, t, baseBranch, action, logFn)` and nothing else.
 - **Per-repo serialization via a shared `*Lock`** — the daemon owns a `*Locks` registry
   (`Locks.For(repoRoot)` returns a stable per-repo Lock). Multiple Coordinators (e.g., after
   config reload) that point at the same repo share the same Lock so serialization survives.
@@ -28,7 +28,9 @@ across the daemon, the workflow engine, and `internal/git`.
 
 ## Patterns
 
-- `Finalize(ctx, t, baseBranch, logFn)` is the only entrypoint callers should use.
+- `Finalize(ctx, t, baseBranch, action, logFn)` is the only entrypoint callers should use. The
+  `action` ("commit"/"merge"/"none") is resolved per-task by the caller (workflow-level override
+  falling back to the project-level `on_complete`), not stored on the Coordinator.
 - `NewCoordinator(repoRoot, lock, cfg, resolveConflicts, setStatus, recordCommit)` zero-fills
   sensible defaults (`MaxAttempts = 3`, `BlockedPollInterval = 10s`, empty Lock if nil).
 - Status writes happen **outside** the per-repo lock via the `StatusSetter` callback so they

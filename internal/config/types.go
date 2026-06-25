@@ -70,13 +70,17 @@ func (w WorktreeSyncPathsConfig) AllPaths() []string {
 
 // ProjectConfig is loaded from .sortie.yml (both global ~/.sortie.yml and project-local)
 type ProjectConfig struct {
-	MaxWorkers               int                     `yaml:"max_workers"`
-	DefaultPriority          string                  `yaml:"default_priority"`
-	Yolo                     *bool                   `yaml:"yolo,omitempty"`
-	PollInterval             string                  `yaml:"poll_interval,omitempty"`
-	Claude                   *ClaudeConfig           `yaml:"claude,omitempty"`
-	Verification             *VerificationConfig     `yaml:"verification,omitempty"`
-	Git                      GitConfig               `yaml:"git"`
+	MaxWorkers      int                 `yaml:"max_workers"`
+	DefaultPriority string              `yaml:"default_priority"`
+	Yolo            *bool               `yaml:"yolo,omitempty"`
+	PollInterval    string              `yaml:"poll_interval,omitempty"`
+	Claude          *ClaudeConfig       `yaml:"claude,omitempty"`
+	Verification    *VerificationConfig `yaml:"verification,omitempty"`
+	Git             GitConfig           `yaml:"git"`
+	// OnComplete is the project-level finalization action run after a task's
+	// workflow finishes ("commit" | "merge" | "none"). Overridable per-workflow
+	// via WorkflowConfig.OnComplete. Moved here from the former git.on_complete.
+	OnComplete               string                  `yaml:"on_complete,omitempty"`
 	Workflows                ProjectWorkflows        `yaml:"workflows"`
 	Workflow                 WorkflowConfig          `yaml:"workflow"` // deprecated, backward compat
 	Tasks                    []TaskConfig            `yaml:"tasks"`    // deprecated, use workflows.one-off
@@ -180,17 +184,52 @@ type TaskConfig struct {
 type GitConfig struct {
 	BaseBranch     string `yaml:"base_branch"`
 	BranchTemplate string `yaml:"branch_template"`
-	OnComplete     string `yaml:"on_complete"`
+}
+
+// UnmarshalYAML decodes a GitConfig and rejects the removed `on_complete:` field
+// with a migration error. on_complete moved from `git:` to the top level (and is
+// now also overridable per-workflow).
+func (g *GitConfig) UnmarshalYAML(value *yaml.Node) error {
+	if err := checkRemovedGitOnComplete(value); err != nil {
+		return err
+	}
+	type raw GitConfig
+	var r raw
+	if err := value.Decode(&r); err != nil {
+		return err
+	}
+	*g = GitConfig(r)
+	return nil
+}
+
+// checkRemovedGitOnComplete scans a `git:` mapping node for the removed
+// `on_complete` key and returns a migration-friendly error pointing at the new
+// top-level field.
+func checkRemovedGitOnComplete(node *yaml.Node) error {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		key := node.Content[i]
+		if key.Kind == yaml.ScalarNode && key.Value == "on_complete" {
+			return fmt.Errorf("git.on_complete was moved to the top level: replace `git:\\n  on_complete: X` with a top-level `on_complete: X` (it is now also overridable per-workflow)")
+		}
+	}
+	return nil
 }
 
 type WorkflowConfig struct {
-	Name                  string                  `yaml:"name"`
-	Description           string                  `yaml:"description,omitempty"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
 	// Print controls the workflow-level default execution mode for Claude steps.
 	//   false (default): run each step in tmux (interactive Claude Code TUI).
 	//   true:            run each step headless via `claude -p`.
 	// Step-level Print overrides this default. Replaces the previous `tmux` field.
-	Print                 bool                    `yaml:"print,omitempty"`
+	Print bool `yaml:"print,omitempty"`
+	// OnComplete, when non-empty, overrides the project-level on_complete action
+	// for tasks running this workflow ("commit" | "merge" | "none"). Empty means
+	// inherit the project-level setting.
+	OnComplete            string                  `yaml:"on_complete,omitempty"`
 	Steps                 []StepConfig            `yaml:"steps"`
 	SummarizerPrompt      string                  `yaml:"summarizer_prompt"`
 	WorktreeSyncPaths     WorktreeSyncPathsConfig `yaml:"worktree-sync-paths,omitempty"`
@@ -227,19 +266,19 @@ func (wf *WorkflowConfig) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type StepConfig struct {
-	Name string `yaml:"name"`
+	Name   string `yaml:"name"`
 	Prompt string `yaml:"prompt"`
-	Mode string `yaml:"mode"`
+	Mode   string `yaml:"mode"`
 	// Print, when non-nil, overrides the workflow-level Print default for this step.
 	//   nil (default):    inherit workflow.Print
 	//   *false:           tmux
 	//   *true:            headless `claude -p`
 	// Replaces the previous step-level `tmux` field.
-	Print *bool `yaml:"print,omitempty"`
-	Timeout string `yaml:"timeout"`
-	Human bool `yaml:"human"`
-	Loop *LoopConfig `yaml:"loop,omitempty"`
-	SummarizationStrategy string `yaml:"summarization_strategy,omitempty"`
+	Print                 *bool       `yaml:"print,omitempty"`
+	Timeout               string      `yaml:"timeout"`
+	Human                 bool        `yaml:"human"`
+	Loop                  *LoopConfig `yaml:"loop,omitempty"`
+	SummarizationStrategy string      `yaml:"summarization_strategy,omitempty"`
 	// SummarizationPrompt is the prompt template used when summarization_strategy is
 	// "summarize_chat". Supports {{task.id}}, {{task.title}}, etc. template variables.
 	// When empty, the default summarization prompt is used.
@@ -373,6 +412,15 @@ func (wf *WorkflowConfig) ValidateLoops() error {
 		ranges = append(ranges, newRange)
 	}
 
+	return nil
+}
+
+// ValidateOnComplete checks the workflow-level on_complete override (if set) is
+// a recognized action. An empty value means "inherit the project-level setting".
+func (wf *WorkflowConfig) ValidateOnComplete() error {
+	if !validOnCompleteValues[wf.OnComplete] {
+		return fmt.Errorf("on_complete: invalid value %q (must be \"commit\", \"merge\", or \"none\")", wf.OnComplete)
+	}
 	return nil
 }
 
@@ -561,10 +609,14 @@ type Config struct {
 	DefaultPriority string
 	Verification    VerificationConfig
 	Git             GitConfig
-	Workflows       []WorkflowConfig // flat list for engine resolution (all kinds, with prefixed names)
-	TaskWorkflows   []WorkflowConfig // "tasks" workflows (for "n" new task menu)
-	OneOff          []WorkflowConfig // "one-off" workflows (for "r" run menu)
-	InitWorkflows   []WorkflowConfig // "init" workflows (for "i" init menu)
+	// OnComplete is the resolved project-level finalization action
+	// ("commit" | "merge" | "none"). Per-workflow overrides live on
+	// WorkflowConfig.OnComplete and are resolved at finalization time.
+	OnComplete    string
+	Workflows     []WorkflowConfig // flat list for engine resolution (all kinds, with prefixed names)
+	TaskWorkflows []WorkflowConfig // "tasks" workflows (for "n" new task menu)
+	OneOff        []WorkflowConfig // "one-off" workflows (for "r" run menu)
+	InitWorkflows []WorkflowConfig // "init" workflows (for "i" init menu)
 
 	// System prompt preamble passed via --system-prompt to Claude agents
 	SystemPrompt string

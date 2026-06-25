@@ -40,8 +40,8 @@ var initCmd = &cobra.Command{
 			MaxWorkers: 3,
 			Git: config.GitConfig{
 				BranchTemplate: "sortie/{{task_id}}-{{task_slug}}",
-				OnComplete:     "commit",
 			},
+			OnComplete: "commit",
 		}
 
 		if err := config.WriteProjectConfig(configPath, proj); err != nil {

@@ -33,7 +33,7 @@ workflows:
 }
 
 func TestValidateCmd_ExplicitPath_Invalid(t *testing.T) {
-	path := writeValidateFixture(t, "git:\n  on_complete: boom\n")
+	path := writeValidateFixture(t, "on_complete: boom\n")
 	err := validateCmd.RunE(validateCmd, []string{path})
 	if err == nil {
 		t.Fatal("expected validation error")

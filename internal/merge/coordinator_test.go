@@ -70,10 +70,10 @@ func TestFinalizeNoneIsNoOp(t *testing.T) {
 	dir := initRepoWithBranch(t, "feature-1", "feature.txt", "feature\n")
 	wt := makeWorktree(t, dir, "feature-1")
 
-	coord := NewCoordinator(dir, &Lock{}, Config{OnComplete: ""}, nil, nil, nil)
+	coord := NewCoordinator(dir, &Lock{}, Config{}, nil, nil, nil)
 
 	tk := &task.Task{ID: 1, Title: "test", Branch: "feature-1", Worktree: true, WorktreePath: wt}
-	if err := coord.Finalize(context.Background(), tk, "main", nil); err != nil {
+	if err := coord.Finalize(context.Background(), tk, "main", ActionNone, nil); err != nil {
 		t.Fatalf("Finalize(none) returned error: %v", err)
 	}
 
@@ -101,12 +101,12 @@ func TestFinalizeMergeHappyPath(t *testing.T) {
 
 	coord := NewCoordinator(
 		dir, &Lock{},
-		Config{OnComplete: ActionMerge, MaxAttempts: 1, BlockedPollInterval: 10 * time.Millisecond},
+		Config{MaxAttempts: 1, BlockedPollInterval: 10 * time.Millisecond},
 		nil, nil, recordCommit,
 	)
 
 	tk := &task.Task{ID: 2, Title: "add feature", Branch: "feature-2", Worktree: true, WorktreePath: wt}
-	if err := coord.Finalize(context.Background(), tk, "main", nil); err != nil {
+	if err := coord.Finalize(context.Background(), tk, "main", ActionMerge, nil); err != nil {
 		t.Fatalf("Finalize returned error: %v", err)
 	}
 
@@ -129,10 +129,10 @@ func TestFinalizeMergeHappyPath(t *testing.T) {
 // directly, so the daemon must never auto-commit or auto-merge.
 func TestFinalizeNonWorktreeIsNoOp(t *testing.T) {
 	dir := initRepoWithBranch(t, "feature-nw", "f.txt", "x\n")
-	coord := NewCoordinator(dir, &Lock{}, Config{OnComplete: ActionMerge}, nil, nil, nil)
+	coord := NewCoordinator(dir, &Lock{}, Config{}, nil, nil, nil)
 
 	tk := &task.Task{ID: 7, Title: "nw", Branch: "feature-nw", Worktree: false, WorktreePath: dir}
-	if err := coord.Finalize(context.Background(), tk, "main", nil); err != nil {
+	if err := coord.Finalize(context.Background(), tk, "main", ActionMerge, nil); err != nil {
 		t.Fatalf("Finalize on non-worktree task returned error: %v", err)
 	}
 
@@ -180,7 +180,7 @@ func TestConcurrentFinalizesSerialize(t *testing.T) {
 			dir, lock, // shared lock
 			// MaxAttempts=2 so the second branch can rebase onto the
 			// fast-forwarded base before retrying its --ff-only merge.
-			Config{OnComplete: ActionMerge, MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
+			Config{MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
 			nil, nil, nil,
 		)
 	}
@@ -193,11 +193,11 @@ func TestConcurrentFinalizesSerialize(t *testing.T) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		errs <- makeCoord().Finalize(context.Background(), tkA, "main", nil)
+		errs <- makeCoord().Finalize(context.Background(), tkA, "main", ActionMerge, nil)
 	}()
 	go func() {
 		defer wg.Done()
-		errs <- makeCoord().Finalize(context.Background(), tkB, "main", nil)
+		errs <- makeCoord().Finalize(context.Background(), tkB, "main", ActionMerge, nil)
 	}()
 	wg.Wait()
 	close(errs)
@@ -248,7 +248,7 @@ func TestConcurrentFinalizesActuallyTakeLock(t *testing.T) {
 	lock := &Lock{}
 	coord := NewCoordinator(
 		dir, lock,
-		Config{OnComplete: ActionMerge, MaxAttempts: 1, BlockedPollInterval: 10 * time.Millisecond},
+		Config{MaxAttempts: 1, BlockedPollInterval: 10 * time.Millisecond},
 		nil, nil, nil,
 	)
 
@@ -258,7 +258,7 @@ func TestConcurrentFinalizesActuallyTakeLock(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		tk := &task.Task{ID: 20, Title: "gamma", Branch: "fc", Worktree: true, WorktreePath: wt}
-		done <- coord.Finalize(context.Background(), tk, "main", nil)
+		done <- coord.Finalize(context.Background(), tk, "main", ActionMerge, nil)
 	}()
 
 	// The goroutine must be blocked inside lockedMerge (the merge primitive
@@ -315,12 +315,12 @@ func TestCleanupOnConflictResolverFailure(t *testing.T) {
 
 	coord := NewCoordinator(
 		dir, &Lock{},
-		Config{OnComplete: ActionMerge, MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
+		Config{MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
 		resolver, nil, nil,
 	)
 
 	tk := &task.Task{ID: 30, Title: "conflicting feature", Branch: "feat", Worktree: true, WorktreePath: wt}
-	err := coord.Finalize(context.Background(), tk, "main", nil)
+	err := coord.Finalize(context.Background(), tk, "main", ActionMerge, nil)
 	if err == nil {
 		t.Fatal("expected Finalize to return error when resolver fails")
 	}
@@ -406,7 +406,7 @@ func TestResolvingConflictsStatusReportedDuringResolver(t *testing.T) {
 
 	coord := NewCoordinator(
 		dir, &Lock{},
-		Config{OnComplete: ActionMerge, MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
+		Config{MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
 		resolver, setStatus, nil,
 	)
 
@@ -414,7 +414,7 @@ func TestResolvingConflictsStatusReportedDuringResolver(t *testing.T) {
 		ID: 95, Title: "conflict task", Branch: "feat-status",
 		Worktree: true, WorktreePath: wt, Status: task.StatusFinalizing,
 	}
-	if err := coord.Finalize(context.Background(), tk, "main", nil); err != nil {
+	if err := coord.Finalize(context.Background(), tk, "main", ActionMerge, nil); err != nil {
 		t.Fatalf("Finalize: %v (resolver err: %v)", err, resolverErr)
 	}
 
@@ -462,7 +462,7 @@ func TestCleanupOnTargetBranchWaitCancellation(t *testing.T) {
 
 	coord := NewCoordinator(
 		dir, &Lock{},
-		Config{OnComplete: ActionMerge, MaxAttempts: 1, BlockedPollInterval: 20 * time.Millisecond},
+		Config{MaxAttempts: 1, BlockedPollInterval: 20 * time.Millisecond},
 		nil, setStatus, nil,
 	)
 
@@ -473,7 +473,7 @@ func TestCleanupOnTargetBranchWaitCancellation(t *testing.T) {
 	}()
 
 	tk := &task.Task{ID: 40, Title: "cancelled", Branch: "feat-cancel", Worktree: true, WorktreePath: wt}
-	err := coord.Finalize(ctx, tk, "main", nil)
+	err := coord.Finalize(ctx, tk, "main", ActionMerge, nil)
 	if !errors.Is(err, context.Canceled) {
 		// errors.Is may not unwrap fmt.Errorf with %w of a wrapped wrapping;
 		// fall back to substring match.
@@ -554,14 +554,14 @@ func TestCommitActionSkipsMergeMutex(t *testing.T) {
 
 	coord := NewCoordinator(
 		dir, lock,
-		Config{OnComplete: ActionCommit},
+		Config{},
 		nil, nil, nil,
 	)
 
 	done := make(chan error, 1)
 	go func() {
 		tk := &task.Task{ID: 50, Title: "commit-only", Branch: "feat-c", Worktree: true, WorktreePath: wt}
-		done <- coord.Finalize(context.Background(), tk, "main", nil)
+		done <- coord.Finalize(context.Background(), tk, "main", ActionCommit, nil)
 	}()
 
 	select {

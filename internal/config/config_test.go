@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,6 +34,57 @@ workflow:
 	steps := cfg.Workflows[0].Steps
 	if len(steps) != 3 {
 		t.Fatalf("expected 3 steps, got %d", len(steps))
+	}
+}
+
+func TestOnCompleteParsing(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	yamlContent := `
+on_complete: merge
+workflows:
+  tasks:
+    - name: default
+      steps:
+        - name: implement
+          prompt: "do it"
+    - name: quick
+      on_complete: commit
+      steps:
+        - name: implement
+          prompt: "do it"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.OnComplete != "merge" {
+		t.Errorf("expected project on_complete=merge, got %q", cfg.OnComplete)
+	}
+	if wf := cfg.GetWorkflow("default"); wf.OnComplete != "" {
+		t.Errorf("expected default workflow to inherit (empty on_complete), got %q", wf.OnComplete)
+	}
+	if wf := cfg.GetWorkflow("quick"); wf.OnComplete != "commit" {
+		t.Errorf("expected quick workflow on_complete=commit, got %q", wf.OnComplete)
+	}
+}
+
+func TestGitOnCompleteRejected(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+	if err := os.WriteFile(configPath, []byte("git:\n  on_complete: merge\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	err := loadProjectConfig(configPath, cfg)
+	if err == nil || !strings.Contains(err.Error(), "git.on_complete was moved") {
+		t.Fatalf("expected git.on_complete migration error, got: %v", err)
 	}
 }
 
@@ -490,7 +542,6 @@ func TestYoloProjectOverridesGlobal(t *testing.T) {
 		t.Error("expected yolo to be false after project config overrides global")
 	}
 }
-
 
 func TestLoopConfigParsing(t *testing.T) {
 	dir := t.TempDir()
@@ -990,7 +1041,7 @@ notifications:
   on_failed: false
 git:
   base_branch: develop
-  on_complete: merge
+on_complete: merge
 workflow:
   steps:
     - name: global-step
@@ -1031,8 +1082,8 @@ workflow:
 	if cfg.Git.BaseBranch != "develop" {
 		t.Errorf("after global .sortie.yml: expected git.base_branch=develop, got %q", cfg.Git.BaseBranch)
 	}
-	if cfg.Git.OnComplete != "merge" {
-		t.Errorf("after global .sortie.yml: expected git.on_complete=merge, got %q", cfg.Git.OnComplete)
+	if cfg.OnComplete != "merge" {
+		t.Errorf("after global .sortie.yml: expected on_complete=merge, got %q", cfg.OnComplete)
 	}
 	if len(cfg.Workflows) != 1 || cfg.Workflows[0].Steps[0].Name != "global-step" {
 		t.Error("after global .sortie.yml: expected global-step workflow")
@@ -2190,4 +2241,3 @@ func TestLoadProjectConfig_LegacyTmuxFieldRejected(t *testing.T) {
 		t.Errorf("error must mention both `tmux` and `print` for migration clarity, got: %v", err)
 	}
 }
-

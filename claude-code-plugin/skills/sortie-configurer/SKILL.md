@@ -289,7 +289,7 @@ This lists every YAML field name the binary will accept. Cross-reference unknown
 - Loop `goto` must reference an earlier step (no forward jumps, no self-reference)
 - Loop steps cannot have `human: true` or `tmux: true`
 - Loop ranges cannot overlap
-- `git.on_complete` values: `"commit"`, `"merge"`, `"none"`
+- `on_complete` (top-level, or per-workflow override) values: `"commit"`, `"merge"`, `"none"` — moved out of `git:`; `git.on_complete` is now an error
 - `git.branch_template` supports: `{{task_id}}`, `{{task_slug}}`, `{{task.id}}`, `{{task.title}}`, `{{task.slug}}`
 - The file goes at the project root as `.sortie.yml`
 - For one-off and init workflows, the `description` field is used as the task description
@@ -309,7 +309,7 @@ sortie validate path/to/.sortie.yml   # validates an explicit file
 - **Unknown top-level fields** (catches typos like `worktree_sync_paths` for `worktree-sync-paths`)
 - Workflow loop validity (forward `goto`, self-reference, missing target step, `max_iterations < 1`, overlapping ranges, `human`/`tmux` on a loop step)
 - Invalid `summarization_strategy` values
-- Invalid `git.on_complete` (must be `commit`, `merge`, or `none`)
+- Invalid `on_complete` — top-level or per-workflow (must be `commit`, `merge`, or `none`); the removed `git.on_complete` location produces a migration error
 - Invalid `default_priority` (must be `low`, `medium`, `high`, or `urgent`)
 - Invalid `tmux_nested_attach_behavior` (must be `switch` or `nest`)
 - Duplicate workflow names within a category and duplicate step names within a workflow

@@ -875,8 +875,8 @@ func TestRunTaskDoesNotSetSummarizingStatus(t *testing.T) {
 	tk.WorktreePath = dir
 
 	cfg := &config.Config{
-		Claude: config.ClaudeConfig{Command: script},
-		Git:    config.GitConfig{OnComplete: "merge"},
+		Claude:     config.ClaudeConfig{Command: script},
+		OnComplete: "merge",
 		Workflows: []config.WorkflowConfig{
 			{
 				Name: "default",
@@ -946,8 +946,8 @@ func TestRunTaskDoesNotCallExecuteOnComplete(t *testing.T) {
 	tk.WorktreePath = dir
 
 	cfg := &config.Config{
-		Claude: config.ClaudeConfig{Command: script},
-		Git:    config.GitConfig{OnComplete: "none"},
+		Claude:     config.ClaudeConfig{Command: script},
+		OnComplete: "none",
 		Workflows: []config.WorkflowConfig{
 			{
 				Name: "default",
@@ -1010,8 +1010,8 @@ func TestRunTaskSummarizationStrategyNoneSkipsContext(t *testing.T) {
 	tk.WorktreePath = dir
 
 	cfg := &config.Config{
-		Claude: config.ClaudeConfig{Command: script},
-		Git:    config.GitConfig{OnComplete: "none"},
+		Claude:     config.ClaudeConfig{Command: script},
+		OnComplete: "none",
 		Workflows: []config.WorkflowConfig{
 			{
 				Name: "default",
@@ -1079,8 +1079,8 @@ func TestRunTaskManualContextOverridesLastMessage(t *testing.T) {
 	tk.WorktreePath = dir
 
 	cfg := &config.Config{
-		Claude: config.ClaudeConfig{Command: script},
-		Git:    config.GitConfig{OnComplete: "none"},
+		Claude:     config.ClaudeConfig{Command: script},
+		OnComplete: "none",
 		Workflows: []config.WorkflowConfig{
 			{
 				Name:  "default",
@@ -1412,7 +1412,7 @@ func TestSummarizePreviousTmuxStepRequireContextBlocks(t *testing.T) {
 			}
 
 			cfg := &config.Config{
-				Git: config.GitConfig{OnComplete: "none"},
+				OnComplete: "none",
 				Workflows: []config.WorkflowConfig{{
 					Name:  "wf",
 					Print: false, // steps default to tmux
@@ -1479,7 +1479,7 @@ func TestSummarizePreviousTmuxStepSkipsManualContext(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		Git: config.GitConfig{OnComplete: "none"},
+		OnComplete: "none",
 		Workflows: []config.WorkflowConfig{{
 			Name:  "wf",
 			Print: false,
@@ -1510,3 +1510,34 @@ func TestSummarizePreviousTmuxStepSkipsManualContext(t *testing.T) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// TestEffectiveOnComplete verifies the on_complete resolution precedence:
+// workflow-level override wins, otherwise the project-level setting is used.
+func TestEffectiveOnComplete(t *testing.T) {
+	cfg := &config.Config{
+		OnComplete: "merge", // project-level default
+		Workflows: []config.WorkflowConfig{
+			{Name: "inherits", Steps: []config.StepConfig{{Name: "s"}}},
+			{Name: "overrides", OnComplete: "commit", Steps: []config.StepConfig{{Name: "s"}}},
+		},
+	}
+	e := &Engine{cfg: cfg}
+
+	cases := []struct {
+		name     string
+		workflow string
+		want     string
+	}{
+		{"workflow inherits project-level", "inherits", "merge"},
+		{"workflow overrides project-level", "overrides", "commit"},
+		{"unknown workflow falls back to project-level", "nope", "merge"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := e.effectiveOnComplete(&task.Task{Workflow: tc.workflow})
+			if got != tc.want {
+				t.Errorf("effectiveOnComplete(%q) = %q, want %q", tc.workflow, got, tc.want)
+			}
+		})
+	}
+}

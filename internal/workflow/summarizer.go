@@ -79,7 +79,7 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	}
 
 	// Run on_complete action first (merge to unblock user)
-	action := e.cfg.Git.OnComplete
+	action := e.effectiveOnComplete(t)
 	if action == "" {
 		action = "none"
 	}
@@ -108,7 +108,7 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	}
 
 	// Clean up worktree after summarizer (if merge was performed)
-	if e.cfg.Git.OnComplete == "merge" && t.Worktree {
+	if e.effectiveOnComplete(t) == "merge" && t.Worktree {
 		e.cleanupMergedWorktree(t, logFn)
 	}
 
