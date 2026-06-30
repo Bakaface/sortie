@@ -4,9 +4,9 @@ description: >
   Generate and edit .sortie.yml project configuration files for the Sortie daemon.
   Sortie orchestrates Claude Code agents working on tasks in parallel using isolated
   git worktrees. Use when (1) creating a new .sortie.yml config, (2) adding or modifying
-  workflows, tasks, one-off jobs, or init pipelines, (3) configuring git, tmux, notifications,
-  or verification settings, (4) user mentions "sortie config", ".sortie.yml", or asks about
-  sortie workflow/task configuration, (5) troubleshooting sortie config issues.
+  workflows, (3) configuring git, tmux, notifications, or verification settings,
+  (4) user mentions "sortie config", ".sortie.yml", or asks about sortie workflow/task
+  configuration, (5) troubleshooting sortie config issues.
 user_invocable: true
 ---
 
@@ -31,16 +31,15 @@ Minimal working config:
 
 ```yaml
 workflows:
-  tasks:
-    - name: default
-      steps:
-        - name: implementing
-          prompt: |
-            Implement task #{{task.id}}: {{task.title}}
+  - name: default
+    steps:
+      - name: implementing
+        prompt: |
+          Implement task #{{task.id}}: {{task.title}}
 
-            <task-description>
-            {{task.description}}
-            </task-description>
+          <task-description>
+          {{task.description}}
+          </task-description>
 ```
 
 ## Top-Level Fields
@@ -54,7 +53,7 @@ workflows:
 | `system_prompt` | string | minimal default | Preamble written to each worktree's `CLAUDE.md` |
 | `verification` | object | — | Summarizer verification settings (`max_retries`, `verify_summarizer`) |
 | `git` | object | — | Branch naming, base branch, completion action |
-| `workflows` | object | — | **Primary config block** — defines all workflow pipelines |
+| `workflows` | list | — | **Primary config block** — flat list of workflow pipelines |
 | `notifications` | object | — | Desktop notification toggles |
 | `claude` | object | — | Override the Claude binary: `command` (path/name) and `default_args` (list of strings). |
 | `allowed_summarization_models` | list[string] | `[haiku, sonnet, opus]` | Restrict which models the summarizer auto-selects from (subset of `haiku`, `sonnet`, `opus`; cheapest fitting model wins). Per-step override available. |
@@ -96,45 +95,55 @@ worktree-sync-paths:
 - For files you want **isolated per worktree** (build output, generated code, per-task `.env` overrides), use `copy:` not `link:`.
 - Symbolic links are **not supported** as a `worktree-sync-paths` mode. If you genuinely need symlinks, create them in `worktree-setup-command` (e.g., `ln -s ...`).
 
-## Workflow Categories
+## Workflow List
 
-Workflows are organized into three categories under `workflows:`:
-
-| Category | Key | TUI Key | User Prompt? | Description |
-|---|---|---|---|---|
-| **Tasks** | `workflows.tasks` | `n` (`:RunTask`) | Yes | For user-created tasks. User provides title + description. `:RunTask` opens a picker, then the new-task prompt with the workflow preselected. |
-| **One-Off** | `workflows.one-off` | `x` (`:RunOneOff`) | No | Predefined jobs with built-in descriptions. Run directly. |
-| **Init** | `workflows.init` | `i` (`:RunInit`) | No | Initialization pipelines (e.g., spin up from PRD). |
-
-## Inline vs. File-Based Workflows
-
-Workflows can be defined two ways. The `workflows:` section in `.sortie.yml`
-controls which workflows are **active** (visible in TUI menus) and what order
-they appear in. Each category's list accepts a mix of:
-
-- **String refs** → resolved against `.sortie/workflows/<category>/<name>.yml`
-- **Inline maps** → full workflow definition embedded directly in `.sortie.yml`
+`workflows:` is a flat YAML sequence — there are no `tasks:`, `one-off:`, or `init:` sub-categories. Each item is either a string ref or an inline mapping:
 
 ```yaml
 workflows:
-  tasks:
-    - implement            # → .sortie/workflows/tasks/implement.yml (file-based)
-    - review               # → .sortie/workflows/tasks/review.yml (file-based)
-    - name: quick-fix      # inline
-      steps:
-        - name: do
-          prompt: "fix it"
+  - implement            # → .sortie/workflows/implement.yml (file-based)
+  - name: quick-fix      # inline, no pins → always shows New Task screen
+    steps:
+      - name: do
+        prompt: "fix it"
+  - name: housekeeping   # all fields pinned → skips New Task screen immediately
+    description: "Run standard maintenance"
+    worktree: true
+    branch: sortie/housekeeping-{{task.id}}
+    target: main
+    steps:
+      - name: cleaning
+        prompt: "Audit and clean the codebase."
+        print: true
 ```
 
-A workflow file at `.sortie/workflows/<category>/<name>.yml` contains the same
-fields as an inline workflow body — minus the `name:` field, which is always
-the filename. Use kebab-case filenames (`[a-z0-9-]+\.yml`).
+"Kind" is an emergent property of pinning: the `n` key (and `:RunTask`) operates over the single flat list. Workflows that have all fields pinned (`description` + `worktree` + `branch`/`checkout` + `target`) create a task immediately without showing the New Task form.
 
-**Files not referenced from `.sortie.yml` are loaded as hidden.** Hidden
-workflows are:
+### Pinnable fields
 
-- **Not** shown in TUI menus (the `n` / `x` / `i` shortcuts)
-- **Reachable** via `:RunTask <name>`, `:RunOneOff <name>`, `:RunInit <name>` (and tab completion)
+A workflow may pin any subset of New Task screen fields:
+
+| Field | Type | Effect |
+|---|---|---|
+| `description` | string | Pins the description; hides that field from the form |
+| `worktree` | bool | Pins the worktree on/off toggle |
+| `branch` | string | Pins a new-branch template; forces branch-mode "new" |
+| `checkout` | string | Pins an existing branch to check out; forces branch-mode "existing" |
+| `target` | string | Pins the target/base branch |
+
+Validation: `branch` and `checkout` are mutually exclusive; `branch`/`checkout`/`target` are rejected when `worktree: false`.
+
+### Inline vs. File-Based Workflows
+
+- **String refs** → resolved against `.sortie/workflows/<name>.yml` (local first, then global pool under `~/.sortie/workflows/<name>.yml`)
+- **Inline maps** → full workflow definition embedded directly in `.sortie.yml`
+
+A workflow file at `.sortie/workflows/<name>.yml` contains the same fields as an inline workflow body — minus the `name:` field, which is always the filename. Use kebab-case filenames (`[a-z0-9-]+\.yml`). Subdirectories are not supported.
+
+**Files not referenced from `.sortie.yml` are loaded as hidden.** Hidden workflows are:
+
+- **Not** shown in TUI menus (the `n` shortcut)
+- **Reachable** via `:RunTask <name>` (and tab completion)
 - **Reachable** via CLI: `sortie create -w <name>` accepts hidden workflows
 - **Returned** by the MCP `list_workflows` tool with `"hidden": true`
 
@@ -144,29 +153,27 @@ Default to inline. Split when any of the following holds:
 
 - The resulting `.sortie.yml` would exceed ~200 lines
 - A single workflow body exceeds ~40 lines
-- The category has more than five workflows
+- There are more than five workflows
 
-Splitting trades single-file readability for per-workflow editability. For tiny
-projects, inline beats file-sprawl.
+Splitting trades single-file readability for per-workflow editability. For tiny projects, inline beats file-sprawl.
 
 ### Hard errors at config load
 
-- String ref points to a missing file (`.sortie/workflows/<cat>/<name>.yml`).
-- Same `<category>/<name>` is both inlined in `.sortie.yml` and present as a file.
+- String ref points to a missing file (`.sortie/workflows/<name>.yml`) and is not in the global pool.
+- Same name is both inlined in `.sortie.yml` and present as a file.
 - A file-based workflow sets a `name:` field (filename is authoritative).
-- A workflow file uses a non-kebab-case filename or lives in a subdirectory of `.sortie/workflows/<cat>/`.
+- A workflow file uses a non-kebab-case filename or lives in a subdirectory of `.sortie/workflows/`.
 
 ### Warnings (non-fatal — surfaced by `sortie validate`)
 
-- File present under `.sortie/workflows/<cat>/` but not referenced in `.sortie.yml` (it's hidden).
-- A category has files on disk but no `<cat>:` listing in `.sortie.yml` (everything in that category is hidden).
+- File present under `.sortie/workflows/` but not referenced in `.sortie.yml` (it's hidden).
 
 ## Workflow Structure
 
 ```yaml
 - name: my-workflow          # unique name (required)
-  description: "..."         # human-readable (used as task desc for one-off/init)
-  print: false               # workflow-level default execution mode (false = tmux, true = headless `claude -p`)
+  description: "..."         # human-readable; also pins description when set
+  print: false               # workflow-level default: false = tmux (default), true = headless claude -p
   summarizer_prompt: "..."   # custom prompt for post-completion summarizer
   worktree-sync-paths: {...} # optional per-workflow override of the project-level value
   steps:                     # ordered list of steps (required)
@@ -289,13 +296,13 @@ Variables marked **multi-line** must be wrapped in a semantic tag — see [Wrapp
 
 When the user describes what they want, follow this:
 
-1. **"Just implement tasks"** → Single task workflow with an `implementing` step
+1. **"Just implement tasks"** → Single workflow with an `implementing` step (no pins)
 2. **"Review before completing"** → Add a step with `human: true`
 3. **"Interactive tmux session"** → This is the default — omit `print` (or set `print: false`). Set `print: true` only to opt a step into headless `claude -p`.
 4. **"Multi-step pipeline"** → Multiple steps with step context passing results between steps
 5. **"Iterative review loop"** → Use `loop` config on a fix step pointing back to review
-6. **"Predefined maintenance job"** → Use `workflows.one-off`
-7. **"Bootstrap from PRD"** → Use `workflows.init`
+6. **"Predefined maintenance job (no user prompt)"** → Pin all fields (`description`, `worktree`, `branch`, `target`) so the New Task screen is skipped
+7. **"Bootstrap from PRD (run immediately)"** → Same as above — pin all fields so the task is created immediately
 8. **"Share files/dirs across worktrees"** ("symlink X into worktrees", ".env should be available", "docs/configs visible to agents") → Use `worktree-sync-paths` (`link:` for shared/synced files, `copy:` for per-worktree isolated copies). Note this is hard-link, not symlink.
 9. **"Run something after worktree creation"** (install deps, generate files, create symlinks) → Use `worktree-setup-command` (single) or `worktree-setup-commands` (multiple)
 10. **"Summarize a tmux/conversational step"** → Set `summarization_strategy: summarize_chat` and provide a `summarization_prompt` using `{{chat}}`
@@ -322,7 +329,7 @@ This lists every YAML field name the binary will accept. Cross-reference unknown
 - Never emit the removed `tmux:` field — use `print:` (inverted). The daemon hard-rejects `tmux:` at load.
 - `git.branch_template` supports: `{{task_id}}`, `{{task_slug}}`, `{{task.id}}`, `{{task.title}}`, `{{task.slug}}`
 - The file goes at the project root as `.sortie.yml`
-- For one-off and init workflows, the `description` field is used as the task description
+- The `description` pin doubles as the task description when the New Task screen is skipped
 
 ## Validating a config
 
@@ -344,9 +351,9 @@ sortie validate path/to/.sortie.yml   # validates an explicit file
 - Invalid `on_complete` — top-level or per-workflow (must be `commit`, `merge`, or `none`); the removed `git.on_complete` location produces a migration error
 - Invalid `default_priority` (must be `low`, `medium`, `high`, or `urgent`)
 - Invalid `tmux_nested_attach_behavior` (must be `switch` or `nest`)
-- Duplicate workflow names within a category and duplicate step names within a workflow
+- Duplicate workflow names within the flat list and duplicate step names within a workflow
 - File-based workflow errors: missing string ref, inline+file collision, invalid filename, `name:` field in file
-- File-based workflow warnings: unreferenced files (hidden), category with files but no listing
+- File-based workflow warnings: unreferenced files (hidden)
 
 Exit code is `0` on success and non-zero on the first error. Run it before reporting completion — never declare a config "done" until `sortie validate` exits cleanly.
 

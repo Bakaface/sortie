@@ -115,7 +115,28 @@ func (s *Server) createTaskFromRequest(req CreateTaskRequest) (*task.Task, strin
 	wf := projCfg.GetWorkflow(req.Workflow)
 	tmuxFirst := wf != nil && wf.FirstStepIsTmux()
 
-	if description == "" && req.CheckoutBranch == "" && !tmuxFirst {
+	// Apply workflow-level pins as fallbacks below explicit request values.
+	// Precedence: explicit request value > workflow config pin > project default.
+	if description == "" && wf != nil {
+		description = strings.TrimSpace(wf.Description)
+	}
+
+	// Branch/checkout pins form a mutually-exclusive pair (branch-mode choice).
+	// Apply them only when the request specified neither, so an explicit
+	// --branch/--checkout fully overrides the workflow's branch-mode pin.
+	branchName := req.BranchName
+	checkoutBranch := req.CheckoutBranch
+	if branchName == "" && checkoutBranch == "" && wf != nil {
+		branchName = wf.Branch
+		checkoutBranch = wf.Checkout
+	}
+
+	targetBranch := req.TargetBranch
+	if targetBranch == "" && wf != nil {
+		targetBranch = wf.Target
+	}
+
+	if description == "" && checkoutBranch == "" && !tmuxFirst {
 		return nil, "", fmt.Errorf("description cannot be empty")
 	}
 
@@ -133,8 +154,8 @@ func (s *Server) createTaskFromRequest(req CreateTaskRequest) (*task.Task, strin
 	switch {
 	case strings.TrimSpace(req.Title) != "":
 		title = strings.TrimSpace(req.Title)
-	case description == "" && req.CheckoutBranch != "":
-		title = "⎇ " + req.CheckoutBranch
+	case description == "" && checkoutBranch != "":
+		title = "⎇ " + checkoutBranch
 	case description == "" && tmuxFirst:
 		title = tmuxFirstTitle(wf)
 	default:
@@ -150,25 +171,35 @@ func (s *Server) createTaskFromRequest(req CreateTaskRequest) (*task.Task, strin
 		priority = proj.DefaultPriority
 	}
 
-	if req.CheckoutBranch != "" && req.BranchName != "" {
+	if checkoutBranch != "" && branchName != "" {
 		return nil, "", fmt.Errorf("cannot specify both --checkout and --branch")
 	}
 
+	// Worktree precedence: explicit request > workflow pin > project default.
 	worktree := proj.DefaultWorktree
+	if wf != nil && wf.Worktree != nil {
+		worktree = *wf.Worktree
+	}
 	if req.Worktree != nil {
 		worktree = *req.Worktree
 	}
 
-	// Persist form preferences for this project
+	// Persist form preferences for this project. Only user-driven choices
+	// (explicit request values) should overwrite the saved project defaults —
+	// pin-derived worktree values must not leak into the persisted default.
+	persistWorktree := proj.DefaultWorktree
+	if req.Worktree != nil {
+		persistWorktree = *req.Worktree
+	}
 	branchMode := 0
 	if req.BranchMode != nil {
 		branchMode = *req.BranchMode
 	}
-	if err := s.database.UpdateProjectDefaults(proj.ID, worktree, branchMode, req.Workflow); err != nil {
+	if err := s.database.UpdateProjectDefaults(proj.ID, persistWorktree, branchMode, req.Workflow); err != nil {
 		log.Printf("%sFailed to update project defaults for project %d: %v", s.projectLogPrefix(proj.ID), proj.ID, err)
 	}
 
-	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, req.BranchName, "", req.TargetBranch, req.CheckoutBranch, task.StatusInit, priority, worktree, req.Images)
+	t, err := s.database.CreateTaskWithPriority(proj.ID, title, description, slug, req.Workflow, branchName, "", targetBranch, checkoutBranch, task.StatusInit, priority, worktree, req.Images)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create task: %v", err)
 	}
@@ -196,7 +227,11 @@ func (s *Server) createTaskFromRequest(req CreateTaskRequest) (*task.Task, strin
 // every child without duplicating the branch logic.
 func (s *Server) kickOffPostCreate(t *task.Task, req CreateTaskRequest) {
 	title := t.Title
-	description := strings.TrimSpace(req.Description)
+	// Use the persisted (resolved) description, not req.Description: a workflow
+	// may have pinned the description when the request left it empty, and title
+	// refinement must see the resolved value (otherwise AI title generation is
+	// wrongly skipped for pinned-description tasks).
+	description := strings.TrimSpace(t.Description)
 	if req.TmuxDirect {
 		go s.setupTmuxDirect(t.ID, t.ProjectID, title)
 	} else {

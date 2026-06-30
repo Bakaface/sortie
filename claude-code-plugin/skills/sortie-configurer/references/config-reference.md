@@ -274,7 +274,7 @@ By default (`summarization_strategy` unset), the step's context is produced by *
 | `last_message` | The agent's final output message only (no extra Claude call; unusable for tmux steps) |
 | `none` | Nothing — no step context is captured; later `{{steps.<name>.context}}` references resolve to empty |
 
-`summarize_chat` is essential for tmux/grilling steps where the meaningful output is the dialogue, not a final message. The summarizer step also unlocks the `step_context_empty` loop exit pattern: instruct the summarizer to emit empty output when "no issues found", and the loop will terminate.
+`summarize_chat` is essential for tmux steps (`print: false`) where the meaningful output is the dialogue, not a final message. The summarizer step also unlocks the `step_context_empty` loop exit pattern: instruct the summarizer to emit empty output when "no issues found", and the loop will terminate.
 
 Inside `summarization_prompt`, the variable `{{chat}}` expands to the full transcript. All standard task variables (`{{task.id}}`, `{{steps.<name>.context}}`, etc.) are also available.
 
@@ -409,9 +409,9 @@ When finalizing a tmux task with no meaningful changes (ignoring `.claude-output
 
 ---
 
-## Legacy Config Formats (Backward Compatible)
+## Legacy Config Formats (Removed)
 
-### Legacy List Format
+The ancient singular `workflow:` key and the three-category `workflows: {tasks:, one-off:, init:}` map have been removed. Use the current flat-list format:
 
 ```yaml
 workflows:
@@ -420,19 +420,6 @@ workflows:
       - name: implementing
         prompt: "Implement the task"
 ```
-
-All workflows treated as task workflows.
-
-### Ancient Singular Format (Deprecated)
-
-```yaml
-workflow:
-  steps:
-    - name: implementing
-      prompt: "Implement the task"
-```
-
-**Always use the current structured format with `workflows.tasks`, `workflows.one-off`, and `workflows.init`.**
 
 ---
 
@@ -463,76 +450,81 @@ notifications:
   on_waiting_input: true
 
 workflows:
-  tasks:
-    - name: sensible
-      summarizer_prompt: "Summarize what was implemented and any decisions made"
-      on_complete: commit    # optional per-workflow override of the top-level on_complete
-      steps:
-        - name: implementing
-          prompt: |
-            Implement task #{{task.id}}: {{task.title}}
+  - name: sensible
+    summarizer_prompt: "Summarize what was implemented and any decisions made"
+    on_complete: commit    # optional per-workflow override of the top-level on_complete
+    steps:
+      - name: implementing
+        prompt: |
+          Implement task #{{task.id}}: {{task.title}}
 
-            <task-description>
-            {{task.description}}
-            </task-description>
-          timeout: 45m
-        - name: reviewing
-          prompt: |
-            Review the implementation for task #{{task.id}}.
+          <task-description>
+          {{task.description}}
+          </task-description>
+        timeout: 45m
+      - name: reviewing
+        prompt: |
+          Review the implementation for task #{{task.id}}.
 
-            Implementation summary:
-            <step-context name="implementing">
-            {{steps.implementing.context}}
-            </step-context>
-          human: true
-          timeout: 20m
-        - name: fixing
-          print: true        # required: loop steps cannot run in tmux
-          prompt: |
-            Fix the issues found during review:
-            <step-context name="reviewing">
-            {{steps.reviewing.context}}
-            </step-context>
-          timeout: 30m
-          loop:
-            goto: reviewing
-            max_iterations: 3
-            exit_condition:
-              step_context_empty: reviewing
+          Implementation summary:
+          <step-context name="implementing">
+          {{steps.implementing.context}}
+          </step-context>
+        human: true
+        timeout: 20m
+      - name: fixing
+        print: true        # required: loop steps cannot run in tmux
+        prompt: |
+          Fix the issues found during review:
+          <step-context name="reviewing">
+          {{steps.reviewing.context}}
+          </step-context>
+        timeout: 30m
+        loop:
+          goto: reviewing
+          max_iterations: 3
+          exit_condition:
+            step_context_empty: reviewing
 
-    - name: quick
-      # tmux is the default — no `print` needed for an interactive session
-      steps:
-        - name: implementing
-          prompt: |
-            Implement task #{{task.id}}: {{task.title}}
+  - name: quick
+    # tmux is the default — no `print` needed for an interactive session
+    steps:
+      - name: implementing
+        prompt: |
+          Implement task #{{task.id}}: {{task.title}}
 
-            <task-description>
-            {{task.description}}
-            </task-description>
+          <task-description>
+          {{task.description}}
+          </task-description>
 
-  one-off:
-    - name: housekeeping
-      description: "Run standard codebase maintenance: linting, dead code removal, dependency updates"
-      steps:
-        - name: auditing
-          prompt: "Audit the codebase for code smells, unused dependencies, and dead code"
-          timeout: 20m
-        - name: cleaning
-          prompt: |
-            Apply the following cleanups:
-            <step-context name="auditing">
-            {{steps.auditing.context}}
-            </step-context>
-          timeout: 30m
+  # Fully-pinned: New Task screen is skipped; task created immediately
+  - name: housekeeping
+    description: "Run standard codebase maintenance: linting, dead code removal, dependency updates"
+    worktree: true
+    branch: sortie/housekeeping-{{task.id}}
+    target: main
+    print: true
+    steps:
+      - name: auditing
+        prompt: "Audit the codebase for code smells, unused dependencies, and dead code"
+        timeout: 20m
+      - name: cleaning
+        prompt: |
+          Apply the following cleanups:
+          <step-context name="auditing">
+          {{steps.auditing.context}}
+          </step-context>
+        timeout: 30m
 
-  init:
-    - name: from-prd
-      description: "Analyze a PRD and create implementation tasks"
-      steps:
-        - name: analyzing
-          prompt: |
-            Analyze the PRD and break it into implementable tasks.
-            Create sortie tasks for each piece of work.
-          timeout: 30m
+  - name: from-prd
+    description: "Analyze a PRD and create implementation tasks"
+    worktree: true
+    branch: sortie/from-prd-{{task.id}}
+    target: main
+    steps:
+      - name: analyzing
+        prompt: |
+          Analyze the PRD and break it into implementable tasks.
+          Create sortie tasks for each piece of work.
+        timeout: 30m
 ```

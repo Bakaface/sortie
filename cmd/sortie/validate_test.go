@@ -7,6 +7,16 @@ import (
 	"testing"
 )
 
+// isolateGlobalConfig redirects HOME and XDG_CONFIG_HOME to empty temp dirs so
+// that the real ~/.sortie.yml is not loaded during validation. This prevents
+// the user's global config (which may use an old format) from interfering with
+// tests that exercise config.Diagnose.
+func isolateGlobalConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+}
+
 func writeValidateFixture(t *testing.T, contents string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -18,13 +28,13 @@ func writeValidateFixture(t *testing.T, contents string) string {
 }
 
 func TestValidateCmd_ExplicitPath_Valid(t *testing.T) {
+	isolateGlobalConfig(t)
 	path := writeValidateFixture(t, `
 workflows:
-  tasks:
-    - name: default
-      steps:
-        - name: implementing
-          prompt: "x"
+  - name: default
+    steps:
+      - name: implementing
+        prompt: "x"
 `)
 	err := validateCmd.RunE(validateCmd, []string{path})
 	if err != nil {
@@ -33,6 +43,7 @@ workflows:
 }
 
 func TestValidateCmd_ExplicitPath_Invalid(t *testing.T) {
+	isolateGlobalConfig(t)
 	path := writeValidateFixture(t, "on_complete: boom\n")
 	err := validateCmd.RunE(validateCmd, []string{path})
 	if err == nil {
@@ -44,6 +55,7 @@ func TestValidateCmd_ExplicitPath_Invalid(t *testing.T) {
 }
 
 func TestValidateCmd_MissingFile(t *testing.T) {
+	isolateGlobalConfig(t)
 	missing := filepath.Join(t.TempDir(), "nope.yml")
 	err := validateCmd.RunE(validateCmd, []string{missing})
 	if err == nil {
@@ -55,14 +67,14 @@ func TestValidateCmd_MissingFile(t *testing.T) {
 }
 
 func TestValidateCmd_DefaultPath_UsesCwd(t *testing.T) {
+	isolateGlobalConfig(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, ".sortie.yml"), []byte(`
 workflows:
-  tasks:
-    - name: default
-      steps:
-        - name: a
-          prompt: "x"
+  - name: default
+    steps:
+      - name: a
+        prompt: "x"
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -79,6 +91,7 @@ workflows:
 }
 
 func TestValidateCmd_DefaultPath_NoConfig(t *testing.T) {
+	isolateGlobalConfig(t)
 	dir := t.TempDir()
 	orig, _ := os.Getwd()
 	defer os.Chdir(orig)

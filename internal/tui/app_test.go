@@ -451,7 +451,7 @@ func TestListView_NonGlobalModeHidesProjectColumn(t *testing.T) {
 
 func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
 	cfg := &config.Config{
-		TaskWorkflows: []config.WorkflowConfig{
+		Workflows: []config.WorkflowConfig{
 			{Name: "implement"},
 			{Name: "review"},
 		},
@@ -485,7 +485,7 @@ func TestHandleListKey_CTriggersConfirmForCompletedTask(t *testing.T) {
 
 func TestHandleListKey_CTriggersConfirmForFailedTask(t *testing.T) {
 	cfg := &config.Config{
-		TaskWorkflows: []config.WorkflowConfig{
+		Workflows: []config.WorkflowConfig{
 			{Name: "implement"},
 			{Name: "review"},
 		},
@@ -875,7 +875,7 @@ func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
+			Workflows: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
 			},
 		},
@@ -890,8 +890,8 @@ func TestHandleListKey_RRetriesFailedTask(t *testing.T) {
 
 	// Retry flow now dispatches a command to load workflow steps; no
 	// confirmation prompt is shown until the user picks a step.
-	if updated.selector.kind == selectorTask {
-		t.Error("expected selector kind not to be selectorTask when retrying failed task")
+	if updated.selector.kind == selectorWorkflow {
+		t.Error("expected selector kind not to be selectorWorkflow when retrying failed task")
 	}
 	if updated.confirmAction != "" {
 		t.Errorf("expected no confirmAction (retry now opens step picker), got %q", updated.confirmAction)
@@ -910,7 +910,7 @@ func TestHandleListKey_RRetriesTmuxTask(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
+			Workflows: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
 			},
 		},
@@ -923,8 +923,8 @@ func TestHandleListKey_RRetriesTmuxTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.selector.kind == selectorTask {
-		t.Error("expected selector kind not to be selectorTask when retrying tmux task")
+	if updated.selector.kind == selectorWorkflow {
+		t.Error("expected selector kind not to be selectorWorkflow when retrying tmux task")
 	}
 	if updated.confirmAction != "" {
 		t.Errorf("expected no confirmAction (retry now opens step picker), got %q", updated.confirmAction)
@@ -943,7 +943,7 @@ func TestHandleListKey_RRetriesCompletedTask(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
+			Workflows: []config.WorkflowConfig{
 				{Name: "Housekeeping", Description: "Clean up code"},
 			},
 		},
@@ -956,8 +956,8 @@ func TestHandleListKey_RRetriesCompletedTask(t *testing.T) {
 	result, cmd := m.handleListKey(msg)
 	updated := result.(Model)
 
-	if updated.selector.kind == selectorTask {
-		t.Error("expected selector kind not to be selectorTask when retrying completed task")
+	if updated.selector.kind == selectorWorkflow {
+		t.Error("expected selector kind not to be selectorWorkflow when retrying completed task")
 	}
 	if updated.confirmAction != "" {
 		t.Errorf("expected no confirmAction (retry now opens step picker), got %q", updated.confirmAction)
@@ -2193,11 +2193,11 @@ func TestHandleListKey_ONonAResetsPending(t *testing.T) {
 
 func TestHandleTaskInfoKey_YDNoTaskNoError(t *testing.T) {
 	m := Model{
-		keys:     newKeyMap(),
-		list:     newListView(false, ""),
-		detail:   newDetailView(),
-		taskInfo: newTaskInfoView(),
-		view:     viewTaskInfo,
+		keys:         newKeyMap(),
+		list:         newListView(false, ""),
+		detail:       newDetailView(),
+		taskInfo:     newTaskInfoView(),
+		view:         viewTaskInfo,
 		pendingChord: "y",
 	}
 	// No task set on taskInfo
@@ -2935,11 +2935,11 @@ func TestStatusMessage_NotRenderedWhenEmpty(t *testing.T) {
 
 func TestYDEmptyDescription_NoStatusMessage(t *testing.T) {
 	m := Model{
-		keys:     newKeyMap(),
-		list:     newListView(false, ""),
-		detail:   newDetailView(),
-		taskInfo: newTaskInfoView(),
-		view:     viewTaskInfo,
+		keys:         newKeyMap(),
+		list:         newListView(false, ""),
+		detail:       newDetailView(),
+		taskInfo:     newTaskInfoView(),
+		view:         viewTaskInfo,
 		pendingChord: "y",
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "", Context: "ctx"}
@@ -2956,11 +2956,11 @@ func TestYDEmptyDescription_NoStatusMessage(t *testing.T) {
 
 func TestYCEmptyContext_NoStatusMessage(t *testing.T) {
 	m := Model{
-		keys:     newKeyMap(),
-		list:     newListView(false, ""),
-		detail:   newDetailView(),
-		taskInfo: newTaskInfoView(),
-		view:     viewTaskInfo,
+		keys:         newKeyMap(),
+		list:         newListView(false, ""),
+		detail:       newDetailView(),
+		taskInfo:     newTaskInfoView(),
+		view:         viewTaskInfo,
 		pendingChord: "y",
 	}
 	task := daemon.TaskInfo{ID: 1, Title: "Test", Description: "desc", Context: ""}
@@ -3472,153 +3472,8 @@ func TestMatchRunTask(t *testing.T) {
 	}
 }
 
-func TestExecRunOneOff_RunsTask(t *testing.T) {
-	m := Model{
-		keys:        newKeyMap(),
-		client:      &client.Client{},
-		list:        newListView(false, ""),
-		detail:      newDetailView(),
-		view:        viewList,
-		projectPath: "/tmp/test-project",
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor", Description: "Refactor the code"},
-			},
-		},
-	}
-
-	result, cmd := execRunOneOff(m, "Refactor")
-	updated := result.(Model)
-
-	if updated.selectedWorkflow != "oneoff:Refactor" {
-		t.Errorf("expected selectedWorkflow 'oneoff:Refactor', got %q", updated.selectedWorkflow)
-	}
-	if cmd == nil {
-		t.Error("expected command for task creation, got nil")
-	}
-}
-
-func TestExecRunOneOff_UnknownTask(t *testing.T) {
-	m := Model{
-		keys:        newKeyMap(),
-		client:      &client.Client{},
-		list:        newListView(false, ""),
-		detail:      newDetailView(),
-		view:        viewList,
-		projectPath: "/tmp/test-project",
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor", Description: "Refactor the code"},
-			},
-		},
-	}
-
-	result, cmd := execRunOneOff(m, "NonExistent")
-	updated := result.(Model)
-
-	if updated.err == nil {
-		t.Error("expected error for unknown one-off")
-	}
-	if !strings.Contains(updated.err.Error(), "unknown one-off") {
-		t.Errorf("expected 'unknown one-off' error, got %q", updated.err.Error())
-	}
-	if cmd != nil {
-		t.Error("expected nil command for unknown one-off")
-	}
-}
-
-func TestExecRunOneOff_EmptyArgs_OpensPicker(t *testing.T) {
-	m := Model{
-		keys:        newKeyMap(),
-		client:      &client.Client{},
-		list:        newListView(false, ""),
-		detail:      newDetailView(),
-		view:        viewList,
-		projectPath: "/tmp/test-project",
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor"},
-			},
-		},
-	}
-
-	result, _ := execRunOneOff(m, "")
-	updated := result.(Model)
-
-	if updated.selector.kind != selectorTask {
-		t.Errorf("expected picker to open (selectorTask), got kind=%d", updated.selector.kind)
-	}
-}
-
-func TestExecRunOneOff_NoClient(t *testing.T) {
-	m := Model{
-		keys:   newKeyMap(),
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		cfg:    &config.Config{},
-	}
-
-	result, _ := execRunOneOff(m, "Refactor")
-	updated := result.(Model)
-
-	if updated.err == nil {
-		t.Error("expected error when client is nil")
-	}
-}
-
-func TestExecRunOneOff_UsesNameWhenNoDescription(t *testing.T) {
-	m := Model{
-		keys:        newKeyMap(),
-		client:      &client.Client{},
-		list:        newListView(false, ""),
-		detail:      newDetailView(),
-		view:        viewList,
-		projectPath: "/tmp/test-project",
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor"},
-			},
-		},
-	}
-
-	result, cmd := execRunOneOff(m, "Refactor")
-	updated := result.(Model)
-
-	if updated.selectedWorkflow != "oneoff:Refactor" {
-		t.Errorf("expected selectedWorkflow 'oneoff:Refactor', got %q", updated.selectedWorkflow)
-	}
-	if cmd == nil {
-		t.Error("expected command for task creation, got nil")
-	}
-}
-
-func TestExecRunOneOff_RunsHiddenTask(t *testing.T) {
-	m := Model{
-		keys:        newKeyMap(),
-		client:      &client.Client{},
-		list:        newListView(false, ""),
-		detail:      newDetailView(),
-		view:        viewList,
-		projectPath: "/tmp/test-project",
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Secret", Description: "Hidden task", Hidden: true},
-			},
-		},
-	}
-
-	result, cmd := execRunOneOff(m, "Secret")
-	updated := result.(Model)
-
-	if updated.selectedWorkflow != "oneoff:Secret" {
-		t.Errorf("expected selectedWorkflow 'oneoff:Secret', got %q", updated.selectedWorkflow)
-	}
-	if cmd == nil {
-		t.Error("expected command for hidden task creation, got nil")
-	}
-}
-
+// TestExecRunTask_PreselectsWorkflow verifies that execRunTask with a named
+// workflow opens viewPrompt with the workflow preselected (cycler locked to 1 name).
 func TestExecRunTask_PreselectsWorkflow(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
@@ -3629,7 +3484,7 @@ func TestExecRunTask_PreselectsWorkflow(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			TaskWorkflows: []config.WorkflowConfig{
+			Workflows: []config.WorkflowConfig{
 				{Name: "implement", Description: "Implement task"},
 			},
 		},
@@ -3652,6 +3507,8 @@ func TestExecRunTask_PreselectsWorkflow(t *testing.T) {
 	}
 }
 
+// TestExecRunTask_EmptyArgs_OpensPicker verifies that execRunTask with no args
+// opens a filterable selectorWorkflow picker over all workflows.
 func TestExecRunTask_EmptyArgs_OpensPicker(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
@@ -3661,7 +3518,7 @@ func TestExecRunTask_EmptyArgs_OpensPicker(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			TaskWorkflows: []config.WorkflowConfig{
+			Workflows: []config.WorkflowConfig{
 				{Name: "implement"},
 			},
 		},
@@ -3670,12 +3527,13 @@ func TestExecRunTask_EmptyArgs_OpensPicker(t *testing.T) {
 	result, _ := execRunTask(m, "")
 	updated := result.(Model)
 
-	if updated.selector.kind != selectorTaskWorkflow {
-		t.Errorf("expected picker to open (selectorTaskWorkflow), got kind=%d", updated.selector.kind)
+	if updated.selector.kind != selectorWorkflow {
+		t.Errorf("expected picker to open (selectorWorkflow), got kind=%d", updated.selector.kind)
 	}
 }
 
-func TestExecRunInit_PreselectsWorkflow(t *testing.T) {
+// TestExecRunTask_UnknownWorkflow verifies an error is set for unknown workflow names.
+func TestExecRunTask_UnknownWorkflow(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
@@ -3684,204 +3542,160 @@ func TestExecRunInit_PreselectsWorkflow(t *testing.T) {
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			InitWorkflows: []config.WorkflowConfig{
-				{Name: "bootstrap", Description: "Bootstrap project"},
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement"},
 			},
 		},
 	}
 
-	result, cmd := execRunInit(m, "bootstrap")
+	result, cmd := execRunTask(m, "nonexistent")
 	updated := result.(Model)
 
-	if updated.selectedWorkflow != "init:bootstrap" {
-		t.Errorf("expected selectedWorkflow 'init:bootstrap', got %q", updated.selectedWorkflow)
+	if updated.err == nil {
+		t.Error("expected error for unknown workflow")
 	}
-	if cmd == nil {
-		t.Error("expected command for init workflow creation, got nil")
+	if !strings.Contains(updated.err.Error(), "unknown workflow") {
+		t.Errorf("expected 'unknown workflow' error, got %q", updated.err.Error())
+	}
+	if cmd != nil {
+		t.Error("expected nil command for unknown workflow")
 	}
 }
 
-func TestCommandMode_RunOneOffIntegration(t *testing.T) {
+// TestExecRunTask_NoClient verifies an error is set when no daemon client is connected.
+func TestExecRunTask_NoClient(t *testing.T) {
+	m := Model{
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		cfg: &config.Config{
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement"},
+			},
+		},
+	}
+
+	result, _ := execRunTask(m, "implement")
+	updated := result.(Model)
+
+	if updated.err == nil {
+		t.Error("expected error when client is nil")
+	}
+}
+
+// TestExecRunTask_FullyPinned verifies that a fully-pinned workflow creates a task
+// immediately (returns a non-nil cmd) and does NOT switch to viewPrompt.
+func TestExecRunTask_FullyPinned(t *testing.T) {
+	worktreeTrue := true
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
 		list:        newListView(false, ""),
 		detail:      newDetailView(),
+		prompt:      newPromptView(true, branchModeNew, ""),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor", Description: "Refactor code"},
+			Workflows: []config.WorkflowConfig{
+				{
+					Name:        "pinned-wf",
+					Description: "Do the thing",
+					Worktree:    &worktreeTrue,
+					Branch:      "sortie/{{task_id}}-auto",
+					Target:      "main",
+				},
 			},
 		},
 	}
 
-	// Enter command mode
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
-	result, _ := m.handleListKey(msg)
-	m = result.(Model)
+	result, cmd := execRunTask(m, "pinned-wf")
+	updated := result.(Model)
 
-	if !m.commandMode {
-		t.Fatal("expected command mode to be active")
-	}
-
-	// Type "RunOneOff Refactor"
-	for _, ch := range "RunOneOff Refactor" {
-		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}}
-		result, _ = m.handleCommandKey(msg)
-		m = result.(Model)
-	}
-
-	if m.commandInput != "RunOneOff Refactor" {
-		t.Errorf("expected commandInput 'RunOneOff Refactor', got %q", m.commandInput)
-	}
-
-	// Press enter
-	msg = tea.KeyMsg{Type: tea.KeyEnter}
-	result, cmd := m.handleCommandKey(msg)
-	m = result.(Model)
-
-	if m.commandMode {
-		t.Error("expected command mode to be inactive after enter")
-	}
-	if m.selectedWorkflow != "oneoff:Refactor" {
-		t.Errorf("expected selectedWorkflow 'oneoff:Refactor', got %q", m.selectedWorkflow)
+	// Fully-pinned → task created immediately, no prompt.
+	if updated.view == viewPrompt {
+		t.Error("expected NOT to switch to viewPrompt for fully-pinned workflow")
 	}
 	if cmd == nil {
-		t.Error("expected command for task creation, got nil")
+		t.Error("expected non-nil cmd (immediate task creation) for fully-pinned workflow")
 	}
 }
 
-func TestCompleteRunOneOff_SingleMatch(t *testing.T) {
-	m := Model{
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor", Description: "Refactor code"},
-				{Name: "Security", Description: "Security scan"},
+// fullyPinnedConfig returns a config whose sole workflow is fully specified, so
+// IsFullySpec() is true and the New Task screen should be skipped.
+func fullyPinnedConfig() *config.Config {
+	worktreeTrue := true
+	return &config.Config{
+		Workflows: []config.WorkflowConfig{
+			{
+				Name:        "pinned-wf",
+				Description: "Do the thing",
+				Worktree:    &worktreeTrue,
+				Branch:      "sortie/{{task_id}}-auto",
+				Target:      "main",
 			},
 		},
 	}
+}
 
-	completed, ok := completeRunTask(m, "RunOneOff Ref")
-	if !ok {
-		t.Fatal("expected completion to succeed")
+// TestHandleListKey_NFullyPinnedSkipsScreen verifies the headline keyboard entry
+// point: pressing "n" with a fully-pinned default workflow creates the task
+// immediately instead of opening the New Task screen.
+func TestHandleListKey_NFullyPinnedSkipsScreen(t *testing.T) {
+	m := Model{
+		cfg:         fullyPinnedConfig(),
+		keys:        newKeyMap(),
+		list:        newListView(false, ""),
+		detail:      newDetailView(),
+		prompt:      newPromptView(true, branchModeNew, ""),
+		view:        viewList,
+		client:      &client.Client{},
+		projectPath: "/some/path",
 	}
-	if completed != "RunOneOff Refactor" {
-		t.Errorf("expected 'RunOneOff Refactor', got %q", completed)
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.view == viewPrompt {
+		t.Error("expected 'n' on a fully-pinned workflow to skip the New Task screen, but view became viewPrompt")
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd (immediate task creation) for 'n' on a fully-pinned workflow")
 	}
 }
 
-func TestCompleteRunOneOff_MultipleMatchesExtends(t *testing.T) {
-	m := Model{
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor-code", Description: "Refactor code"},
-				{Name: "Refactor-tests", Description: "Refactor tests"},
-			},
-		},
-	}
+// TestHandleListKey_ShiftNFullyPinnedSkipsScreen verifies the blocking-task entry
+// point ("N"): a fully-pinned workflow creates the blocking task immediately and
+// threads the selected task's ID as the blocker, without opening the screen.
+func TestHandleListKey_ShiftNFullyPinnedSkipsScreen(t *testing.T) {
+	m := newTestModelWithTasks(3)
+	m.cfg = fullyPinnedConfig()
+	m.prompt = newPromptView(true, branchModeNew, "")
+	m.client = &client.Client{}
+	m.projectPath = "/some/path"
+	m.list.table.SetCursor(1) // select task #2
 
-	completed, ok := completeRunTask(m, "RunOneOff Re")
-	if !ok {
-		t.Fatal("expected completion to succeed with common prefix extension")
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'N'}}
+	result, cmd := m.handleListKey(msg)
+	updated := result.(Model)
+
+	if updated.view == viewPrompt {
+		t.Error("expected 'N' on a fully-pinned workflow to skip the New Task screen, but view became viewPrompt")
 	}
-	if completed != "RunOneOff Refactor-" {
-		t.Errorf("expected 'RunOneOff Refactor-', got %q", completed)
+	if cmd == nil {
+		t.Error("expected non-nil cmd (immediate blocking-task creation) for 'N' on a fully-pinned workflow")
+	}
+	if updated.blockingTaskID != 2 {
+		t.Errorf("blockingTaskID: got %d, want 2 (selected task should block the new task)", updated.blockingTaskID)
 	}
 }
 
-func TestCompleteRunOneOff_MultipleMatchesNoExtension(t *testing.T) {
+// TestCompleteRunTask_SingleMatch verifies tab-completion of a RunTask prefix.
+func TestCompleteRunTask_SingleMatch(t *testing.T) {
 	m := Model{
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor", Description: "Refactor code"},
-				{Name: "Review", Description: "Review code"},
-			},
-		},
-	}
-
-	// Common prefix "Re" is same length as input "Re", so no extension possible
-	_, ok := completeRunTask(m, "RunOneOff Re")
-	if ok {
-		t.Error("expected no completion when common prefix matches input length")
-	}
-}
-
-func TestCompleteRunOneOff_NoMatch(t *testing.T) {
-	m := Model{
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor"},
-			},
-		},
-	}
-
-	_, ok := completeRunTask(m, "RunOneOff Xyz")
-	if ok {
-		t.Error("expected no completion for non-matching prefix")
-	}
-}
-
-func TestCompleteRunOneOff_IncludesHidden(t *testing.T) {
-	m := Model{
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor"},
-				{Name: "Secret", Hidden: true},
-			},
-		},
-	}
-
-	completed, ok := completeRunTask(m, "RunOneOff S")
-	if !ok {
-		t.Fatal("expected completion to succeed for hidden one-off")
-	}
-	if completed != "RunOneOff Secret" {
-		t.Errorf("expected 'RunOneOff Secret', got %q", completed)
-	}
-}
-
-func TestCompleteRunOneOff_ExactCommand(t *testing.T) {
-	m := Model{
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Refactor"},
-			},
-		},
-	}
-
-	completed, ok := completeRunTask(m, "RunOneOff")
-	if !ok {
-		t.Fatal("expected completion to add space after RunOneOff")
-	}
-	if completed != "RunOneOff " {
-		t.Errorf("expected 'RunOneOff ', got %q", completed)
-	}
-}
-
-func TestCompleteRunInit_SingleMatch(t *testing.T) {
-	m := Model{
-		cfg: &config.Config{
-			InitWorkflows: []config.WorkflowConfig{
-				{Name: "bootstrap"},
-				{Name: "scaffold"},
-			},
-		},
-	}
-
-	completed, ok := completeRunTask(m, "RunInit boot")
-	if !ok {
-		t.Fatal("expected completion to succeed")
-	}
-	if completed != "RunInit bootstrap" {
-		t.Errorf("expected 'RunInit bootstrap', got %q", completed)
-	}
-}
-
-func TestCompleteRunTask_SingleMatch_PreselectPicker(t *testing.T) {
-	m := Model{
-		cfg: &config.Config{
-			TaskWorkflows: []config.WorkflowConfig{
+			Workflows: []config.WorkflowConfig{
 				{Name: "implement"},
 				{Name: "review"},
 			},
@@ -3897,15 +3711,77 @@ func TestCompleteRunTask_SingleMatch_PreselectPicker(t *testing.T) {
 	}
 }
 
+// TestCompleteRunTask_MultipleMatchesExtends verifies common-prefix extension.
+func TestCompleteRunTask_MultipleMatchesExtends(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement-feature"},
+				{Name: "implement-fix"},
+			},
+		},
+	}
+
+	// Common prefix of "implement-feature" and "implement-fix" is "implement-f"
+	completed, ok := completeRunTask(m, "RunTask impl")
+	if !ok {
+		t.Fatal("expected completion to extend to common prefix")
+	}
+	if completed != "RunTask implement-f" {
+		t.Errorf("expected 'RunTask implement-f', got %q", completed)
+	}
+}
+
+// TestCompleteRunTask_IncludesHidden verifies hidden workflows appear in tab-completion.
+func TestCompleteRunTask_IncludesHidden(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement"},
+				{Name: "secret-wf", Hidden: true},
+			},
+		},
+	}
+
+	completed, ok := completeRunTask(m, "RunTask sec")
+	if !ok {
+		t.Fatal("expected completion for hidden workflow")
+	}
+	if completed != "RunTask secret-wf" {
+		t.Errorf("expected 'RunTask secret-wf', got %q", completed)
+	}
+}
+
+// TestCompleteRunTask_ExactCommand verifies that typing "RunTask" exactly adds a space.
+func TestCompleteRunTask_ExactCommand(t *testing.T) {
+	m := Model{
+		cfg: &config.Config{
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement"},
+			},
+		},
+	}
+
+	completed, ok := completeRunTask(m, "RunTask")
+	if !ok {
+		t.Fatal("expected completion to add space after RunTask")
+	}
+	if completed != "RunTask " {
+		t.Errorf("expected 'RunTask ', got %q", completed)
+	}
+}
+
+// TestCompleteRunTask_NilConfig verifies no completion when config is nil.
 func TestCompleteRunTask_NilConfig(t *testing.T) {
 	m := Model{}
 
-	_, ok := completeRunTask(m, "RunOneOff R")
+	_, ok := completeRunTask(m, "RunTask impl")
 	if ok {
 		t.Error("expected no completion with nil config")
 	}
 }
 
+// TestCommandMode_TabCompletion verifies tab-completion in command mode.
 func TestCommandMode_TabCompletion(t *testing.T) {
 	m := Model{
 		keys:         newKeyMap(),
@@ -3913,11 +3789,11 @@ func TestCommandMode_TabCompletion(t *testing.T) {
 		detail:       newDetailView(),
 		view:         viewList,
 		commandMode:  true,
-		commandInput: "RunOneOff Ref",
+		commandInput: "RunTask Ref",
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
+			Workflows: []config.WorkflowConfig{
 				{Name: "Refactor", Description: "Refactor code"},
-				{Name: "Security", Description: "Security scan"},
+				{Name: "Review", Description: "Review code"},
 			},
 		},
 	}
@@ -3926,52 +3802,215 @@ func TestCommandMode_TabCompletion(t *testing.T) {
 	result, _ := m.handleCommandKey(msg)
 	updated := result.(Model)
 
-	if updated.commandInput != "RunOneOff Refactor" {
-		t.Errorf("expected commandInput 'RunOneOff Refactor' after tab, got %q", updated.commandInput)
+	if updated.commandInput != "RunTask Refactor" {
+		t.Errorf("expected commandInput 'RunTask Refactor' after tab, got %q", updated.commandInput)
 	}
 	if !updated.commandMode {
 		t.Error("expected to remain in command mode after tab")
 	}
 }
 
-func TestHandleListKey_RHidesUnlistedTasks(t *testing.T) {
-	// Since unlisted is removed, all one-off workflows are now visible
+// TestCommandMode_RunTaskIntegration exercises the full :RunTask <name> command flow.
+func TestCommandMode_RunTaskIntegration(t *testing.T) {
 	m := Model{
 		keys:        newKeyMap(),
 		client:      &client.Client{},
 		list:        newListView(false, ""),
 		detail:      newDetailView(),
+		prompt:      newPromptView(true, branchModeNew, ""),
 		view:        viewList,
 		projectPath: "/tmp/test-project",
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Visible", Description: "A visible task"},
-				{Name: "Hidden", Description: "A hidden task"},
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement", Description: "Implement task"},
 			},
 		},
 	}
-	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Running task", Status: "running"},
-	})
 
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
+	// Enter command mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{':'}}
 	result, _ := m.handleListKey(msg)
+	m = result.(Model)
+	if !m.commandMode {
+		t.Fatal("expected command mode to be active")
+	}
+
+	// Type "RunTask implement"
+	for _, ch := range "RunTask implement" {
+		msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}}
+		result, _ = m.handleCommandKey(msg)
+		m = result.(Model)
+	}
+	if m.commandInput != "RunTask implement" {
+		t.Fatalf("expected commandInput 'RunTask implement', got %q", m.commandInput)
+	}
+
+	// Press enter
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
+	result, _ = m.handleCommandKey(msg)
+	m = result.(Model)
+
+	if m.commandMode {
+		t.Error("expected command mode to be inactive after enter")
+	}
+	// Non-fully-spec workflow → prompt opens
+	if m.view != viewPrompt {
+		t.Errorf("expected view=viewPrompt after RunTask implement, got %d", m.view)
+	}
+	if m.selectedWorkflow != "implement" {
+		t.Errorf("expected selectedWorkflow 'implement', got %q", m.selectedWorkflow)
+	}
+}
+
+// --- launchWorkflow coverage ---
+
+// TestLaunchWorkflow_FullyPinned verifies that a fully-pinned workflow creates a
+// task immediately: returns a non-nil cmd and does NOT switch to viewPrompt.
+func TestLaunchWorkflow_FullyPinned(t *testing.T) {
+	worktreeTrue := true
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false, ""),
+		prompt:      newPromptView(true, branchModeNew, ""),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Workflows: []config.WorkflowConfig{
+				{
+					Name:        "auto-wf",
+					Description: "Automated task",
+					Worktree:    &worktreeTrue,
+					Branch:      "sortie/{{task_id}}-auto",
+					Target:      "main",
+				},
+			},
+		},
+	}
+
+	result, cmd := m.launchWorkflow("auto-wf")
 	updated := result.(Model)
 
-	if updated.selector.kind != selectorTask {
-		t.Fatal("expected selector kind to be selectorTask")
+	// Fully-pinned: immediate task creation — should NOT open prompt.
+	if updated.view == viewPrompt {
+		t.Error("expected NOT to switch to viewPrompt for fully-pinned workflow")
+	}
+	if cmd == nil {
+		t.Error("expected non-nil cmd for fully-pinned workflow (immediate task creation)")
+	}
+}
+
+// TestLaunchWorkflow_PartiallyPinned verifies that a partially-pinned workflow
+// (e.g. description pinned, worktree not) opens viewPrompt with only the
+// unpinned fields visible.
+func TestLaunchWorkflow_PartiallyPinned(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false, ""),
+		prompt:      newPromptView(true, branchModeNew, ""),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Workflows: []config.WorkflowConfig{
+				{
+					Name:        "partial-wf",
+					Description: "Pinned description",
+					// Worktree, Branch, Target not pinned → not fully spec
+				},
+			},
+		},
 	}
 
-	// All one-off workflows are visible (unlisted removed)
-	tasks := updated.cfg.ListPredefinedTaskNames()
-	if len(tasks) != 2 {
-		t.Errorf("expected 2 tasks, got %d", len(tasks))
+	result, cmd := m.launchWorkflow("partial-wf")
+	updated := result.(Model)
+
+	// Not fully-pinned → should open prompt.
+	if updated.view != viewPrompt {
+		t.Errorf("expected viewPrompt for partially-pinned workflow, got %d", updated.view)
 	}
-	if tasks[0] != "Visible" {
-		t.Errorf("expected first task 'Visible', got %q", tasks[0])
+	// Description is pinned → should NOT appear in visibleFields.
+	fields := updated.prompt.visibleFields()
+	for _, f := range fields {
+		if f == promptFieldDescription {
+			t.Error("expected description to be absent from visibleFields (it is pinned)")
+		}
 	}
-	if tasks[1] != "Hidden" {
-		t.Errorf("expected second task 'Hidden', got %q", tasks[1])
+	// cmd is nil for the prompt-open path.
+	if cmd != nil {
+		t.Error("expected nil cmd (prompt opened, no immediate task creation)")
+	}
+}
+
+// TestLaunchWorkflow_Unpinned verifies that a workflow with no pins opens the
+// full prompt with all fields visible.
+func TestLaunchWorkflow_Unpinned(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false, ""),
+		prompt:      newPromptView(true, branchModeNew, ""),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Workflows: []config.WorkflowConfig{
+				{Name: "plain-wf"},
+			},
+		},
+	}
+
+	result, cmd := m.launchWorkflow("plain-wf")
+	updated := result.(Model)
+
+	if updated.view != viewPrompt {
+		t.Errorf("expected viewPrompt for unpinned workflow, got %d", updated.view)
+	}
+	// All standard fields should be visible (title + description since worktree=true by default in prompt).
+	fields := updated.prompt.visibleFields()
+	hasTitle := false
+	hasDesc := false
+	for _, f := range fields {
+		if f == promptFieldTitle {
+			hasTitle = true
+		}
+		if f == promptFieldDescription {
+			hasDesc = true
+		}
+	}
+	if !hasTitle {
+		t.Error("expected promptFieldTitle in visibleFields for unpinned workflow")
+	}
+	if !hasDesc {
+		t.Error("expected promptFieldDescription in visibleFields for unpinned workflow")
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd for unpinned workflow (prompt opened)")
+	}
+}
+
+// TestLaunchWorkflow_UnknownWorkflow verifies an error is returned for unknown names.
+func TestLaunchWorkflow_UnknownWorkflow(t *testing.T) {
+	m := Model{
+		keys:        newKeyMap(),
+		client:      &client.Client{},
+		list:        newListView(false, ""),
+		view:        viewList,
+		projectPath: "/tmp/test-project",
+		cfg: &config.Config{
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement"},
+			},
+		},
+	}
+
+	result, cmd := m.launchWorkflow("no-such-workflow")
+	updated := result.(Model)
+
+	if updated.err == nil {
+		t.Error("expected error for unknown workflow name")
+	}
+	if cmd != nil {
+		t.Error("expected nil cmd for unknown workflow")
 	}
 }
 
@@ -4390,9 +4429,9 @@ func TestHandleArtifactViewKey_CtrlHTogglesHelp(t *testing.T) {
 
 func TestArtifactHelpOverlay_ContainsBindings(t *testing.T) {
 	m := Model{
-		keys: newKeyMap(),
-		list: newListView(false, ""),
-		view: viewArtifact,
+		keys:  newKeyMap(),
+		list:  newListView(false, ""),
+		view:  viewArtifact,
 		width: 120, height: 30,
 	}
 	m.artifactView.SetSize(120, 30)

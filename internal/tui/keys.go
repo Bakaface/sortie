@@ -5,43 +5,41 @@ import (
 )
 
 type keyMap struct {
-	Up              key.Binding
-	Down            key.Binding
-	Enter           key.Binding
-	Logs            key.Binding
-	Stop            key.Binding
-	Retry           key.Binding
-	RunTask         key.Binding
-	InitWorkflow    key.Binding
-	Delete          key.Binding
-	NewTask         key.Binding
-	NewBlockingTask key.Binding
-	Continue        key.Binding
-	ChangePriority  key.Binding
-	Attach         key.Binding
-	OpenArtifact   key.Binding
-	EditArtifact   key.Binding
-	EditDesc       key.Binding
-	EditTitle      key.Binding
-	EditContext    key.Binding
-	Revert         key.Binding
-	BranchTask      key.Binding
+	Up               key.Binding
+	Down             key.Binding
+	Enter            key.Binding
+	Logs             key.Binding
+	Stop             key.Binding
+	Retry            key.Binding
+	Delete           key.Binding
+	NewTask          key.Binding
+	NewBlockingTask  key.Binding
+	Continue         key.Binding
+	ChangePriority   key.Binding
+	Attach           key.Binding
+	OpenArtifact     key.Binding
+	EditArtifact     key.Binding
+	EditDesc         key.Binding
+	EditTitle        key.Binding
+	EditContext      key.Binding
+	Revert           key.Binding
+	BranchTask       key.Binding
 	ToggleBranchView key.Binding
-	DetachBranch   key.Binding
-	AttachBranch   key.Binding
-	Refresh        key.Binding
-	Back           key.Binding
-	Quit           key.Binding
-	Help           key.Binding
-	PageUp         key.Binding
-	PageDown       key.Binding
-	GotoTop        key.Binding
-	GotoBottom     key.Binding
-	GotoTask       key.Binding
-	SearchForward  key.Binding
-	SearchBackward key.Binding
-	NextMatch      key.Binding
-	PrevMatch      key.Binding
+	DetachBranch     key.Binding
+	AttachBranch     key.Binding
+	Refresh          key.Binding
+	Back             key.Binding
+	Quit             key.Binding
+	Help             key.Binding
+	PageUp           key.Binding
+	PageDown         key.Binding
+	GotoTop          key.Binding
+	GotoBottom       key.Binding
+	GotoTask         key.Binding
+	SearchForward    key.Binding
+	SearchBackward   key.Binding
+	NextMatch        key.Binding
+	PrevMatch        key.Binding
 }
 
 func newKeyMap() keyMap {
@@ -69,14 +67,6 @@ func newKeyMap() keyMap {
 		Retry: key.NewBinding(
 			key.WithKeys("r"),
 			key.WithHelp("r", "retry"),
-		),
-		RunTask: key.NewBinding(
-			key.WithKeys("x"),
-			key.WithHelp("x", "run one-off"),
-		),
-		InitWorkflow: key.NewBinding(
-			key.WithKeys("i"),
-			key.WithHelp("i", "init"),
 		),
 		Delete: key.NewBinding(
 			key.WithKeys("d"),
@@ -198,13 +188,13 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.InitWorkflow, k.Continue, k.Stop, k.Quit, k.Help}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Logs, k.NewTask, k.Continue, k.Stop, k.Quit, k.Help}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.PageUp, k.PageDown, k.GotoTop, k.GotoBottom, k.GotoTask, k.SearchForward, k.SearchBackward, k.NextMatch, k.PrevMatch, k.Enter, k.Logs},
-		{k.NewTask, k.NewBlockingTask, k.BranchTask, k.ToggleBranchView, k.RunTask, k.InitWorkflow, k.Stop, k.Retry, k.Revert, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.DetachBranch, k.AttachBranch, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
+		{k.NewTask, k.NewBlockingTask, k.BranchTask, k.ToggleBranchView, k.Stop, k.Retry, k.Revert, k.Continue, k.ChangePriority, k.Delete, k.Attach, k.DetachBranch, k.AttachBranch, k.OpenArtifact, k.EditArtifact, k.EditDesc, k.EditTitle, k.EditContext, k.Refresh},
 		{k.Back, k.Quit, k.Help},
 	}
 }

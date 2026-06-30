@@ -141,21 +141,13 @@ func validateProject(proj *ProjectConfig, filePool *workflowFilePool, globalPool
 		return nil, fmt.Errorf(`default_priority: invalid value %q (must be "low", "medium", "high", or "urgent")`, proj.DefaultPriority)
 	}
 
-	// Capture pre-resolution file-pool state so we can detect categories with
-	// files but no listing in .sortie.yml after resolution mutates the pool.
-	preFiles := map[string][]string{}
-	if filePool != nil {
-		for _, cat := range workflowCategories {
-			for _, name := range filePool.order[cat] {
-				if _, ok := filePool.byCategory[cat][name]; ok {
-					preFiles[cat] = append(preFiles[cat], name)
-				}
-			}
-		}
-	}
+	// Capture whether any on-disk files exist before resolution mutates the
+	// pool, so we can warn when files exist but .sortie.yml has no listing.
+	hadFiles := filePool != nil && len(filePool.byName) > 0
 
 	// Reuse the production assembly path to apply identical validation rules
-	// (loops, steps, summarization strategies) the daemon enforces at load time.
+	// (loops, steps, summarization strategies, pins) the daemon enforces at
+	// load time.
 	cfg := defaultConfig()
 	cfg.globalPool = globalPool
 	if err := resolveWorkflows(cfg, proj, filePool); err != nil {
@@ -168,33 +160,22 @@ func validateProject(proj *ProjectConfig, filePool *workflowFilePool, globalPool
 
 	var diagnostics []Diagnostic
 
-	// Surface a warning when a category has on-disk files but no listing in
-	// .sortie.yml (all files become hidden — likely a user oversight).
-	listed := map[string]bool{
-		"tasks":   len(proj.Workflows.Tasks) > 0,
-		"one-off": len(proj.Workflows.OneOff) > 0,
-		"init":    len(proj.Workflows.Init) > 0,
-	}
-	for _, cat := range workflowCategories {
-		if !listed[cat] && len(preFiles[cat]) > 0 {
-			diagnostics = append(diagnostics, Diagnostic{
-				Severity: "warning",
-				Message: fmt.Sprintf(
-					"workflows.%s: %d file(s) under .sortie/workflows/%s/ are hidden because the category has no listing in .sortie.yml",
-					cat, len(preFiles[cat]), cat),
-			})
-		}
-	}
-
-	// Surface a warning for each unreferenced file-based workflow (hidden).
-	// Iterate the bucket slices so we report unprefixed names.
-	for _, group := range [][]WorkflowConfig{cfg.TaskWorkflows, cfg.OneOff, cfg.InitWorkflows} {
-		for _, wf := range group {
+	// When on-disk files exist but .sortie.yml has no workflows listing, every
+	// file becomes hidden — surface a single aggregate warning rather than one
+	// per file (which would all describe the same oversight).
+	if hadFiles && len(proj.Workflows) == 0 {
+		diagnostics = append(diagnostics, Diagnostic{
+			Severity: "warning",
+			Message:  "workflows: file(s) under .sortie/workflows/ are hidden because there is no workflows listing in .sortie.yml",
+		})
+	} else {
+		// Otherwise surface a warning for each unreferenced file-based workflow.
+		for _, wf := range cfg.Workflows {
 			if wf.Hidden {
 				diagnostics = append(diagnostics, Diagnostic{
 					Severity: "warning",
 					Message: fmt.Sprintf(
-						"workflow %q from %s is hidden — add it to the relevant .sortie.yml listing to make it active",
+						"workflow %q from %s is hidden — add it to the .sortie.yml workflows listing to make it active",
 						wf.Name, wf.Source),
 				})
 			}
@@ -204,17 +185,15 @@ func validateProject(proj *ProjectConfig, filePool *workflowFilePool, globalPool
 	return diagnostics, nil
 }
 
-// validateUniqueNames ensures workflow names are unique within their category and
+// validateUniqueNames ensures workflow names are unique across the flat list and
 // that step names are unique within each workflow.
 func validateUniqueNames(cfg *Config) error {
-	if err := checkUniqueWorkflowNames("tasks", cfg.TaskWorkflows); err != nil {
-		return err
-	}
-	if err := checkUniqueWorkflowNames("one-off", cfg.OneOff); err != nil {
-		return err
-	}
-	if err := checkUniqueWorkflowNames("init", cfg.InitWorkflows); err != nil {
-		return err
+	seenWf := make(map[string]bool, len(cfg.Workflows))
+	for _, wf := range cfg.Workflows {
+		if seenWf[wf.Name] {
+			return fmt.Errorf("workflows: duplicate workflow name %q", wf.Name)
+		}
+		seenWf[wf.Name] = true
 	}
 
 	for _, wf := range cfg.Workflows {
@@ -228,17 +207,6 @@ func validateUniqueNames(cfg *Config) error {
 			}
 			seen[step.Name] = true
 		}
-	}
-	return nil
-}
-
-func checkUniqueWorkflowNames(category string, workflows []WorkflowConfig) error {
-	seen := make(map[string]bool, len(workflows))
-	for _, wf := range workflows {
-		if seen[wf.Name] {
-			return fmt.Errorf("workflows.%s: duplicate workflow name %q", category, wf.Name)
-		}
-		seen[wf.Name] = true
 	}
 	return nil
 }

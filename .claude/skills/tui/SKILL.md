@@ -147,6 +147,6 @@ See CLAUDE.md for the general principle. Below are lipgloss/BubbleTea-specific t
 ## Adjacent Packages
 
 - **daemon** via `client.Client`: task CRUD, subscriptions, log streaming
-- **config**: `ListWorkflowNames()`, `GetWorkflow()`, `ListPredefinedTaskNames()`
+- **config**: `ListWorkflowNames()`, `ListAllWorkflowNames()`, `GetWorkflow()`
 - **tmux**: `ListSessions()`, `AttachCommand()`, `SwitchClientCommand()`
 - **workflow**: `ProjectLogsDir()`

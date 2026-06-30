@@ -251,8 +251,7 @@ func TestCreateTaskRequest_EmptyDescriptionAllowedForTmuxFirstWorkflow(t *testin
 		},
 	}
 	cfg := &config.Config{
-		Workflows:     []config.WorkflowConfig{plain, tmuxFirst},
-		TaskWorkflows: []config.WorkflowConfig{plain, tmuxFirst},
+		Workflows: []config.WorkflowConfig{plain, tmuxFirst},
 	}
 
 	tests := []struct {

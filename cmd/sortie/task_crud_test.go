@@ -138,10 +138,18 @@ func TestWorkflowAllowsEmptyDescription(t *testing.T) {
 			{Name: "implement"},
 		},
 	}
+	pinned := config.WorkflowConfig{
+		// Description is pre-pinned by the workflow, so no -d flag is needed.
+		Name:        "pinned",
+		Description: "pre-set description",
+		Print:       true,
+		Steps: []config.StepConfig{
+			{Name: "implement"},
+		},
+	}
 
 	cfg := &config.Config{
-		Workflows:     []config.WorkflowConfig{plain, tmuxFirst},
-		TaskWorkflows: []config.WorkflowConfig{plain, tmuxFirst},
+		Workflows: []config.WorkflowConfig{plain, tmuxFirst, pinned},
 	}
 
 	if workflowAllowsEmptyDescription(nil, "anything") {
@@ -157,5 +165,9 @@ func TestWorkflowAllowsEmptyDescription(t *testing.T) {
 	// which in this fixture is the headless (print=true) workflow.
 	if workflowAllowsEmptyDescription(cfg, "") {
 		t.Error("empty workflow name should resolve to first workflow (print=true)")
+	}
+	// A workflow that pins its own description allows an empty -d flag.
+	if !workflowAllowsEmptyDescription(cfg, "pinned") {
+		t.Error("description-pinned workflow should allow empty descriptions")
 	}
 }

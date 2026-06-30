@@ -16,7 +16,7 @@ type ListWorkflowsArgs struct {
 func registerListWorkflows(s *server.MCPServer, c *client.Client) {
 	tool := mcp.NewTool(
 		"list_workflows",
-		mcp.WithDescription("List the workflows configured for a sortie project. Returns three groups: 'tasks' (used by create_task), 'one_off' (run-menu shortcuts), and 'init' (project bootstrap). Each entry includes name, description, first_step_is_tmux, and a step summary."),
+		mcp.WithDescription("List the workflows configured for a sortie project. Returns a flat 'workflows' list; pass any name to create_task's workflow argument. Each entry includes name, description, any pinned New Task fields (worktree/branch/checkout/target), fully_spec, first_step_is_tmux, and a step summary."),
 		mcp.WithInputSchema[ListWorkflowsArgs](),
 	)
 	s.AddTool(tool, mcp.NewTypedToolHandler(func(_ context.Context, _ mcp.CallToolRequest, args ListWorkflowsArgs) (*mcp.CallToolResult, error) {

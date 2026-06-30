@@ -8,19 +8,22 @@ import (
 	"time"
 )
 
+// TestStepConfigParsing verifies that a flat workflows: list with inline steps
+// is parsed correctly.
 func TestStepConfigParsing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sortie.yml")
 
 	yaml := `
-workflow:
-  steps:
-    - name: implement
-      prompt: "Implement the task"
-    - name: review
-      prompt: "Review the implementation"
-    - name: test
-      prompt: "Write tests"
+workflows:
+  - name: default
+    steps:
+      - name: implement
+        prompt: "Implement the task"
+      - name: review
+        prompt: "Review the implementation"
+      - name: test
+        prompt: "Write tests"
 `
 	if err := os.WriteFile(configPath, []byte(yaml), 0644); err != nil {
 		t.Fatal(err)
@@ -44,16 +47,15 @@ func TestOnCompleteParsing(t *testing.T) {
 	yamlContent := `
 on_complete: merge
 workflows:
-  tasks:
-    - name: default
-      steps:
-        - name: implement
-          prompt: "do it"
-    - name: quick
-      on_complete: commit
-      steps:
-        - name: implement
-          prompt: "do it"
+  - name: default
+    steps:
+      - name: implement
+        prompt: "do it"
+  - name: quick
+    on_complete: commit
+    steps:
+      - name: implement
+        prompt: "do it"
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -85,237 +87,6 @@ func TestGitOnCompleteRejected(t *testing.T) {
 	err := loadProjectConfig(configPath, cfg)
 	if err == nil || !strings.Contains(err.Error(), "git.on_complete was moved") {
 		t.Fatalf("expected git.on_complete migration error, got: %v", err)
-	}
-}
-
-func TestPredefinedTasksParsing(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".sortie.yml")
-
-	yamlContent := `
-tasks:
-  - name: "Refactor: Housekeeping"
-    description: "Standard codebase maintenance"
-    steps:
-      - name: audit
-        prompt: "Identify code smells"
-      - name: refactor
-        prompt: "Apply refactoring based on audit"
-        human: true
-  - name: "Security Scan"
-    description: "Run security audit"
-    steps:
-      - name: scan
-        prompt: "Scan for vulnerabilities"
-`
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := defaultConfig()
-	if err := loadProjectConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	// Check predefined tasks were parsed into OneOff
-	if len(cfg.OneOff) != 2 {
-		t.Fatalf("expected 2 one-off workflows, got %d", len(cfg.OneOff))
-	}
-
-	if cfg.OneOff[0].Name != "Refactor: Housekeeping" {
-		t.Errorf("expected first workflow name 'Refactor: Housekeeping', got %q", cfg.OneOff[0].Name)
-	}
-	if cfg.OneOff[0].Description != "Standard codebase maintenance" {
-		t.Errorf("expected first workflow description 'Standard codebase maintenance', got %q", cfg.OneOff[0].Description)
-	}
-	if len(cfg.OneOff[0].Steps) != 2 {
-		t.Fatalf("expected 2 steps in first workflow, got %d", len(cfg.OneOff[0].Steps))
-	}
-	if !cfg.OneOff[0].Steps[1].Human {
-		t.Error("expected refactor step to have human: true")
-	}
-
-	// Check synthetic workflows were registered with oneoff: prefix
-	wf := cfg.GetWorkflow("oneoff:Refactor: Housekeeping")
-	if wf.Name != "oneoff:Refactor: Housekeeping" {
-		t.Errorf("expected synthetic workflow name 'oneoff:Refactor: Housekeeping', got %q", wf.Name)
-	}
-	if len(wf.Steps) != 2 {
-		t.Fatalf("expected 2 steps in synthetic workflow, got %d", len(wf.Steps))
-	}
-
-	wf2 := cfg.GetWorkflow("oneoff:Security Scan")
-	if wf2.Name != "oneoff:Security Scan" {
-		t.Errorf("expected synthetic workflow name 'oneoff:Security Scan', got %q", wf2.Name)
-	}
-}
-
-func TestPredefinedTasksAutoNaming(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".sortie.yml")
-
-	yamlContent := `
-tasks:
-  - description: "Task without name"
-    steps:
-      - name: do
-        prompt: "Do something"
-`
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := defaultConfig()
-	if err := loadProjectConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	if cfg.OneOff[0].Name != "task-1" {
-		t.Errorf("expected auto-named workflow 'task-1', got %q", cfg.OneOff[0].Name)
-	}
-
-	// Should be resolvable as workflow with oneoff: prefix
-	wf := cfg.GetWorkflow("oneoff:task-1")
-	if wf.Name != "oneoff:task-1" {
-		t.Errorf("expected synthetic workflow 'oneoff:task-1', got %q", wf.Name)
-	}
-}
-
-func TestListPredefinedTaskNames(t *testing.T) {
-	cfg := &Config{
-		OneOff: []WorkflowConfig{
-			{Name: "task-a"},
-			{Name: "task-b"},
-		},
-	}
-
-	names := cfg.ListPredefinedTaskNames()
-	if len(names) != 2 {
-		t.Fatalf("expected 2 names, got %d", len(names))
-	}
-	if names[0] != "task-a" {
-		t.Errorf("expected first name 'task-a', got %q", names[0])
-	}
-	if names[1] != "task-b" {
-		t.Errorf("expected second name 'task-b', got %q", names[1])
-	}
-}
-
-func TestListPredefinedTaskNamesEmpty(t *testing.T) {
-	cfg := &Config{}
-	names := cfg.ListPredefinedTaskNames()
-	if len(names) != 0 {
-		t.Errorf("expected 0 names for empty config, got %d", len(names))
-	}
-}
-
-func TestListWorkflowNamesExcludesSyntheticTasks(t *testing.T) {
-	cfg := &Config{
-		TaskWorkflows: []WorkflowConfig{
-			{Name: "default"},
-			{Name: "review"},
-		},
-		OneOff: []WorkflowConfig{
-			{Name: "Housekeeping"},
-			{Name: "Security"},
-		},
-		Workflows: []WorkflowConfig{
-			{Name: "default"},
-			{Name: "review"},
-			{Name: "oneoff:Housekeeping"},
-			{Name: "oneoff:Security"},
-		},
-	}
-
-	names := cfg.ListWorkflowNames()
-	if len(names) != 2 {
-		t.Fatalf("expected 2 workflow names (from TaskWorkflows only), got %d: %v", len(names), names)
-	}
-	if names[0] != "default" {
-		t.Errorf("expected first name 'default', got %q", names[0])
-	}
-	if names[1] != "review" {
-		t.Errorf("expected second name 'review', got %q", names[1])
-	}
-}
-
-func TestListWorkflowNamesOnlySyntheticTasksReturnsDefault(t *testing.T) {
-	cfg := &Config{
-		TaskWorkflows: []WorkflowConfig{}, // Empty TaskWorkflows
-		Workflows: []WorkflowConfig{
-			{Name: "oneoff:Housekeeping"},
-			{Name: "oneoff:Security"},
-		},
-	}
-
-	names := cfg.ListWorkflowNames()
-	if len(names) != 1 || names[0] != "default" {
-		t.Errorf("expected [\"default\"] when TaskWorkflows is empty, got %v", names)
-	}
-}
-
-func TestGetPredefinedTask(t *testing.T) {
-	cfg := &Config{
-		OneOff: []WorkflowConfig{
-			{Name: "task-a", Description: "desc-a"},
-			{Name: "task-b", Description: "desc-b"},
-		},
-	}
-
-	task := cfg.GetPredefinedTask("task-b")
-	if task == nil {
-		t.Fatal("expected task-b to be found")
-	}
-	if task.Description != "desc-b" {
-		t.Errorf("expected description 'desc-b', got %q", task.Description)
-	}
-
-	if cfg.GetPredefinedTask("nonexistent") != nil {
-		t.Error("expected nil for nonexistent task")
-	}
-}
-
-func TestListPredefinedTaskNamesExcludesUnlisted(t *testing.T) {
-	// Unlisted concept removed - all one-off workflows are returned
-	cfg := &Config{
-		OneOff: []WorkflowConfig{
-			{Name: "task-a"},
-			{Name: "task-b"},
-			{Name: "task-c"},
-		},
-	}
-
-	names := cfg.ListPredefinedTaskNames()
-	if len(names) != 3 {
-		t.Fatalf("expected 3 names (unlisted removed), got %d: %v", len(names), names)
-	}
-	if names[0] != "task-a" {
-		t.Errorf("expected first name 'task-a', got %q", names[0])
-	}
-	if names[1] != "task-b" {
-		t.Errorf("expected second name 'task-b', got %q", names[1])
-	}
-	if names[2] != "task-c" {
-		t.Errorf("expected third name 'task-c', got %q", names[2])
-	}
-}
-
-func TestListAllPredefinedTaskNamesIncludesUnlisted(t *testing.T) {
-	// ListPredefinedTaskNames returns all one-off workflow names (unlisted concept removed)
-	cfg := &Config{
-		OneOff: []WorkflowConfig{
-			{Name: "task-a"},
-			{Name: "task-b"},
-			{Name: "task-c"},
-		},
-	}
-
-	names := cfg.ListPredefinedTaskNames()
-	if len(names) != 3 {
-		t.Fatalf("expected 3 names, got %d: %v", len(names), names)
-	}
-	if names[1] != "task-b" {
-		t.Errorf("expected second name 'task-b', got %q", names[1])
 	}
 }
 
@@ -366,10 +137,11 @@ func TestYoloProjectConfig(t *testing.T) {
 
 	yamlContent := `
 yolo: true
-workflow:
-  steps:
-    - name: implement
-      prompt: "Implement the task"
+workflows:
+  - name: default
+    steps:
+      - name: implement
+        prompt: "Implement the task"
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -456,10 +228,11 @@ func TestPollIntervalProjectConfig(t *testing.T) {
 
 	yamlContent := `
 poll_interval: 250ms
-workflow:
-  steps:
-    - name: implement
-      prompt: "Implement the task"
+workflows:
+  - name: default
+    steps:
+      - name: implement
+        prompt: "Implement the task"
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -548,20 +321,21 @@ func TestLoopConfigParsing(t *testing.T) {
 	configPath := filepath.Join(dir, ".sortie.yml")
 
 	yamlContent := `
-workflow:
-  print: true
-  steps:
-    - name: plan
-      prompt: "Plan"
-    - name: implement
-      prompt: "Implement"
-    - name: verify
-      prompt: "Verify"
-      loop:
-        goto: plan
-        max_iterations: 5
-        exit_condition:
-          step_context_empty: plan
+workflows:
+  - name: default
+    print: true
+    steps:
+      - name: plan
+        prompt: "Plan"
+      - name: implement
+        prompt: "Implement"
+      - name: verify
+        prompt: "Verify"
+        loop:
+          goto: plan
+          max_iterations: 5
+          exit_condition:
+            step_context_empty: plan
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -1042,20 +816,22 @@ notifications:
 git:
   base_branch: develop
 on_complete: merge
-workflow:
-  steps:
-    - name: global-step
-      prompt: "Global default step"
+workflows:
+  - name: global-default
+    steps:
+      - name: global-step
+        prompt: "Global default step"
 `), 0644)
 
 	projectDir := t.TempDir()
 	projectSortieYml := filepath.Join(projectDir, ".sortie.yml")
 	os.WriteFile(projectSortieYml, []byte(`
 max_workers: 2
-workflow:
-  steps:
-    - name: implement
-      prompt: "Implement {{task.description}}"
+workflows:
+  - name: default
+    steps:
+      - name: implement
+        prompt: "Implement {{task.description}}"
 `), 0644)
 
 	// Simulate the 3-layer loading: defaults -> global .sortie.yml -> project .sortie.yml
@@ -1156,10 +932,11 @@ max_workers: 7
 git:
   base_branch: develop
   branch_template: "feature/{{task_id}}"
-workflow:
-  steps:
-    - name: plan
-      prompt: "Plan the task"
+workflows:
+  - name: default
+    steps:
+      - name: plan
+        prompt: "Plan the task"
 `), 0644)
 
 	cfg := defaultConfig()
@@ -1225,10 +1002,11 @@ git:
 notifications:
   enabled: true
   on_complete: false
-workflow:
-  steps:
-    - name: default-step
-      prompt: "Default implementation"
+workflows:
+  - name: default-step
+    steps:
+      - name: do
+        prompt: "Default implementation"
 `), 0644)
 
 	// Layer 3: project .sortie.yml (overrides max_workers, adds project workflow)
@@ -1236,10 +1014,11 @@ workflow:
 	projectSortieYml := filepath.Join(projectDir, ".sortie.yml")
 	os.WriteFile(projectSortieYml, []byte(`
 max_workers: 2
-workflow:
-  steps:
-    - name: implement
-      prompt: "Implement the task"
+workflows:
+  - name: default
+    steps:
+      - name: implement
+        prompt: "Implement the task"
 `), 0644)
 
 	cfg := defaultConfig()
@@ -1288,10 +1067,11 @@ func TestVerificationConfigParsing(t *testing.T) {
 verification:
   max_retries: 3
   verify_summarizer: true
-workflow:
-  steps:
-    - name: implement
-      prompt: "Implement"
+workflows:
+  - name: default
+    steps:
+      - name: implement
+        prompt: "Implement"
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -1352,188 +1132,19 @@ func TestVerificationConfigDefaultFalse(t *testing.T) {
 	}
 }
 
-func TestNewWorkflowsStructureParsing(t *testing.T) {
+// TestFlatWorkflowsParsing verifies the canonical flat workflows: list format.
+func TestFlatWorkflowsParsing(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, ".sortie.yml")
 
 	yamlContent := `
 workflows:
-  one-off:
-    - name: refactor
-      description: "Refactor pass"
-      steps:
-        - name: refactoring
-          prompt: "Refactor"
-  tasks:
-    - name: fast
-      steps:
-        - name: implementing
-          prompt: "Implement"
-  init:
-    - name: spin-up
-      description: "Spin up from PRD"
-      steps:
-        - name: analyzing
-          prompt: "Analyze PRD"
-`
-	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := defaultConfig()
-	if err := loadProjectConfig(configPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify OneOff
-	if len(cfg.OneOff) != 1 {
-		t.Fatalf("expected 1 one-off workflow, got %d", len(cfg.OneOff))
-	}
-	if cfg.OneOff[0].Name != "refactor" {
-		t.Errorf("expected one-off name 'refactor', got %q", cfg.OneOff[0].Name)
-	}
-	if cfg.OneOff[0].Description != "Refactor pass" {
-		t.Errorf("expected one-off description 'Refactor pass', got %q", cfg.OneOff[0].Description)
-	}
-
-	// Verify TaskWorkflows
-	if len(cfg.TaskWorkflows) != 1 {
-		t.Fatalf("expected 1 task workflow, got %d", len(cfg.TaskWorkflows))
-	}
-	if cfg.TaskWorkflows[0].Name != "fast" {
-		t.Errorf("expected task workflow name 'fast', got %q", cfg.TaskWorkflows[0].Name)
-	}
-
-	// Verify InitWorkflows
-	if len(cfg.InitWorkflows) != 1 {
-		t.Fatalf("expected 1 init workflow, got %d", len(cfg.InitWorkflows))
-	}
-	if cfg.InitWorkflows[0].Name != "spin-up" {
-		t.Errorf("expected init workflow name 'spin-up', got %q", cfg.InitWorkflows[0].Name)
-	}
-	if cfg.InitWorkflows[0].Description != "Spin up from PRD" {
-		t.Errorf("expected init description 'Spin up from PRD', got %q", cfg.InitWorkflows[0].Description)
-	}
-
-	// Verify workflow resolution
-	wf := cfg.GetWorkflow("oneoff:refactor")
-	if wf == nil || wf.Name != "oneoff:refactor" {
-		t.Errorf("expected to resolve 'oneoff:refactor'")
-	}
-
-	wf2 := cfg.GetWorkflow("fast")
-	if wf2 == nil || wf2.Name != "fast" {
-		t.Errorf("expected to resolve 'fast'")
-	}
-
-	wf3 := cfg.GetWorkflow("init:spin-up")
-	if wf3 == nil || wf3.Name != "init:spin-up" {
-		t.Errorf("expected to resolve 'init:spin-up'")
-	}
-
-	// Verify listing functions
-	workflowNames := cfg.ListWorkflowNames()
-	if len(workflowNames) != 1 || workflowNames[0] != "fast" {
-		t.Errorf("expected ListWorkflowNames to return ['fast'], got %v", workflowNames)
-	}
-
-	predefinedNames := cfg.ListPredefinedTaskNames()
-	if len(predefinedNames) != 1 || predefinedNames[0] != "refactor" {
-		t.Errorf("expected ListPredefinedTaskNames to return ['refactor'], got %v", predefinedNames)
-	}
-
-	initNames := cfg.ListInitWorkflowNames()
-	if len(initNames) != 1 || initNames[0] != "spin-up" {
-		t.Errorf("expected ListInitWorkflowNames to return ['spin-up'], got %v", initNames)
-	}
-}
-
-func TestWorkflowCategoryMergingPreservesGlobalInit(t *testing.T) {
-	dir := t.TempDir()
-
-	// Global config defines init workflows
-	globalPath := filepath.Join(dir, "global.sortie.yml")
-	globalYAML := `
-workflows:
-  tasks:
-    - name: global-task
-      steps:
-        - name: implementing
-          prompt: "Implement"
-  init:
-    - name: spin-up-from-prd
-      description: "Spin up from PRD"
-      steps:
-        - name: analyzing
-          prompt: "Analyze PRD"
-`
-	if err := os.WriteFile(globalPath, []byte(globalYAML), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Project config defines tasks and one-off but NO init
-	projectPath := filepath.Join(dir, "project.sortie.yml")
-	projectYAML := `
-workflows:
-  one-off:
-    - name: refactor
-      description: "Refactor pass"
-      steps:
-        - name: refactoring
-          prompt: "Refactor"
-  tasks:
-    - name: project-task
-      steps:
-        - name: implementing
-          prompt: "Implement"
-`
-	if err := os.WriteFile(projectPath, []byte(projectYAML), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := defaultConfig()
-	// Load global first, then project (same order as real loading)
-	if err := loadProjectConfig(globalPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-	if err := loadProjectConfig(projectPath, cfg); err != nil {
-		t.Fatal(err)
-	}
-
-	// Project tasks should override global tasks
-	if len(cfg.TaskWorkflows) != 1 || cfg.TaskWorkflows[0].Name != "project-task" {
-		t.Errorf("expected project task workflow to override global, got %v", cfg.ListWorkflowNames())
-	}
-
-	// Project one-off should be present
-	if len(cfg.OneOff) != 1 || cfg.OneOff[0].Name != "refactor" {
-		t.Errorf("expected project one-off workflow, got %v", cfg.ListPredefinedTaskNames())
-	}
-
-	// Global init workflows should be preserved (not wiped)
-	initNames := cfg.ListInitWorkflowNames()
-	if len(initNames) != 1 || initNames[0] != "spin-up-from-prd" {
-		t.Errorf("expected global init workflow to be preserved, got %v", initNames)
-	}
-
-	// Init workflow should be resolvable via flat list
-	wf := cfg.GetWorkflow("init:spin-up-from-prd")
-	if wf == nil {
-		t.Error("expected to resolve 'init:spin-up-from-prd' but got nil")
-	}
-}
-
-func TestLegacyWorkflowsListFormatStillWorks(t *testing.T) {
-	dir := t.TempDir()
-	configPath := filepath.Join(dir, ".sortie.yml")
-
-	yamlContent := `
-workflows:
-  - name: default
+  - name: fast
     steps:
       - name: implementing
         prompt: "Implement"
   - name: review
+    description: "Full review pass"
     steps:
       - name: reviewing
         prompt: "Review"
@@ -1547,39 +1158,127 @@ workflows:
 		t.Fatal(err)
 	}
 
-	// Legacy list format should populate TaskWorkflows
-	if len(cfg.TaskWorkflows) != 2 {
-		t.Fatalf("expected 2 task workflows from legacy format, got %d", len(cfg.TaskWorkflows))
+	if len(cfg.Workflows) != 2 {
+		t.Fatalf("expected 2 workflows, got %d", len(cfg.Workflows))
 	}
-	if cfg.TaskWorkflows[0].Name != "default" {
-		t.Errorf("expected first workflow name 'default', got %q", cfg.TaskWorkflows[0].Name)
+	if cfg.Workflows[0].Name != "fast" {
+		t.Errorf("expected first workflow 'fast', got %q", cfg.Workflows[0].Name)
 	}
-	if cfg.TaskWorkflows[1].Name != "review" {
-		t.Errorf("expected second workflow name 'review', got %q", cfg.TaskWorkflows[1].Name)
+	if cfg.Workflows[1].Name != "review" {
+		t.Errorf("expected second workflow 'review', got %q", cfg.Workflows[1].Name)
+	}
+	if cfg.Workflows[1].Description != "Full review pass" {
+		t.Errorf("expected description 'Full review pass', got %q", cfg.Workflows[1].Description)
 	}
 
-	// ListWorkflowNames should return them
+	// ListWorkflowNames returns non-hidden workflows
 	names := cfg.ListWorkflowNames()
 	if len(names) != 2 {
 		t.Fatalf("expected 2 workflow names, got %d: %v", len(names), names)
 	}
-	if names[0] != "default" || names[1] != "review" {
-		t.Errorf("expected ['default', 'review'], got %v", names)
+	if names[0] != "fast" || names[1] != "review" {
+		t.Errorf("expected ['fast', 'review'], got %v", names)
+	}
+
+	// GetWorkflow by name
+	wf := cfg.GetWorkflow("fast")
+	if wf == nil || wf.Name != "fast" {
+		t.Errorf("expected to resolve 'fast', got %+v", wf)
+	}
+
+	// GetTaskWorkflow by name
+	twf := cfg.GetTaskWorkflow("review")
+	if twf == nil || twf.Name != "review" {
+		t.Errorf("expected to resolve 'review' via GetTaskWorkflow, got %+v", twf)
+	}
+
+	// GetTaskWorkflow with empty name returns first non-hidden
+	first := cfg.GetTaskWorkflow("")
+	if first == nil || first.Name != "fast" {
+		t.Errorf("expected first non-hidden workflow 'fast', got %+v", first)
 	}
 }
 
-// Helper function to check if string contains substring
-func containsString(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && contains(s, substr))
+// TestListWorkflowNamesWithHidden verifies that hidden workflows are excluded
+// from ListWorkflowNames but included in ListAllWorkflowNames.
+func TestListWorkflowNamesWithHidden(t *testing.T) {
+	cfg := &Config{
+		Workflows: []WorkflowConfig{
+			{Name: "visible1"},
+			{Name: "visible2"},
+			{Name: "hidden1", Hidden: true},
+		},
+	}
+
+	names := cfg.ListWorkflowNames()
+	if len(names) != 2 {
+		t.Fatalf("expected 2 non-hidden names, got %d: %v", len(names), names)
+	}
+	if names[0] != "visible1" || names[1] != "visible2" {
+		t.Errorf("expected ['visible1', 'visible2'], got %v", names)
+	}
+
+	all := cfg.ListAllWorkflowNames()
+	if len(all) != 3 {
+		t.Fatalf("expected 3 names including hidden, got %d: %v", len(all), all)
+	}
 }
 
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
+// TestListWorkflowNamesEmptyReturnsDefault verifies that an empty workflow list
+// returns ["default"] as fallback.
+func TestListWorkflowNamesEmptyReturnsDefault(t *testing.T) {
+	cfg := &Config{}
+	names := cfg.ListWorkflowNames()
+	if len(names) != 1 || names[0] != "default" {
+		t.Errorf("expected [\"default\"] for empty config, got %v", names)
 	}
-	return false
+}
+
+// TestListWorkflowNamesAllHiddenReturnsDefault verifies that when all workflows
+// are hidden, ListWorkflowNames returns ["default"].
+func TestListWorkflowNamesAllHiddenReturnsDefault(t *testing.T) {
+	cfg := &Config{
+		Workflows: []WorkflowConfig{
+			{Name: "hidden1", Hidden: true},
+			{Name: "hidden2", Hidden: true},
+		},
+	}
+
+	names := cfg.ListWorkflowNames()
+	if len(names) != 1 || names[0] != "default" {
+		t.Errorf("expected [\"default\"] when all hidden, got %v", names)
+	}
+}
+
+// TestGetTaskWorkflowEmptyReturnsFirstNonHidden verifies GetTaskWorkflow("")
+// returns the first non-hidden workflow, not hidden ones.
+func TestGetTaskWorkflowEmptyReturnsFirstNonHidden(t *testing.T) {
+	cfg := &Config{
+		Workflows: []WorkflowConfig{
+			{Name: "hidden-first", Hidden: true},
+			{Name: "visible"},
+		},
+	}
+
+	wf := cfg.GetTaskWorkflow("")
+	if wf == nil || wf.Name != "visible" {
+		t.Errorf("expected first non-hidden 'visible', got %+v", wf)
+	}
+}
+
+// TestGetTaskWorkflowAllHiddenReturnsNil verifies GetTaskWorkflow("") returns
+// nil when all workflows are hidden.
+func TestGetTaskWorkflowAllHiddenReturnsNil(t *testing.T) {
+	cfg := &Config{
+		Workflows: []WorkflowConfig{
+			{Name: "hidden1", Hidden: true},
+		},
+	}
+
+	wf := cfg.GetTaskWorkflow("")
+	if wf != nil {
+		t.Errorf("expected nil when all workflows hidden, got %+v", wf)
+	}
 }
 
 func TestWorktreeSyncPathsParsing(t *testing.T) {
@@ -1699,17 +1398,16 @@ worktree-sync-paths:
   link:
     - .claude
 workflows:
-  tasks:
-    - name: custom
-      worktree-sync-paths:
-        copy:
-          - node_modules
-        link:
-          - .claude
-          - .vscode
-      steps:
-        - name: implementing
-          prompt: "Implement"
+  - name: custom
+    worktree-sync-paths:
+      copy:
+        - node_modules
+      link:
+        - .claude
+        - .vscode
+    steps:
+      - name: implementing
+        prompt: "Implement"
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -1826,12 +1524,11 @@ func TestWorktreeSetupCommandPerWorkflow(t *testing.T) {
 	yamlContent := `
 worktree-setup-command: "./global-setup.sh"
 workflows:
-  tasks:
-    - name: custom
-      worktree-setup-command: "./custom-setup.sh"
-      steps:
-        - name: implement
-          prompt: "do it"
+  - name: custom
+    worktree-setup-command: "./custom-setup.sh"
+    steps:
+      - name: implement
+        prompt: "do it"
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -1953,14 +1650,13 @@ func TestWorktreeSetupCommandsPerWorkflow(t *testing.T) {
 worktree-setup-commands:
   - "global-cmd"
 workflows:
-  tasks:
-    - name: custom
-      worktree-setup-commands:
-        - "wf-cmd-1"
-        - "wf-cmd-2"
-      steps:
-        - name: implement
-          prompt: "do it"
+  - name: custom
+    worktree-setup-commands:
+      - "wf-cmd-1"
+      - "wf-cmd-2"
+    steps:
+      - name: implement
+        prompt: "do it"
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -2041,12 +1737,11 @@ func TestTmuxSetupCommandPerWorkflow(t *testing.T) {
 	yamlContent := `
 tmux-setup-command: "tmux new-window -t {{session_name}}:1"
 workflows:
-  tasks:
-    - name: custom
-      tmux-setup-command: "tmux split-window -t {{session_name}}"
-      steps:
-        - name: code
-          prompt: Do work
+  - name: custom
+    tmux-setup-command: "tmux split-window -t {{session_name}}"
+    steps:
+      - name: code
+        prompt: Do work
 `
 	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
 		t.Fatal(err)
@@ -2228,7 +1923,7 @@ func TestClaudeCommandGlobalConfig(t *testing.T) {
 func TestLoadProjectConfig_LegacyTmuxFieldRejected(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".sortie.yml")
-	yaml := "workflows:\n  tasks:\n    - name: w\n      tmux: true\n      steps:\n        - name: s\n          prompt: do\n"
+	yaml := "workflows:\n  - name: w\n    tmux: true\n    steps:\n      - name: s\n        prompt: do\n"
 	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -2240,4 +1935,265 @@ func TestLoadProjectConfig_LegacyTmuxFieldRejected(t *testing.T) {
 	if !contains(err.Error(), "tmux") || !contains(err.Error(), "print") {
 		t.Errorf("error must mention both `tmux` and `print` for migration clarity, got: %v", err)
 	}
+}
+
+// TestWorkflowPinFields verifies parsing of worktree/branch/checkout/target
+// pin fields on a workflow.
+func TestWorkflowPinFields(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	trueVal := true
+	yamlContent := `
+workflows:
+  - name: pinned-worktree
+    worktree: true
+    branch: "feature/{{task.slug}}"
+    target: develop
+    steps:
+      - name: implement
+        prompt: "Implement"
+  - name: pinned-checkout
+    worktree: true
+    checkout: main
+    target: main
+    steps:
+      - name: implement
+        prompt: "Implement"
+  - name: no-worktree
+    worktree: false
+    steps:
+      - name: implement
+        prompt: "Implement"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	if err := loadProjectConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cfg.Workflows) != 3 {
+		t.Fatalf("expected 3 workflows, got %d", len(cfg.Workflows))
+	}
+
+	// First workflow: worktree=true, branch set, target set
+	wf0 := cfg.Workflows[0]
+	if wf0.Worktree == nil || *wf0.Worktree != trueVal {
+		t.Errorf("expected worktree=true, got %v", wf0.Worktree)
+	}
+	if wf0.Branch != "feature/{{task.slug}}" {
+		t.Errorf("expected branch 'feature/{{task.slug}}', got %q", wf0.Branch)
+	}
+	if wf0.Target != "develop" {
+		t.Errorf("expected target 'develop', got %q", wf0.Target)
+	}
+	if wf0.Checkout != "" {
+		t.Errorf("expected empty checkout, got %q", wf0.Checkout)
+	}
+
+	// Second workflow: worktree=true, checkout set, target set
+	wf1 := cfg.Workflows[1]
+	if wf1.Worktree == nil || !*wf1.Worktree {
+		t.Errorf("expected worktree=true, got %v", wf1.Worktree)
+	}
+	if wf1.Checkout != "main" {
+		t.Errorf("expected checkout 'main', got %q", wf1.Checkout)
+	}
+	if wf1.Target != "main" {
+		t.Errorf("expected target 'main', got %q", wf1.Target)
+	}
+	if wf1.Branch != "" {
+		t.Errorf("expected empty branch, got %q", wf1.Branch)
+	}
+
+	// Third workflow: worktree=false
+	wf2 := cfg.Workflows[2]
+	if wf2.Worktree == nil || *wf2.Worktree {
+		t.Errorf("expected worktree=false, got %v", wf2.Worktree)
+	}
+}
+
+// TestIsFullySpec covers the IsFullySpec() truth table.
+func TestIsFullySpec(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	tests := []struct {
+		name string
+		wf   WorkflowConfig
+		want bool
+	}{
+		{
+			name: "empty workflow is not fully spec",
+			wf:   WorkflowConfig{Name: "empty"},
+			want: false,
+		},
+		{
+			name: "description missing",
+			wf:   WorkflowConfig{Name: "w", Worktree: &trueVal, Branch: "b", Target: "t"},
+			want: false,
+		},
+		{
+			name: "worktree nil",
+			wf:   WorkflowConfig{Name: "w", Description: "d", Branch: "b", Target: "t"},
+			want: false,
+		},
+		{
+			name: "worktree=false is fully spec (no git section needed)",
+			wf:   WorkflowConfig{Name: "w", Description: "d", Worktree: &falseVal},
+			want: true,
+		},
+		{
+			name: "worktree=true, branch set, target set",
+			wf:   WorkflowConfig{Name: "w", Description: "d", Worktree: &trueVal, Branch: "feature/x", Target: "develop"},
+			want: true,
+		},
+		{
+			name: "worktree=true, checkout set, target set",
+			wf:   WorkflowConfig{Name: "w", Description: "d", Worktree: &trueVal, Checkout: "main", Target: "main"},
+			want: true,
+		},
+		{
+			name: "worktree=true, branch missing",
+			wf:   WorkflowConfig{Name: "w", Description: "d", Worktree: &trueVal, Target: "develop"},
+			want: false,
+		},
+		{
+			name: "worktree=true, target missing",
+			wf:   WorkflowConfig{Name: "w", Description: "d", Worktree: &trueVal, Branch: "feature/x"},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.wf.IsFullySpec()
+			if got != tt.want {
+				t.Errorf("IsFullySpec() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestValidatePins verifies ValidatePins() rejects invalid pin combinations.
+func TestValidatePins(t *testing.T) {
+	trueVal := true
+	falseVal := false
+
+	tests := []struct {
+		name    string
+		wf      WorkflowConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "no pins — valid",
+			wf:      WorkflowConfig{Name: "w"},
+			wantErr: false,
+		},
+		{
+			name:    "worktree=true with branch — valid",
+			wf:      WorkflowConfig{Name: "w", Worktree: &trueVal, Branch: "feature/x"},
+			wantErr: false,
+		},
+		{
+			name:    "worktree=true with checkout — valid",
+			wf:      WorkflowConfig{Name: "w", Worktree: &trueVal, Checkout: "main"},
+			wantErr: false,
+		},
+		{
+			name:    "branch AND checkout together — error",
+			wf:      WorkflowConfig{Name: "w", Branch: "feature/x", Checkout: "main"},
+			wantErr: true,
+			errMsg:  "cannot set both branch and checkout",
+		},
+		{
+			name:    "worktree=false with branch — error",
+			wf:      WorkflowConfig{Name: "w", Worktree: &falseVal, Branch: "feature/x"},
+			wantErr: true,
+			errMsg:  "branch/checkout/target cannot be set when worktree: false",
+		},
+		{
+			name:    "worktree=false with checkout — error",
+			wf:      WorkflowConfig{Name: "w", Worktree: &falseVal, Checkout: "main"},
+			wantErr: true,
+			errMsg:  "branch/checkout/target cannot be set when worktree: false",
+		},
+		{
+			name:    "worktree=false with target — error",
+			wf:      WorkflowConfig{Name: "w", Worktree: &falseVal, Target: "develop"},
+			wantErr: true,
+			errMsg:  "branch/checkout/target cannot be set when worktree: false",
+		},
+		{
+			name:    "worktree=false with no branch/checkout/target — valid",
+			wf:      WorkflowConfig{Name: "w", Worktree: &falseVal},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.wf.ValidatePins()
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.errMsg)
+				} else if !contains(err.Error(), tt.errMsg) {
+					t.Errorf("expected error containing %q, got: %v", tt.errMsg, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error, got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestValidatePinsRejectedAtLoad verifies that ValidatePins() errors are
+// surfaced during config loading.
+func TestValidatePinsRejectedAtLoad(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".sortie.yml")
+
+	// branch and checkout together is invalid
+	yamlContent := `
+workflows:
+  - name: bad
+    worktree: true
+    branch: "feature/x"
+    checkout: "main"
+    steps:
+      - name: implement
+        prompt: "Implement"
+`
+	if err := os.WriteFile(configPath, []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	err := loadProjectConfig(configPath, cfg)
+	if err == nil {
+		t.Fatal("expected error for branch+checkout together")
+	}
+	if !contains(err.Error(), "cannot set both branch and checkout") {
+		t.Errorf("expected error about branch+checkout, got: %v", err)
+	}
+}
+
+// Helper function to check if string contains substring
+func containsString(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && contains(s, substr))
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

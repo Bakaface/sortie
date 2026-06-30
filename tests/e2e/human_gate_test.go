@@ -16,15 +16,14 @@ git:
   base_branch: main
 on_complete: merge
 workflows:
-  tasks:
-    - name: human-approval
-      print: true
-      steps:
-        - name: implementing
-          prompt: "Implement the task"
-        - name: approve
-          human: true
-          prompt: "Human review step"
+  - name: human-approval
+    print: true
+    steps:
+      - name: implementing
+        prompt: "Implement the task"
+      - name: approve
+        human: true
+        prompt: "Human review step"
 `, stubPath)
 }
 

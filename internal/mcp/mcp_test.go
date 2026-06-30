@@ -190,14 +190,12 @@ func TestMCP_ListWorkflows_FromExplicitProjectPath(t *testing.T) {
 		resp, _ := daemon.NewMessage(daemon.MsgListWorkflows, daemon.ListWorkflowsResponse{
 			ProjectPath: req.ProjectPath,
 			ProjectName: "test-project",
-			Tasks: []daemon.WorkflowSummary{
+			Workflows: []daemon.WorkflowSummary{
 				{Name: "implement", Description: "Plan + implement", FirstStepIsTmux: false,
 					Steps: []daemon.WorkflowStepSummary{{Name: "plan"}, {Name: "implement"}}},
 				{Name: "tmux-session", FirstStepIsTmux: true,
 					Steps: []daemon.WorkflowStepSummary{{Name: "session", Tmux: true}}},
 			},
-			OneOff: []daemon.WorkflowSummary{},
-			Init:   []daemon.WorkflowSummary{},
 		})
 		return resp
 	})
@@ -227,11 +225,83 @@ func TestMCP_ListWorkflows_FromExplicitProjectPath(t *testing.T) {
 	if payload.ProjectName != "test-project" {
 		t.Errorf("ProjectName: got %q, want test-project", payload.ProjectName)
 	}
-	if len(payload.Tasks) != 2 {
-		t.Fatalf("Tasks: got %d, want 2", len(payload.Tasks))
+	if len(payload.Workflows) != 2 {
+		t.Fatalf("Workflows: got %d, want 2", len(payload.Workflows))
 	}
-	if !payload.Tasks[1].FirstStepIsTmux {
+	if !payload.Workflows[1].FirstStepIsTmux {
 		t.Errorf("expected second workflow to be flagged FirstStepIsTmux")
+	}
+}
+
+func TestMCP_ListWorkflows_PinFieldsAndFullySpec(t *testing.T) {
+	worktreeTrue := true
+	fake := newFakeDaemon(t)
+	fake.handle(daemon.MsgListWorkflows, func(msg *daemon.Message) *daemon.Message {
+		resp, _ := daemon.NewMessage(daemon.MsgListWorkflows, daemon.ListWorkflowsResponse{
+			ProjectPath: "/tmp/proj",
+			ProjectName: "pinned-project",
+			Workflows: []daemon.WorkflowSummary{
+				{
+					Name:      "pinned-impl",
+					Worktree:  &worktreeTrue,
+					Branch:    "feat/{{task.slug}}",
+					Checkout:  "",
+					Target:    "main",
+					FullySpec: true,
+					Steps:     []daemon.WorkflowStepSummary{{Name: "implement"}},
+				},
+				{
+					Name:      "unpinned-impl",
+					FullySpec: false,
+					Steps:     []daemon.WorkflowStepSummary{{Name: "implement"}},
+				},
+			},
+		})
+		return resp
+	})
+
+	c := startMCPServer(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "list_workflows",
+			Arguments: map[string]any{"project_path": "/tmp/proj"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", textOf(res))
+	}
+
+	var payload daemon.ListWorkflowsResponse
+	if err := json.Unmarshal([]byte(textOf(res)), &payload); err != nil {
+		t.Fatalf("unmarshal: %v\nraw: %s", err, textOf(res))
+	}
+	if len(payload.Workflows) != 2 {
+		t.Fatalf("Workflows: got %d, want 2", len(payload.Workflows))
+	}
+
+	pinned := payload.Workflows[0]
+	if pinned.Worktree == nil || !*pinned.Worktree {
+		t.Errorf("pinned.Worktree: want *true, got %v", pinned.Worktree)
+	}
+	if pinned.Branch != "feat/{{task.slug}}" {
+		t.Errorf("pinned.Branch: got %q, want feat/{{task.slug}}", pinned.Branch)
+	}
+	if pinned.Target != "main" {
+		t.Errorf("pinned.Target: got %q, want main", pinned.Target)
+	}
+	if !pinned.FullySpec {
+		t.Errorf("pinned.FullySpec: want true")
+	}
+
+	unpinned := payload.Workflows[1]
+	if unpinned.FullySpec {
+		t.Errorf("unpinned.FullySpec: want false")
 	}
 }
 

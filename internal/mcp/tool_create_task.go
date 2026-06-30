@@ -18,7 +18,7 @@ type CreateTaskArgs struct {
 	Description    string   `json:"description,omitempty" jsonschema:"What the agent should do. Required unless checkout_branch is set or the chosen workflow's first step is tmux."`
 	ProjectPath    string   `json:"project_path,omitempty" jsonschema:"Absolute path to the project repo root. Defaults to the git toplevel of the MCP process's cwd."`
 	Title          string   `json:"title,omitempty" jsonschema:"Skip AI title generation and use this title verbatim."`
-	Workflow       string   `json:"workflow,omitempty" jsonschema:"Workflow name to run. Empty selects the project's first task workflow (or the built-in default)."`
+	Workflow       string   `json:"workflow,omitempty" jsonschema:"Workflow name to run (see list_workflows). Empty selects the project's first workflow (or the built-in default). A workflow may pin fields like description/worktree/branch/target; explicit arguments here override those pins."`
 	Priority       string   `json:"priority,omitempty" jsonschema:"Task priority: low, medium, high, or urgent. Defaults to the project's configured priority."`
 	BranchName     string   `json:"branch_name,omitempty" jsonschema:"Branch template, e.g. 'feat/{{task.slug}}'. Supports {{task.id}}, {{task.title}}, {{task.slug}}."`
 	TargetBranch   string   `json:"target_branch,omitempty" jsonschema:"Base/merge branch override (defaults to git.base_branch from .sortie.yml)."`

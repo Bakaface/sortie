@@ -9,6 +9,7 @@ import (
 
 	"github.com/Bakaface/sortie/internal/config"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func TestPromptView_HasAirplanePrompt(t *testing.T) {
@@ -824,8 +825,7 @@ func TestModel_SelectedWorkflowAllowsEmptyDescription(t *testing.T) {
 	}
 
 	cfg := &config.Config{
-		Workflows:     []config.WorkflowConfig{plain, tmuxFirst},
-		TaskWorkflows: []config.WorkflowConfig{plain, tmuxFirst},
+		Workflows: []config.WorkflowConfig{plain, tmuxFirst},
 	}
 
 	tests := []struct {
@@ -847,5 +847,336 @@ func TestModel_SelectedWorkflowAllowsEmptyDescription(t *testing.T) {
 				t.Errorf("selectedWorkflowAllowsEmptyDescription() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// --- applyPins tests ---
+
+func TestApplyPins_NilWorkflow_NoPins(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+	p.applyPins(nil)
+
+	// No pins should be set
+	if p.pins.description || p.pins.worktree || p.pins.branch || p.pins.checkout || p.pins.target {
+		t.Error("expected no pins when workflow is nil")
+	}
+}
+
+func TestApplyPins_DescriptionPinned(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+	wf := &config.WorkflowConfig{
+		Name:        "desc-wf",
+		Description: "pre-filled description",
+	}
+	p.applyPins(wf)
+
+	if !p.pins.description {
+		t.Error("expected description pin to be set")
+	}
+	if p.Value() != "pre-filled description" {
+		t.Errorf("expected textarea value 'pre-filled description', got %q", p.Value())
+	}
+
+	// visibleFields must NOT include description when pinned
+	fields := p.visibleFields()
+	for _, f := range fields {
+		if f == promptFieldDescription {
+			t.Error("expected description to be absent from visibleFields when pinned")
+		}
+	}
+}
+
+func TestApplyPins_WorktreePinned(t *testing.T) {
+	worktreeFalse := false
+	p := newPromptView(true, branchModeNew, "") // default worktree=true
+	p.SetSize(80, 24)
+	wf := &config.WorkflowConfig{
+		Name:     "wt-wf",
+		Worktree: &worktreeFalse,
+	}
+	p.applyPins(wf)
+
+	if !p.pins.worktree {
+		t.Error("expected worktree pin to be set")
+	}
+	if p.Worktree() != false {
+		t.Error("expected worktree to be false (pinned by workflow)")
+	}
+
+	// ToggleWorktree should be a no-op when pinned
+	p.ToggleWorktree()
+	if p.Worktree() != false {
+		t.Error("expected ToggleWorktree to be no-op when pinned")
+	}
+}
+
+func TestApplyPins_BranchPinned(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+	wf := &config.WorkflowConfig{
+		Name:   "branch-wf",
+		Branch: "sortie/{{task_id}}-auto",
+	}
+	p.applyPins(wf)
+
+	if !p.pins.branch {
+		t.Error("expected branch pin to be set")
+	}
+	if p.BranchName() != "sortie/{{task_id}}-auto" {
+		t.Errorf("expected branch name 'sortie/{{task_id}}-auto', got %q", p.BranchName())
+	}
+
+	// ToggleBranchMode should be a no-op when branch is pinned
+	p.ToggleBranchMode()
+	if p.branchMode != branchModeNew {
+		t.Error("expected ToggleBranchMode to be no-op when branch is pinned")
+	}
+
+	// Branch field must not appear in visibleFields when pinned
+	fields := p.visibleFields()
+	for _, f := range fields {
+		if f == promptFieldBranch {
+			t.Error("expected branch field to be absent from visibleFields when pinned")
+		}
+	}
+}
+
+func TestApplyPins_CheckoutPinned(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+	wf := &config.WorkflowConfig{
+		Name:     "checkout-wf",
+		Checkout: "existing-branch",
+	}
+	p.applyPins(wf)
+
+	if !p.pins.checkout {
+		t.Error("expected checkout pin to be set")
+	}
+	if p.CheckoutBranch() != "existing-branch" {
+		t.Errorf("expected checkout branch 'existing-branch', got %q", p.CheckoutBranch())
+	}
+	if p.branchMode != branchModeExisting {
+		t.Error("expected branchMode to be set to existing when checkout is pinned")
+	}
+
+	// ToggleBranchMode should be a no-op when checkout is pinned
+	p.ToggleBranchMode()
+	if p.branchMode != branchModeExisting {
+		t.Error("expected ToggleBranchMode to be no-op when checkout is pinned")
+	}
+}
+
+func TestApplyPins_TargetPinned(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+	wf := &config.WorkflowConfig{
+		Name:   "target-wf",
+		Target: "release",
+	}
+	p.applyPins(wf)
+
+	if !p.pins.target {
+		t.Error("expected target pin to be set")
+	}
+	if p.TargetBranch() != "release" {
+		t.Errorf("expected target branch 'release', got %q", p.TargetBranch())
+	}
+
+	// Target field must not appear in visibleFields when pinned
+	worktreeTrue := true
+	wf2 := &config.WorkflowConfig{
+		Name:     "target-wf2",
+		Worktree: &worktreeTrue,
+		Target:   "release",
+	}
+	p2 := newPromptView(true, branchModeNew, "")
+	p2.SetSize(80, 24)
+	p2.applyPins(wf2)
+	fields := p2.visibleFields()
+	for _, f := range fields {
+		if f == promptFieldTargetBranch {
+			t.Error("expected target field to be absent from visibleFields when pinned")
+		}
+	}
+}
+
+func TestApplyPins_ToggleWorktreeNoOpWhenPinned(t *testing.T) {
+	worktreeTrue := true
+	p := newPromptView(false, branchModeNew, "") // starts false
+	p.SetSize(80, 24)
+	wf := &config.WorkflowConfig{
+		Name:     "wt-pin",
+		Worktree: &worktreeTrue,
+	}
+	p.applyPins(wf)
+
+	// After pin, worktree should be true
+	if !p.Worktree() {
+		t.Error("expected worktree=true after applyPins with Worktree=true")
+	}
+
+	// Toggle should be no-op
+	p.ToggleWorktree()
+	if !p.Worktree() {
+		t.Error("ToggleWorktree should be no-op when worktree is pinned")
+	}
+}
+
+func TestApplyPins_ToggleBranchModeNoOpWhenCheckoutPinned(t *testing.T) {
+	p := newPromptView(true, branchModeNew, "")
+	p.SetSize(80, 24)
+	wf := &config.WorkflowConfig{
+		Name:     "co-pin",
+		Checkout: "some-branch",
+	}
+	p.applyPins(wf)
+
+	if p.branchMode != branchModeExisting {
+		t.Fatal("expected branchModeExisting after checkout pin")
+	}
+	p.ToggleBranchMode()
+	if p.branchMode != branchModeExisting {
+		t.Error("ToggleBranchMode should be no-op when checkout is pinned")
+	}
+}
+
+// --- Render verification ---
+
+// TestPromptView_RenderVerification tests that View() produces correct output
+// for various pin configurations at widths 80 and 120. It verifies:
+//   - Lines within framed sections have uniform lipgloss.Width
+//   - Pinned description textarea is absent from output
+//   - Git frame absent when all git fields are pinned (no remaining rows)
+func TestPromptView_RenderVerification(t *testing.T) {
+	worktreeTrue := true
+	worktreeFalse := false
+
+	type pinCase struct {
+		name string
+		wf   *config.WorkflowConfig
+		// checks applied to the View() output
+		mustContain    []string
+		mustNotContain []string
+	}
+
+	// Note: the description textarea renders the placeholder "Describe the task..."
+	// with ANSI codes wrapping the leading "D" — check for "escribe" (sans-D)
+	// or PromptPrefix to confirm the textarea is present.
+	descPresent := PromptPrefix // the textarea prompt char signals description is rendered
+
+	cases := []pinCase{
+		{
+			name:           "no pins",
+			wf:             nil,
+			mustContain:    []string{"Title:", descPresent, "Worktree"},
+			mustNotContain: []string{},
+		},
+		{
+			name: "description-only pinned",
+			wf:   &config.WorkflowConfig{Name: "d", Description: "pinned desc"},
+			// Description textarea not rendered; pinned value submitted at create
+			mustNotContain: []string{descPresent},
+			mustContain:    []string{"Title:", "Worktree"},
+		},
+		{
+			name: "worktree-off pinned",
+			wf:   &config.WorkflowConfig{Name: "w", Worktree: &worktreeFalse},
+			// Git section should be completely absent (worktree=false, pinned)
+			mustNotContain: []string{"Mode:", "Branch:", "Target:"},
+			mustContain:    []string{"Title:", descPresent},
+		},
+		{
+			name: "branch-pinned (worktree on)",
+			wf: &config.WorkflowConfig{
+				Name:     "b",
+				Worktree: &worktreeTrue,
+				Branch:   "auto/{{task_id}}",
+			},
+			mustNotContain: []string{"Branch:"},
+			mustContain:    []string{"Title:", descPresent, "Target:"},
+		},
+		{
+			name: "fully-pinned (all fields)",
+			wf: &config.WorkflowConfig{
+				Name:        "full",
+				Description: "automated",
+				Worktree:    &worktreeTrue,
+				Branch:      "auto/{{task_id}}",
+				Target:      "main",
+			},
+			// All git rows and description row are absent
+			mustNotContain: []string{descPresent, "Branch:", "Target:", "Worktree:"},
+			mustContain:    []string{"Title:"},
+		},
+	}
+
+	for _, tc := range cases {
+		for _, width := range []int{80, 120} {
+			t.Run(fmt.Sprintf("%s/width=%d", tc.name, width), func(t *testing.T) {
+				p := newPromptView(true, branchModeNew, "")
+				p.SetSize(width, 40)
+				if tc.wf != nil {
+					p.applyPins(tc.wf)
+				}
+
+				view := p.View()
+				lines := strings.Split(view, "\n")
+
+				// Check mustContain
+				for _, want := range tc.mustContain {
+					if !strings.Contains(view, want) {
+						t.Errorf("expected view to contain %q", want)
+					}
+				}
+				// Check mustNotContain
+				for _, notWant := range tc.mustNotContain {
+					if strings.Contains(view, notWant) {
+						t.Errorf("expected view NOT to contain %q", notWant)
+					}
+				}
+
+				// Verify that no line in a framed section (containing "│") exceeds
+				// the nominal terminal width by more than 2 columns (border tolerance).
+				for i, line := range lines {
+					if strings.Contains(line, "│") {
+						lw := lipgloss.Width(line)
+						// Allow slight over/under from indent prefix
+						if lw > width+2 {
+							t.Errorf("line %d width %d exceeds terminal width %d+2: %q", i, lw, width, line)
+						}
+					}
+				}
+
+				// Verify that framed section lines within the same frame have
+				// consistent width (all lines between ╭ and ╰ must match the
+				// frame opener's width).
+				inFrame := false
+				frameWidth := 0
+				for i, line := range lines {
+					lw := lipgloss.Width(line)
+					if strings.Contains(line, "╭") {
+						inFrame = true
+						frameWidth = lw
+						continue
+					}
+					if strings.Contains(line, "╰") {
+						if inFrame && lw != frameWidth {
+							t.Errorf("frame bottom (line %d) width %d != frame top width %d", i, lw, frameWidth)
+						}
+						inFrame = false
+						frameWidth = 0
+						continue
+					}
+					if inFrame && strings.Contains(line, "│") {
+						if lw != frameWidth {
+							t.Errorf("frame body line %d width %d != frame top width %d: %q", i, lw, frameWidth, line)
+						}
+					}
+				}
+			})
+		}
 	}
 }

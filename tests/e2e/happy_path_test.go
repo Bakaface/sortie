@@ -17,12 +17,11 @@ git:
   base_branch: main
 on_complete: merge
 workflows:
-  tasks:
-    - name: simple
-      print: true
-      steps:
-        - name: implementing
-          prompt: "Implement the task"
+  - name: simple
+    print: true
+    steps:
+      - name: implementing
+        prompt: "Implement the task"
 `, stubPath)
 }
 

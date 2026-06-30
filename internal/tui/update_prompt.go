@@ -162,14 +162,18 @@ func (m Model) handlePromptSubmit() (tea.Model, tea.Cmd) {
 }
 
 // selectedWorkflowAllowsEmptyDescription returns true when the workflow currently
-// selected in the prompt has tmux as its first step. Tmux-first workflows let
-// the user create a task without a description and drive the session manually.
+// selected in the prompt pins a description (the pin supplies it) or has tmux as
+// its first step (the user drives the session manually). Either case lets the
+// user submit without typing a description.
 func (m Model) selectedWorkflowAllowsEmptyDescription() bool {
 	if m.cfg == nil {
 		return false
 	}
 	wf := m.cfg.GetWorkflow(m.selectedWorkflow)
-	return wf.FirstStepIsTmux()
+	if wf == nil {
+		return false
+	}
+	return wf.Description != "" || wf.FirstStepIsTmux()
 }
 
 // animationEnabled returns true if the sortie animation is configured on.
@@ -257,34 +261,51 @@ func (m Model) handleWorkflowPaneKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	keyStr := msg.String()
+	idx := m.prompt.workflowCursor
 	switch keyStr {
 	case "j", "down":
 		if m.prompt.workflowCursor < len(m.prompt.workflows)-1 {
-			m.prompt.workflowCursor++
-			m.prompt.workflowName = m.prompt.workflows[m.prompt.workflowCursor]
-			m.selectedWorkflow = m.prompt.workflowName
+			idx = m.prompt.workflowCursor + 1
 		}
 	case "k", "up":
 		if m.prompt.workflowCursor > 0 {
-			m.prompt.workflowCursor--
-			m.prompt.workflowName = m.prompt.workflows[m.prompt.workflowCursor]
-			m.selectedWorkflow = m.prompt.workflowName
+			idx = m.prompt.workflowCursor - 1
 		}
 	case "G":
-		m.prompt.workflowCursor = max(0, len(m.prompt.workflows)-1)
-		m.prompt.workflowName = m.prompt.workflows[m.prompt.workflowCursor]
-		m.selectedWorkflow = m.prompt.workflowName
+		idx = max(0, len(m.prompt.workflows)-1)
 	default:
 		// Number keys for quick selection (1-9)
 		if len(keyStr) == 1 && keyStr[0] >= '1' && keyStr[0] <= '9' {
-			idx := int(keyStr[0] - '1')
-			if idx < len(m.prompt.workflows) {
-				m.prompt.workflowCursor = idx
-				m.prompt.workflowName = m.prompt.workflows[idx]
-				m.selectedWorkflow = m.prompt.workflowName
+			n := int(keyStr[0] - '1')
+			if n < len(m.prompt.workflows) {
+				idx = n
 			}
 		}
 	}
 
+	if idx != m.prompt.workflowCursor && idx >= 0 && idx < len(m.prompt.workflows) {
+		m = m.cycleToWorkflow(idx)
+	}
+
 	return m, nil
+}
+
+// cycleToWorkflow selects the workflow at idx in the prompt's cycler, repopulates
+// any pinned fields via applyPins, and keeps focus in the workflow pane (never
+// auto-creating, even if the new workflow is fully pinned — see the skip rule).
+func (m Model) cycleToWorkflow(idx int) Model {
+	m.prompt.workflowCursor = idx
+	m.prompt.workflowName = m.prompt.workflows[idx]
+	m.selectedWorkflow = m.prompt.workflowName
+	if wf := m.cfg.GetTaskWorkflow(m.selectedWorkflow); wf != nil {
+		m.prompt.applyPins(wf)
+	} else {
+		m.prompt.pins = promptPins{}
+	}
+	// applyPins moves focus into the task pane; restore the workflow pane so the
+	// user can keep cycling, and resize because hidden fields change the layout.
+	m.prompt.blurAll()
+	m.prompt.activePane = paneWorkflow
+	m.prompt.SetSize(m.width, m.height)
+	return m
 }

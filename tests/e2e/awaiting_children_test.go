@@ -31,17 +31,16 @@ git:
   base_branch: main
 on_complete: commit
 workflows:
-  tasks:
-    - name: parent
-      print: true
-      steps:
-        - name: spawn
-          prompt: "Spawn 2 children and wait for them; on resume read {{children.summary}}"
-    - name: child
-      print: true
-      steps:
-        - name: do-work
-          prompt: "Do the work for child task #{{task.id}}"
+  - name: parent
+    print: true
+    steps:
+      - name: spawn
+        prompt: "Spawn 2 children and wait for them; on resume read {{children.summary}}"
+  - name: child
+    print: true
+    steps:
+      - name: do-work
+        prompt: "Do the work for child task #{{task.id}}"
 `, stubPath)
 }
 

@@ -11,6 +11,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/Bakaface/sortie/internal/config"
 )
 
 // imageExtensions contains the file extensions we recognize as images
@@ -25,7 +27,7 @@ var imageExtensions = map[string]bool{
 type promptField int
 
 const (
-	promptFieldTitle       promptField = iota
+	promptFieldTitle promptField = iota
 	promptFieldDescription
 	promptFieldBranch
 	promptFieldCheckout
@@ -36,7 +38,7 @@ type branchMode int
 
 const (
 	branchModeNew      branchMode = iota // create new branch (default)
-	branchModeExisting                    // checkout existing branch
+	branchModeExisting                   // checkout existing branch
 )
 
 type promptPane int
@@ -45,6 +47,16 @@ const (
 	paneTask     promptPane = iota // left pane: title, description, git fields
 	paneWorkflow                   // right pane: workflow list
 )
+
+// promptPins records which New Task fields are pinned by the selected workflow.
+// A pinned field is hidden from the form and its value supplied by the workflow.
+type promptPins struct {
+	description bool // pinned by wf.Description
+	worktree    bool // pinned by wf.Worktree
+	branch      bool // pinned by wf.Branch
+	checkout    bool // pinned by wf.Checkout
+	target      bool // pinned by wf.Target
+}
 
 type promptView struct {
 	textarea          textarea.Model
@@ -68,6 +80,10 @@ type promptView struct {
 	validationError   string // shown after failed submit attempt
 	activePane        promptPane
 	workflowCursor    int
+
+	// pins records which fields the active workflow pre-pins. Pinned fields are
+	// hidden from the form and supplied by the workflow at submit time.
+	pins promptPins
 
 	// preselectedWorkflow, when non-empty, indicates the workflow was picked
 	// up-front by :RunTask. The workflows slice is sized to 1 (just this name),
@@ -136,7 +152,7 @@ func (p *promptView) SetSize(width, height int) {
 	if len(p.workflows) > 1 && width >= 60 {
 		gitFrameWidth = frameOuterWidth * 2 / 3
 	}
-	gitContentWidth := gitFrameWidth - 3 // frame overhead
+	gitContentWidth := gitFrameWidth - 3                   // frame overhead
 	tiOverhead := lipgloss.Width(p.branchInput.Prompt) + 1 // textinput prompt + cursor
 	p.branchInput.Width = gitContentWidth - prefix - lipgloss.Width("Branch: ") - tiOverhead
 	p.checkoutInput.Width = gitContentWidth - prefix - lipgloss.Width("Checkout: ") - tiOverhead
@@ -217,9 +233,59 @@ func (p *promptView) Reset() {
 	p.blockingTaskID = 0
 	p.blockingTaskTitle = ""
 	p.validationError = ""
+	p.pins = promptPins{}
 	// Restore workflowCursor to the saved default workflow position
 	p.workflowCursor = p.defaultWorkflowCursor()
 	p.focusInput(promptFieldDescription)
+	p.recalcHeight()
+}
+
+// applyPins pre-populates and locks form fields according to the workflow's
+// pinnable fields. Each pinned field is hidden by visibleFields() and rendered
+// read-only (or omitted) by View(); its value is supplied to the daemon at
+// submit time. Call after Reset() and after assigning p.workflows/workflowName.
+func (p *promptView) applyPins(wf *config.WorkflowConfig) {
+	p.pins = promptPins{}
+	// Clear pinnable text inputs first so a previously-pinned workflow's literal
+	// values don't leak when applyPins runs on cycle (no preceding Reset) and the
+	// newly-selected workflow pins fewer fields. Harmless after Reset() too.
+	p.textarea.Reset()
+	p.branchInput.Reset()
+	p.checkoutInput.Reset()
+	p.targetBranchInput.Reset()
+	if wf == nil {
+		return
+	}
+	if wf.Description != "" {
+		p.textarea.SetValue(wf.Description)
+		p.pins.description = true
+	}
+	if wf.Worktree != nil {
+		p.worktree = *wf.Worktree
+		p.pins.worktree = true
+	}
+	switch {
+	case wf.Branch != "":
+		p.branchMode = branchModeNew
+		p.branchInput.SetValue(wf.Branch)
+		p.pins.branch = true
+	case wf.Checkout != "":
+		p.branchMode = branchModeExisting
+		p.checkoutInput.SetValue(wf.Checkout)
+		p.pins.checkout = true
+	}
+	if wf.Target != "" {
+		p.targetBranchInput.SetValue(wf.Target)
+		p.pins.target = true
+	}
+	// Keep focus on an unpinned, visible field.
+	p.focusInput(promptFieldDescription)
+	if p.pins.description {
+		fields := p.visibleFields()
+		if len(fields) > 0 {
+			p.focusInput(fields[0])
+		}
+	}
 	p.recalcHeight()
 }
 
@@ -296,32 +362,60 @@ func (p *promptView) focusInput(field promptField) {
 // visibleFields returns the ordered list of tab-cyclable fields
 // based on the current worktree and branch mode state.
 func (p *promptView) visibleFields() []promptField {
-	fields := []promptField{promptFieldTitle, promptFieldDescription}
+	fields := []promptField{promptFieldTitle}
+	if !p.pins.description {
+		fields = append(fields, promptFieldDescription)
+	}
 	if p.worktree {
 		if p.branchMode == branchModeNew {
-			fields = append(fields, promptFieldBranch)
+			if !p.pins.branch {
+				fields = append(fields, promptFieldBranch)
+			}
 		} else {
-			fields = append(fields, promptFieldCheckout)
+			if !p.pins.checkout {
+				fields = append(fields, promptFieldCheckout)
+			}
 		}
-		fields = append(fields, promptFieldTargetBranch)
+		if !p.pins.target {
+			fields = append(fields, promptFieldTargetBranch)
+		}
 	}
 	return fields
 }
 
 func (p *promptView) ToggleWorktree() {
+	if p.pins.worktree {
+		return
+	}
 	p.worktree = !p.worktree
 	if !p.worktree && p.focusField != promptFieldDescription && p.focusField != promptFieldTitle {
-		p.focusInput(promptFieldDescription)
+		p.focusFirstVisible()
 	}
 }
 
 func (p *promptView) ToggleBranchMode() {
+	// Mode is implied by which branch field is pinned — don't allow toggling.
+	if p.pins.branch || p.pins.checkout {
+		return
+	}
 	if p.branchMode == branchModeNew {
 		p.branchMode = branchModeExisting
 	} else {
 		p.branchMode = branchModeNew
 	}
-	p.focusInput(promptFieldDescription)
+	p.focusFirstVisible()
+}
+
+// focusFirstVisible focuses the first unpinned/visible field, preferring the
+// description when it is open.
+func (p *promptView) focusFirstVisible() {
+	if !p.pins.description {
+		p.focusInput(promptFieldDescription)
+		return
+	}
+	if fields := p.visibleFields(); len(fields) > 0 {
+		p.focusInput(fields[0])
+	}
 }
 
 // Update passes the message to the active input and checks for image paths.
@@ -420,17 +514,33 @@ func (p *promptView) FocusWorkflowPane() {
 	p.activePane = paneWorkflow
 }
 
-// FocusGitSection jumps to the first visible git field based on current mode.
-// If worktree is off, this is a no-op.
+// FocusGitSection jumps to the first visible (unpinned) git field based on the
+// current mode. If worktree is off or every git field is pinned, this is a no-op.
 func (p *promptView) FocusGitSection() {
 	if !p.worktree {
 		return
 	}
-	if p.branchMode == branchModeNew {
-		p.FocusOn(promptFieldBranch)
-	} else {
-		p.FocusOn(promptFieldCheckout)
+	for _, f := range p.visibleFields() {
+		if f == promptFieldBranch || f == promptFieldCheckout || f == promptFieldTargetBranch {
+			p.FocusOn(f)
+			return
+		}
 	}
+}
+
+// hasVisibleGitField reports whether the git section currently exposes at least
+// one focusable (unpinned) field. CyclePane uses this so it skips the git
+// section entirely when worktree is on but every git field is pinned.
+func (p *promptView) hasVisibleGitField() bool {
+	if !p.worktree {
+		return false
+	}
+	for _, f := range p.visibleFields() {
+		if f == promptFieldBranch || f == promptFieldCheckout || f == promptFieldTargetBranch {
+			return true
+		}
+	}
+	return false
 }
 
 // CyclePane cycles through sections: main inputs ↔ git ↔ workflow.
@@ -441,7 +551,7 @@ func (p *promptView) CyclePane(forward bool) {
 		(p.focusField == promptFieldTitle || p.focusField == promptFieldDescription)
 	isGitField := p.activePane == paneTask &&
 		(p.focusField == promptFieldBranch || p.focusField == promptFieldCheckout || p.focusField == promptFieldTargetBranch)
-	hasGit := p.worktree
+	hasGit := p.hasVisibleGitField()
 	hasWorkflows := len(p.workflows) > 1
 
 	// Order: main → git → workflow (forward), reverse for backward.
@@ -532,7 +642,7 @@ func (p *promptView) detectImages() {
 				p.images = append(p.images, path)
 				changed = true
 				p.SetSize(p.width, p.height) // recalc textarea height
-				continue                      // don't add to remaining lines
+				continue                     // don't add to remaining lines
 			}
 		}
 		remaining = append(remaining, line)
@@ -655,32 +765,36 @@ func (p *promptView) View() string {
 	b.WriteString(p.titleInput.View())
 	b.WriteString("\n\n")
 
-	// Pre-expand textarea to max height so its internal viewport doesn't
-	// scroll, then truncate the rendered output to show only the lines
-	// that contain actual content, achieving the auto-grow visual effect.
-	maxH := p.maxHeight()
-	p.textarea.SetHeight(maxH)
-	taView := p.textarea.View()
-	p.recalcHeight() // restore to content-fitting height
-	visLines := p.visualLineCount()
-	if visLines > maxH {
-		visLines = maxH
-	}
-	lines := strings.Split(taView, "\n")
-	if visLines < len(lines) {
-		lines = lines[:visLines]
-	}
+	// Description textarea — skipped entirely when the workflow pins the
+	// description (the pinned text is what gets submitted).
+	if !p.pins.description {
+		// Pre-expand textarea to max height so its internal viewport doesn't
+		// scroll, then truncate the rendered output to show only the lines
+		// that contain actual content, achieving the auto-grow visual effect.
+		maxH := p.maxHeight()
+		p.textarea.SetHeight(maxH)
+		taView := p.textarea.View()
+		p.recalcHeight() // restore to content-fitting height
+		visLines := p.visualLineCount()
+		if visLines > maxH {
+			visLines = maxH
+		}
+		lines := strings.Split(taView, "\n")
+		if visLines < len(lines) {
+			lines = lines[:visLines]
+		}
 
-	// When the placeholder is showing, underline the first "D" in
-	// "Describe the task..." to indicate the alt+d shortcut, mirroring the
-	// underlined "G" in "Git" and "W" in "Workflow" labels.
-	if p.textarea.Value() == "" && p.focusField == promptFieldDescription && len(lines) > 0 {
-		lines[0] = underlineDInPlaceholder(lines[0])
-	}
+		// When the placeholder is showing, underline the first "D" in
+		// "Describe the task..." to indicate the alt+d shortcut, mirroring the
+		// underlined "G" in "Git" and "W" in "Workflow" labels.
+		if p.textarea.Value() == "" && p.focusField == promptFieldDescription && len(lines) > 0 {
+			lines[0] = underlineDInPlaceholder(lines[0])
+		}
 
-	taStyle := lipgloss.NewStyle().PaddingLeft(2)
-	b.WriteString(taStyle.Render(strings.Join(lines, "\n")))
-	b.WriteString("\n")
+		taStyle := lipgloss.NewStyle().PaddingLeft(2)
+		b.WriteString(taStyle.Render(strings.Join(lines, "\n")))
+		b.WriteString("\n")
+	}
 
 	// Validation error
 	if p.validationError != "" {
@@ -692,45 +806,73 @@ func (p *promptView) View() string {
 	b.WriteString("\n")
 
 	// ── Git section (framed) ──
-	var gitContent strings.Builder
+	// Each row is rendered only when its field is not pinned. Pinned values are
+	// supplied by the workflow and need no input row. The whole frame is
+	// omitted when no row remains.
+	var gitRows []string
 
-	// Worktree mode indicator
-	gitContent.WriteString(focusedLabel.Render("Worktree: "))
-	if p.worktree {
-		gitContent.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#7EC99D")).Render("on"))
-	} else {
-		gitContent.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#E88388")).Render("off"))
-		gitContent.WriteString(dimStyle.Render(" (runs in current directory)"))
-	}
-	gitContent.WriteString(dimStyle.Render(" (alt+W)"))
-
-	// Branch/Checkout inputs (hidden when worktree is off)
-	if p.worktree {
-		gitContent.WriteString("\n")
-		// Mode indicator
-		modeLabel := "new branch"
-		if p.branchMode == branchModeExisting {
-			modeLabel = "existing branch"
+	// Worktree mode indicator (hidden when the workflow pins the worktree toggle)
+	if !p.pins.worktree {
+		var wt strings.Builder
+		wt.WriteString(focusedLabel.Render("Worktree: "))
+		if p.worktree {
+			wt.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#7EC99D")).Render("on"))
+		} else {
+			wt.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#E88388")).Render("off"))
+			wt.WriteString(dimStyle.Render(" (runs in current directory)"))
 		}
-		gitContent.WriteString(focusedLabel.Render("Mode: "))
-		gitContent.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#A8C8E8")).Render(modeLabel))
-		gitContent.WriteString(dimStyle.Render(" (alt+M)"))
-		gitContent.WriteString("\n\n")
+		wt.WriteString(dimStyle.Render(" (alt+W)"))
+		gitRows = append(gitRows, wt.String())
+	}
+
+	// Branch/Checkout/Target inputs (only when worktree is on)
+	if p.worktree {
+		// Mode indicator — hidden when the branch mode is pinned (implied by
+		// which of branch/checkout the workflow pinned).
+		if !p.pins.branch && !p.pins.checkout {
+			modeLabel := "new branch"
+			if p.branchMode == branchModeExisting {
+				modeLabel = "existing branch"
+			}
+			var mode strings.Builder
+			mode.WriteString(focusedLabel.Render("Mode: "))
+			mode.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("#A8C8E8")).Render(modeLabel))
+			mode.WriteString(dimStyle.Render(" (alt+M)"))
+			// Trailing blank line separating mode from the branch input (matches
+			// the original "\n\n" spacing).
+			gitRows = append(gitRows, mode.String(), "")
+		}
 
 		if p.branchMode == branchModeNew {
-			gitContent.WriteString(fieldLabel("Branch: ", promptFieldBranch, false))
-			gitContent.WriteString(p.branchInput.View())
+			if !p.pins.branch {
+				gitRows = append(gitRows, fieldLabel("Branch: ", promptFieldBranch, false)+p.branchInput.View())
+			}
 		} else {
-			gitContent.WriteString(fieldLabel("Checkout: ", promptFieldCheckout, false))
-			gitContent.WriteString(p.checkoutInput.View())
+			if !p.pins.checkout {
+				gitRows = append(gitRows, fieldLabel("Checkout: ", promptFieldCheckout, false)+p.checkoutInput.View())
+			}
 		}
 
-		gitContent.WriteString("\n")
-		gitContent.WriteString(fieldLabel("Target: ", promptFieldTargetBranch, false))
-		gitContent.WriteString(p.targetBranchInput.View())
+		if !p.pins.target {
+			gitRows = append(gitRows, fieldLabel("Target: ", promptFieldTargetBranch, false)+p.targetBranchInput.View())
+		}
 	}
 
-	if len(p.workflows) > 1 {
+	gitContentStr := strings.Join(gitRows, "\n")
+	showGit := len(gitRows) > 0
+
+	if !showGit {
+		// No git rows remain (everything pinned). Render only the workflow pane
+		// if present, else nothing.
+		if len(p.workflows) > 1 {
+			workflowContent := p.renderWorkflowList()
+			workflowBorderColor := inactiveBorder
+			if p.activePane == paneWorkflow {
+				workflowBorderColor = activeBorder
+			}
+			b.WriteString(indentBlock(" ", p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, innerWidth, true)))
+		}
+	} else if len(p.workflows) > 1 {
 		workflowContent := p.renderWorkflowList()
 		workflowBorderColor := inactiveBorder
 		if p.activePane == paneWorkflow {
@@ -741,16 +883,16 @@ func (p *promptView) View() string {
 		if p.width >= minSideBySide {
 			leftWidth := innerWidth * 2 / 3
 			rightWidth := innerWidth - leftWidth // no gap — frames share the border
-			gitFrame := p.renderFramedSection("Git", gitBorderColor, gitContent.String(), leftWidth, true)
+			gitFrame := p.renderFramedSection("Git", gitBorderColor, gitContentStr, leftWidth, true)
 			wfFrame := p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, rightWidth, true)
 			b.WriteString(indentBlock(" ", joinFramesHorizontal(gitFrame, wfFrame, leftWidth, rightWidth)))
 		} else {
-			b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth, true)))
+			b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContentStr, innerWidth, true)))
 			b.WriteString("\n")
 			b.WriteString(indentBlock(" ", p.renderFramedSection("Workflow", workflowBorderColor, workflowContent, innerWidth, true)))
 		}
 	} else {
-		b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContent.String(), innerWidth, true)))
+		b.WriteString(indentBlock(" ", p.renderFramedSection("Git", gitBorderColor, gitContentStr, innerWidth, true)))
 	}
 	b.WriteString("\n")
 

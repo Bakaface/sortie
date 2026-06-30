@@ -44,6 +44,15 @@ The daemon must be running.`,
 		workflow, _ := cmd.Flags().GetString("workflow")
 		title, _ := cmd.Flags().GetString("title")
 		noWorktree, _ := cmd.Flags().GetBool("no-worktree")
+		// Only treat the worktree as an explicit choice when --no-worktree was
+		// actually passed. Otherwise leave it unset (nil) so a workflow's worktree
+		// pin (or the project default) decides — sending an unsolicited explicit
+		// value would clobber a worktree:false pin.
+		var worktree *bool
+		if cmd.Flags().Changed("no-worktree") {
+			w := !noWorktree
+			worktree = &w
+		}
 		target, _ := cmd.Flags().GetString("target")
 		checkout, _ := cmd.Flags().GetString("checkout")
 
@@ -66,7 +75,7 @@ The daemon must be running.`,
 			Workflow:    workflow,
 			Target:      target,
 			Checkout:    checkout,
-			NoWorktree:  noWorktree,
+			Worktree:    worktree,
 			ProjectPath: cfg.ProjectDir,
 		}
 

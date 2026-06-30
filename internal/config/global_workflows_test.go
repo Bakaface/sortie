@@ -8,7 +8,7 @@ import (
 )
 
 // setupGlobalAndProject writes a global ~/.sortie.yml and an optional
-// ~/.sortie/workflows/<cat>/<name>.yml tree under an isolated HOME, plus a
+// ~/.sortie/workflows/<name>.yml tree under an isolated HOME, plus a
 // project .sortie.yml (with optional .sortie/workflows files) under a separate
 // project directory. Returns the project directory.
 //
@@ -69,17 +69,15 @@ func setupGlobalAndProject(
 func TestGlobalWorkflows_ProjectReferencesGlobalInline(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  tasks:
-    - name: shared-impl
-      description: Globally-defined inline workflow
-      steps:
-        - name: do
-          prompt: "global inline implementation"
+  - name: shared-impl
+    description: Globally-defined inline workflow
+    steps:
+      - name: do
+        prompt: "global inline implementation"
 `,
 		nil,
 		`workflows:
-  tasks:
-    - shared-impl
+  - shared-impl
 `,
 		nil,
 	)
@@ -89,10 +87,10 @@ func TestGlobalWorkflows_ProjectReferencesGlobalInline(t *testing.T) {
 		t.Fatalf("LoadForProject: %v", err)
 	}
 
-	if len(cfg.TaskWorkflows) != 1 {
-		t.Fatalf("want 1 task workflow, got %d: %+v", len(cfg.TaskWorkflows), cfg.TaskWorkflows)
+	if len(cfg.Workflows) != 1 {
+		t.Fatalf("want 1 workflow, got %d: %+v", len(cfg.Workflows), cfg.Workflows)
 	}
-	wf := cfg.TaskWorkflows[0]
+	wf := cfg.Workflows[0]
 	if wf.Name != "shared-impl" {
 		t.Errorf("want name shared-impl, got %q", wf.Name)
 	}
@@ -116,7 +114,7 @@ func TestGlobalWorkflows_ProjectReferencesGlobalFile(t *testing.T) {
 		`# global file pool workflow exists but isn't listed; project can still reference it.
 `,
 		map[string]string{
-			".sortie/workflows/tasks/global-file-impl.yml": `
+			".sortie/workflows/global-file-impl.yml": `
 description: Globally-defined file workflow
 steps:
   - name: do
@@ -124,8 +122,7 @@ steps:
 `,
 		},
 		`workflows:
-  tasks:
-    - global-file-impl
+  - global-file-impl
 `,
 		nil,
 	)
@@ -135,10 +132,10 @@ steps:
 		t.Fatalf("LoadForProject: %v", err)
 	}
 
-	if len(cfg.TaskWorkflows) != 1 {
-		t.Fatalf("want 1 task workflow, got %d: %+v", len(cfg.TaskWorkflows), cfg.TaskWorkflows)
+	if len(cfg.Workflows) != 1 {
+		t.Fatalf("want 1 workflow, got %d: %+v", len(cfg.Workflows), cfg.Workflows)
 	}
-	wf := cfg.TaskWorkflows[0]
+	wf := cfg.Workflows[0]
 	if wf.Name != "global-file-impl" {
 		t.Errorf("want name global-file-impl, got %q", wf.Name)
 	}
@@ -162,19 +159,17 @@ steps:
 func TestGlobalWorkflows_ProjectOverridesGlobalInlineWithInline(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  tasks:
-    - name: shared-impl
-      steps:
-        - name: do
-          prompt: "global version"
+  - name: shared-impl
+    steps:
+      - name: do
+        prompt: "global version"
 `,
 		nil,
 		`workflows:
-  tasks:
-    - name: shared-impl
-      steps:
-        - name: do
-          prompt: "project override"
+  - name: shared-impl
+    steps:
+      - name: do
+        prompt: "project override"
 `,
 		nil,
 	)
@@ -183,10 +178,10 @@ func TestGlobalWorkflows_ProjectOverridesGlobalInlineWithInline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadForProject: %v", err)
 	}
-	if len(cfg.TaskWorkflows) != 1 {
-		t.Fatalf("want 1 task workflow, got %d", len(cfg.TaskWorkflows))
+	if len(cfg.Workflows) != 1 {
+		t.Fatalf("want 1 workflow, got %d", len(cfg.Workflows))
 	}
-	got := cfg.TaskWorkflows[0]
+	got := cfg.Workflows[0]
 	if got.Steps[0].Prompt != "project override" {
 		t.Errorf("want project override prompt, got %q", got.Steps[0].Prompt)
 	}
@@ -200,19 +195,17 @@ func TestGlobalWorkflows_ProjectOverridesGlobalInlineWithInline(t *testing.T) {
 func TestGlobalWorkflows_ProjectOverridesGlobalInlineWithLocalFile(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  tasks:
-    - name: shared-impl
-      steps:
-        - name: do
-          prompt: "global version"
+  - name: shared-impl
+    steps:
+      - name: do
+        prompt: "global version"
 `,
 		nil,
 		`workflows:
-  tasks:
-    - shared-impl
+  - shared-impl
 `,
 		map[string]string{
-			".sortie/workflows/tasks/shared-impl.yml": `
+			".sortie/workflows/shared-impl.yml": `
 steps:
   - name: do
     prompt: "project file override"
@@ -224,10 +217,10 @@ steps:
 	if err != nil {
 		t.Fatalf("LoadForProject: %v", err)
 	}
-	if len(cfg.TaskWorkflows) != 1 {
-		t.Fatalf("want 1 task workflow, got %d", len(cfg.TaskWorkflows))
+	if len(cfg.Workflows) != 1 {
+		t.Fatalf("want 1 workflow, got %d", len(cfg.Workflows))
 	}
-	got := cfg.TaskWorkflows[0]
+	got := cfg.Workflows[0]
 	if got.Steps[0].Prompt != "project file override" {
 		t.Errorf("want project file override prompt, got %q", got.Steps[0].Prompt)
 	}
@@ -244,22 +237,20 @@ steps:
 func TestGlobalWorkflows_ProjectOverridesGlobalFileWithInline(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  tasks:
-    - shared-impl
+  - shared-impl
 `,
 		map[string]string{
-			".sortie/workflows/tasks/shared-impl.yml": `
+			".sortie/workflows/shared-impl.yml": `
 steps:
   - name: do
     prompt: "global file version"
 `,
 		},
 		`workflows:
-  tasks:
-    - name: shared-impl
-      steps:
-        - name: do
-          prompt: "project inline override"
+  - name: shared-impl
+    steps:
+      - name: do
+        prompt: "project inline override"
 `,
 		nil,
 	)
@@ -268,10 +259,10 @@ steps:
 	if err != nil {
 		t.Fatalf("LoadForProject: %v", err)
 	}
-	if len(cfg.TaskWorkflows) != 1 {
-		t.Fatalf("want 1 task workflow, got %d", len(cfg.TaskWorkflows))
+	if len(cfg.Workflows) != 1 {
+		t.Fatalf("want 1 workflow, got %d", len(cfg.Workflows))
 	}
-	got := cfg.TaskWorkflows[0]
+	got := cfg.Workflows[0]
 	if got.Steps[0].Prompt != "project inline override" {
 		t.Errorf("want project inline override prompt, got %q", got.Steps[0].Prompt)
 	}
@@ -285,20 +276,18 @@ steps:
 func TestGlobalWorkflows_MixedGlobalAndLocalRefs(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  tasks:
-    - name: from-global
-      steps:
-        - name: do
-          prompt: "from global"
+  - name: from-global
+    steps:
+      - name: do
+        prompt: "from global"
 `,
 		nil,
 		`workflows:
-  tasks:
-    - from-global
-    - from-local
+  - from-global
+  - from-local
 `,
 		map[string]string{
-			".sortie/workflows/tasks/from-local.yml": `
+			".sortie/workflows/from-local.yml": `
 steps:
   - name: do
     prompt: "from local"
@@ -310,33 +299,31 @@ steps:
 	if err != nil {
 		t.Fatalf("LoadForProject: %v", err)
 	}
-	if len(cfg.TaskWorkflows) != 2 {
-		t.Fatalf("want 2 task workflows, got %d", len(cfg.TaskWorkflows))
+	if len(cfg.Workflows) != 2 {
+		t.Fatalf("want 2 workflows, got %d", len(cfg.Workflows))
 	}
-	if cfg.TaskWorkflows[0].Name != "from-global" {
-		t.Errorf("want first=from-global, got %q", cfg.TaskWorkflows[0].Name)
+	if cfg.Workflows[0].Name != "from-global" {
+		t.Errorf("want first=from-global, got %q", cfg.Workflows[0].Name)
 	}
-	if cfg.TaskWorkflows[1].Name != "from-local" {
-		t.Errorf("want second=from-local, got %q", cfg.TaskWorkflows[1].Name)
+	if cfg.Workflows[1].Name != "from-local" {
+		t.Errorf("want second=from-local, got %q", cfg.Workflows[1].Name)
 	}
 }
 
 // Unreferenced global workflows should not appear in the project's listing
-// when the project overrides the category. They only flow in when explicitly
+// when the project defines its own workflows. They only flow in when explicitly
 // referenced.
 func TestGlobalWorkflows_UnreferencedGlobalNotIncluded(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  tasks:
-    - name: g1
-      steps: [{ name: a, prompt: a }]
-    - name: g2
-      steps: [{ name: a, prompt: a }]
+  - name: g1
+    steps: [{ name: a, prompt: a }]
+  - name: g2
+    steps: [{ name: a, prompt: a }]
 `,
 		nil,
 		`workflows:
-  tasks:
-    - g1
+  - g1
 `,
 		nil,
 	)
@@ -345,11 +332,18 @@ func TestGlobalWorkflows_UnreferencedGlobalNotIncluded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadForProject: %v", err)
 	}
-	if len(cfg.TaskWorkflows) != 1 {
-		t.Fatalf("want 1 workflow (g1 only), got %d: %+v", len(cfg.TaskWorkflows), cfg.TaskWorkflows)
+	// Only g1 explicitly referenced; g2 not included.
+	nonHidden := 0
+	for _, wf := range cfg.Workflows {
+		if !wf.Hidden {
+			nonHidden++
+		}
 	}
-	if cfg.TaskWorkflows[0].Name != "g1" {
-		t.Errorf("want g1, got %q", cfg.TaskWorkflows[0].Name)
+	if nonHidden != 1 {
+		t.Fatalf("want 1 active workflow (g1 only), got %d active", nonHidden)
+	}
+	if cfg.Workflows[0].Name != "g1" {
+		t.Errorf("want g1, got %q", cfg.Workflows[0].Name)
 	}
 }
 
@@ -357,15 +351,13 @@ func TestGlobalWorkflows_UnreferencedGlobalNotIncluded(t *testing.T) {
 func TestGlobalWorkflows_MissingRefAcrossBoth(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  tasks:
-    - name: g1
-      steps: [{ name: a, prompt: a }]
+  - name: g1
+    steps: [{ name: a, prompt: a }]
 `,
 		nil,
 		`workflows:
-  tasks:
-    - g1
-    - missing
+  - g1
+  - missing
 `,
 		nil,
 	)
@@ -376,23 +368,19 @@ func TestGlobalWorkflows_MissingRefAcrossBoth(t *testing.T) {
 	}
 }
 
-// One-off and init categories should also support global refs.
-func TestGlobalWorkflows_OneOffAndInitCategories(t *testing.T) {
+// Flat global workflows should support the same global pool references.
+func TestGlobalWorkflows_FlatGlobalAndProjectRefs(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  one-off:
-    - name: cleanup
-      steps: [{ name: a, prompt: "global cleanup" }]
-  init:
-    - name: bootstrap
-      steps: [{ name: a, prompt: "global bootstrap" }]
+  - name: cleanup
+    steps: [{ name: a, prompt: "global cleanup" }]
+  - name: bootstrap
+    steps: [{ name: a, prompt: "global bootstrap" }]
 `,
 		nil,
 		`workflows:
-  one-off:
-    - cleanup
-  init:
-    - bootstrap
+  - cleanup
+  - bootstrap
 `,
 		nil,
 	)
@@ -401,15 +389,18 @@ func TestGlobalWorkflows_OneOffAndInitCategories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadForProject: %v", err)
 	}
-	if got := cfg.GetPredefinedTask("cleanup"); got == nil {
-		t.Fatalf("want cleanup one-off resolved from global, got nil")
-	} else if got.Steps[0].Prompt != "global cleanup" {
-		t.Errorf("want global cleanup prompt, got %q", got.Steps[0].Prompt)
+	if len(cfg.Workflows) != 2 {
+		t.Fatalf("want 2 workflows, got %d", len(cfg.Workflows))
 	}
-	if got := cfg.GetInitWorkflow("bootstrap"); got == nil {
-		t.Fatalf("want bootstrap init resolved from global, got nil")
-	} else if got.Steps[0].Prompt != "global bootstrap" {
-		t.Errorf("want global bootstrap prompt, got %q", got.Steps[0].Prompt)
+
+	// Both should be resolvable via GetWorkflow
+	cleanup := cfg.GetWorkflow("cleanup")
+	if cleanup == nil || cleanup.Steps[0].Prompt != "global cleanup" {
+		t.Errorf("want cleanup resolved from global, got %+v", cleanup)
+	}
+	bootstrap := cfg.GetWorkflow("bootstrap")
+	if bootstrap == nil || bootstrap.Steps[0].Prompt != "global bootstrap" {
+		t.Errorf("want bootstrap resolved from global, got %+v", bootstrap)
 	}
 }
 
@@ -418,16 +409,14 @@ func TestGlobalWorkflows_OneOffAndInitCategories(t *testing.T) {
 func TestDiagnose_ResolvesGlobalRefs(t *testing.T) {
 	projectDir := setupGlobalAndProject(t,
 		`workflows:
-  tasks:
-    - name: shared-impl
-      steps:
-        - name: do
-          prompt: "global"
+  - name: shared-impl
+    steps:
+      - name: do
+        prompt: "global"
 `,
 		nil,
 		`workflows:
-  tasks:
-    - shared-impl
+  - shared-impl
 `,
 		nil,
 	)

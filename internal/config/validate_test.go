@@ -25,11 +25,10 @@ git:
   branch_template: "sortie/{{task_id}}-{{task_slug}}"
 on_complete: commit
 workflows:
-  tasks:
-    - name: default
-      steps:
-        - name: implementing
-          prompt: "do the thing"
+  - name: default
+    steps:
+      - name: implementing
+        prompt: "do the thing"
 `)
 	if err := ValidateFile(path); err != nil {
 		t.Fatalf("expected valid config, got: %v", err)
@@ -82,12 +81,11 @@ func TestValidateFile_GitOnCompleteRemoved(t *testing.T) {
 func TestValidateFile_InvalidWorkflowOnComplete(t *testing.T) {
 	path := writeTempConfig(t, `
 workflows:
-  tasks:
-    - name: default
-      on_complete: yeet
-      steps:
-        - name: implementing
-          prompt: "do the thing"
+  - name: default
+    on_complete: yeet
+    steps:
+      - name: implementing
+        prompt: "do the thing"
 `)
 	err := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "on_complete") {
@@ -114,16 +112,15 @@ func TestValidateFile_InvalidTmuxNestedBehavior(t *testing.T) {
 func TestValidateFile_ForwardLoopGoto(t *testing.T) {
 	path := writeTempConfig(t, `
 workflows:
-  tasks:
-    - name: bad
-      steps:
-        - name: a
-          prompt: "a"
-          loop:
-            goto: b
-            max_iterations: 2
-        - name: b
-          prompt: "b"
+  - name: bad
+    steps:
+      - name: a
+        prompt: "a"
+        loop:
+          goto: b
+          max_iterations: 2
+      - name: b
+        prompt: "b"
 `)
 	err := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "earlier step") {
@@ -134,12 +131,11 @@ workflows:
 func TestValidateFile_InvalidSummarizationStrategy(t *testing.T) {
 	path := writeTempConfig(t, `
 workflows:
-  tasks:
-    - name: bad
-      steps:
-        - name: a
-          prompt: "a"
-          summarization_strategy: telepathy
+  - name: bad
+    steps:
+      - name: a
+        prompt: "a"
+        summarization_strategy: telepathy
 `)
 	err := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "summarization_strategy") {
@@ -150,15 +146,14 @@ workflows:
 func TestValidateFile_DuplicateWorkflowName(t *testing.T) {
 	path := writeTempConfig(t, `
 workflows:
-  tasks:
-    - name: dup
-      steps:
-        - name: a
-          prompt: "a"
-    - name: dup
-      steps:
-        - name: a
-          prompt: "a"
+  - name: dup
+    steps:
+      - name: a
+        prompt: "a"
+  - name: dup
+    steps:
+      - name: a
+        prompt: "a"
 `)
 	err := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "duplicate workflow") {
@@ -172,12 +167,11 @@ func TestValidateFile_LegacyWorkflowTmuxFieldFails(t *testing.T) {
 	// migration error rather than silently dropping the setting.
 	path := writeTempConfig(t, `
 workflows:
-  tasks:
-    - name: w
-      tmux: true
-      steps:
-        - name: s
-          prompt: "do"
+  - name: w
+    tmux: true
+    steps:
+      - name: s
+        prompt: "do"
 `)
 	err := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "tmux") || !strings.Contains(err.Error(), "print") {
@@ -190,12 +184,11 @@ func TestValidateFile_LegacyStepTmuxFieldFails(t *testing.T) {
 	// migration guidance from the step decoder.
 	path := writeTempConfig(t, `
 workflows:
-  tasks:
-    - name: w
-      steps:
-        - name: s
-          prompt: "do"
-          tmux: false
+  - name: w
+    steps:
+      - name: s
+        prompt: "do"
+        tmux: false
 `)
 	err := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "tmux") || !strings.Contains(err.Error(), "print") {
@@ -209,8 +202,7 @@ func TestValidateFile_MissingFileRefIsError(t *testing.T) {
 	path := filepath.Join(dir, ".sortie.yml")
 	if err := os.WriteFile(path, []byte(`
 workflows:
-  tasks:
-    - phantom
+  - phantom
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -221,22 +213,22 @@ workflows:
 }
 
 func TestValidateFile_InlineFileCollisionIsError(t *testing.T) {
+	// Inline workflow that collides with a file-based workflow of the same name.
 	dir := t.TempDir()
-	wf := filepath.Join(dir, ".sortie", "workflows", "tasks")
-	if err := os.MkdirAll(wf, 0755); err != nil {
+	wfDir := filepath.Join(dir, ".sortie", "workflows")
+	if err := os.MkdirAll(wfDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(wf, "foo.yml"), []byte("steps:\n  - name: a\n    prompt: a\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(wfDir, "foo.yml"), []byte("steps:\n  - name: a\n    prompt: a\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	ymlPath := filepath.Join(dir, ".sortie.yml")
 	if err := os.WriteFile(ymlPath, []byte(`
 workflows:
-  tasks:
-    - name: foo
-      steps:
-        - name: a
-          prompt: "a"
+  - name: foo
+    steps:
+      - name: a
+        prompt: "a"
 `), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -249,16 +241,71 @@ workflows:
 func TestValidateFile_DuplicateStepName(t *testing.T) {
 	path := writeTempConfig(t, `
 workflows:
-  tasks:
-    - name: w
-      steps:
-        - name: a
-          prompt: "a"
-        - name: a
-          prompt: "a"
+  - name: w
+    steps:
+      - name: a
+        prompt: "a"
+      - name: a
+        prompt: "a"
 `)
 	err := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "duplicate step") {
 		t.Fatalf("expected duplicate step error, got: %v", err)
+	}
+}
+
+// TestValidateFile_PinsBranchAndCheckoutTogether verifies that setting both
+// branch and checkout on a workflow is rejected.
+func TestValidateFile_PinsBranchAndCheckoutTogether(t *testing.T) {
+	path := writeTempConfig(t, `
+workflows:
+  - name: bad
+    worktree: true
+    branch: "feature/x"
+    checkout: "main"
+    steps:
+      - name: implement
+        prompt: "do"
+`)
+	err := ValidateFile(path)
+	if err == nil || !strings.Contains(err.Error(), "cannot set both branch and checkout") {
+		t.Fatalf("expected branch+checkout error, got: %v", err)
+	}
+}
+
+// TestValidateFile_PinsBranchWithWorktreeFalse verifies that branch is
+// rejected when worktree is pinned false.
+func TestValidateFile_PinsBranchWithWorktreeFalse(t *testing.T) {
+	path := writeTempConfig(t, `
+workflows:
+  - name: bad
+    worktree: false
+    branch: "feature/x"
+    steps:
+      - name: implement
+        prompt: "do"
+`)
+	err := ValidateFile(path)
+	if err == nil || !strings.Contains(err.Error(), "branch/checkout/target cannot be set when worktree: false") {
+		t.Fatalf("expected worktree=false+branch error, got: %v", err)
+	}
+}
+
+// TestValidateFile_SubdirectoryInWorkflowsRejected verifies that subdirectories
+// under .sortie/workflows/ produce an error (flat-only layout).
+func TestValidateFile_SubdirectoryInWorkflowsRejected(t *testing.T) {
+	dir := t.TempDir()
+	subDir := filepath.Join(dir, ".sortie", "workflows", "tasks")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Subdirectory exists — loadWorkflowFilePool should reject it.
+	ymlPath := filepath.Join(dir, ".sortie.yml")
+	if err := os.WriteFile(ymlPath, []byte("workflows: []\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := ValidateFile(ymlPath)
+	if err == nil || !strings.Contains(err.Error(), "subdirector") {
+		t.Fatalf("expected subdirectory error, got %v", err)
 	}
 }

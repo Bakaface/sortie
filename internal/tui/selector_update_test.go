@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Bakaface/sortie/internal/client"
 	"github.com/Bakaface/sortie/internal/config"
@@ -12,7 +11,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestHandleTaskSelectKey_Navigation(t *testing.T) {
+// --- selectorWorkflow: navigation and selection ---
+
+func TestHandleWorkflowSelectKey_Navigation(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
@@ -20,16 +21,16 @@ func TestHandleTaskSelectKey_Navigation(t *testing.T) {
 		detail: newDetailView(),
 		view:   viewList,
 		selector: selector{
-			kind:   selectorTask,
+			kind:   selectorWorkflow,
 			cursor: 0,
-			items:  []string{"Task A", "Task B", "Task C"},
+			items:  []string{"implement", "review", "test"},
 		},
 		projectPath: "/tmp/test",
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Task A", Description: "Desc A"},
-				{Name: "Task B", Description: "Desc B"},
-				{Name: "Task C", Description: "Desc C"},
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement", Description: "Desc A"},
+				{Name: "review", Description: "Desc B"},
+				{Name: "test", Description: "Desc C"},
 			},
 		},
 	}
@@ -68,17 +69,17 @@ func TestHandleTaskSelectKey_Navigation(t *testing.T) {
 	}
 }
 
-func TestHandleTaskSelectKey_EscCancels(t *testing.T) {
+func TestHandleWorkflowSelectKey_EscCancels(t *testing.T) {
 	m := Model{
 		keys: newKeyMap(),
 		selector: selector{
-			kind:   selectorTask,
+			kind:   selectorWorkflow,
 			cursor: 1,
-			items:  []string{"Task A"},
+			items:  []string{"implement"},
 		},
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Task A"},
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement"},
 			},
 		},
 	}
@@ -87,12 +88,13 @@ func TestHandleTaskSelectKey_EscCancels(t *testing.T) {
 	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.selector.kind == selectorTask {
-		t.Error("expected selector kind not to be selectorTask after esc")
+	if updated.selector.kind == selectorWorkflow {
+		t.Error("expected selector kind not to be selectorWorkflow after esc")
 	}
 }
 
-func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
+func TestHandleWorkflowSelectKey_EnterOpensPromptOrCreates(t *testing.T) {
+	// A non-fully-spec workflow → should open viewPrompt
 	m := Model{
 		keys:   newKeyMap(),
 		client: &client.Client{},
@@ -100,177 +102,198 @@ func TestHandleTaskSelectKey_EnterCreatesTask(t *testing.T) {
 		detail: newDetailView(),
 		view:   viewList,
 		selector: selector{
-			kind:   selectorTask,
+			kind:   selectorWorkflow,
 			cursor: 0,
-			items:  []string{"Housekeeping"},
+			items:  []string{"implement"},
 		},
 		projectPath: "/tmp/test",
+		prompt:      newPromptView(true, branchModeNew, ""),
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Housekeeping", Description: "Clean up code"},
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement", Description: ""},
+				// Not IsFullySpec: no Worktree, no Branch/Checkout, no Target
 			},
 		},
 	}
 
 	msg := tea.KeyMsg{Type: tea.KeyEnter}
-	result, cmd := m.handleSelectorKey(msg)
+	result, _ := m.handleSelectorKey(msg)
 	updated := result.(Model)
 
-	if updated.selector.kind == selectorTask {
-		t.Error("expected selector kind not to be selectorTask after enter")
+	if updated.selector.kind == selectorWorkflow {
+		t.Error("expected selector kind not to be selectorWorkflow after enter")
 	}
-	if updated.selectedWorkflow != "oneoff:Housekeeping" {
-		t.Errorf("expected selectedWorkflow 'oneoff:Housekeeping', got %q", updated.selectedWorkflow)
-	}
-	if cmd == nil {
-		t.Error("expected create task command, got nil")
+	// Non-fully-spec workflow → prompt opens
+	if updated.view != viewPrompt {
+		t.Errorf("expected viewPrompt after selecting non-fully-spec workflow, got %d", updated.view)
 	}
 }
 
-func TestHandleTaskSelectKey_NumberKeyCreatesTask(t *testing.T) {
-	m := Model{
-		keys:   newKeyMap(),
-		client: &client.Client{},
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		selector: selector{
-			kind:   selectorTask,
-			cursor: 0,
-			items:  []string{"First", "Second"},
-		},
-		projectPath: "/tmp/test",
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "First", Description: "First task"},
-				{Name: "Second", Description: "Second task"},
-			},
-		},
-	}
-
-	// Press "2" to select second task
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}}
-	result, cmd := m.handleSelectorKey(msg)
-	updated := result.(Model)
-
-	if updated.selector.kind == selectorTask {
-		t.Error("expected selector kind not to be selectorTask after number key")
-	}
-	if updated.selectedWorkflow != "oneoff:Second" {
-		t.Errorf("expected selectedWorkflow 'task:Second', got %q", updated.selectedWorkflow)
-	}
-	if cmd == nil {
-		t.Error("expected create task command, got nil")
-	}
-}
-
-func TestHandleTaskSelectKey_UsesNameWhenNoDescription(t *testing.T) {
-	m := Model{
-		keys:   newKeyMap(),
-		client: &client.Client{},
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		selector: selector{
-			kind:   selectorTask,
-			cursor: 0,
-			items:  []string{"NoDesc"},
-		},
-		projectPath: "/tmp/test",
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "NoDesc"},
-			},
-		},
-	}
-
-	msg := tea.KeyMsg{Type: tea.KeyEnter}
-	result, cmd := m.handleSelectorKey(msg)
-	updated := result.(Model)
-
-	if updated.selector.kind == selectorTask {
-		t.Error("expected selector kind not to be selectorTask")
-	}
-	// When description is empty, the task name is used as description
-	if updated.selectedWorkflow != "oneoff:NoDesc" {
-		t.Errorf("expected selectedWorkflow 'oneoff:NoDesc', got %q", updated.selectedWorkflow)
-	}
-	if cmd == nil {
-		t.Error("expected create task command, got nil")
-	}
-}
-
-func TestViewRendersTaskSelection(t *testing.T) {
+func TestViewRendersWorkflowSelection(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
 		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
 		selector: selector{
-			kind:         selectorTask,
-			title:        "Run Predefined Task",
+			kind:         selectorWorkflow,
+			title:        "Run Task",
 			cursor:       0,
-			items:        []string{"Housekeeping", "Security Scan"},
-			descriptions: []string{"Clean up code", "Run security audit"},
+			items:        []string{"implement", "review"},
+			descriptions: []string{"Implement features", "Review code"},
 		},
 		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Housekeeping", Description: "Clean up code"},
-				{Name: "Security Scan", Description: "Run security audit"},
+			Workflows: []config.WorkflowConfig{
+				{Name: "implement", Description: "Implement features"},
+				{Name: "review", Description: "Review code"},
 			},
 		},
 	}
 
 	output := m.View()
 
-	if !strings.Contains(output, "Run Predefined Task") {
-		t.Error("expected task selection screen to contain title 'Run Predefined Task'")
+	if !strings.Contains(output, "Run Task") {
+		t.Error("expected workflow selection screen to contain title 'Run Task'")
 	}
-	if !strings.Contains(output, "Housekeeping") {
-		t.Error("expected task selection screen to contain 'Housekeeping'")
+	if !strings.Contains(output, "implement") {
+		t.Error("expected workflow selection screen to contain 'implement'")
 	}
-	if !strings.Contains(output, "Security Scan") {
-		t.Error("expected task selection screen to contain 'Security Scan'")
-	}
-	if !strings.Contains(output, "Clean up code") {
-		t.Error("expected task selection screen to show description for selected task")
+	if !strings.Contains(output, "review") {
+		t.Error("expected workflow selection screen to contain 'review'")
 	}
 }
 
-func TestHandleListKey_XShowsTaskSelection(t *testing.T) {
+// --- selectorWorkflow: vim navigation (gg, G, ctrl+d, ctrl+u) ---
+
+func TestWorkflowSelect_GGGoesToTop(t *testing.T) {
+	cfg := &config.Config{
+		Workflows: make([]config.WorkflowConfig, 10),
+	}
+	items := make([]string, 10)
+	for i := range cfg.Workflows {
+		cfg.Workflows[i] = config.WorkflowConfig{Name: fmt.Sprintf("wf-%d", i+1), Description: fmt.Sprintf("desc %d", i+1)}
+		items[i] = cfg.Workflows[i].Name
+	}
 	m := Model{
-		keys:        newKeyMap(),
-		client:      &client.Client{},
-		list:        newListView(false, ""),
-		detail:      newDetailView(),
-		view:        viewList,
-		projectPath: "/tmp/test-project",
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Housekeeping", Description: "Clean up code"},
-				{Name: "Security", Description: "Security scan"},
-			},
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorWorkflow,
+			cursor: 7,
+			items:  items,
 		},
 	}
-	m.list.SetTasks([]daemon.TaskInfo{
-		{ID: 1, Title: "Running task", Status: "running"},
-	})
 
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'x'}}
-	result, cmd := m.handleListKey(msg)
-	updated := result.(Model)
+	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
+	result, _ := m.handleSelectorKey(gMsg)
+	m = result.(Model)
+	result, _ = m.handleSelectorKey(gMsg)
+	m = result.(Model)
 
-	if updated.selector.kind != selectorTask {
-		t.Error("expected selector kind to be selectorTask")
-	}
-	if updated.selector.cursor != 0 {
-		t.Errorf("expected selector cursor to be 0, got %d", updated.selector.cursor)
-	}
-	if cmd != nil {
-		t.Error("expected no command (selection screen shown), got non-nil")
+	if m.selector.cursor != 0 {
+		t.Errorf("expected cursor at 0 after 'gg', got %d", m.selector.cursor)
 	}
 }
 
+func TestWorkflowSelect_ShiftGGoesToBottom(t *testing.T) {
+	cfg := &config.Config{
+		Workflows: make([]config.WorkflowConfig, 10),
+	}
+	items := make([]string, 10)
+	for i := range cfg.Workflows {
+		cfg.Workflows[i] = config.WorkflowConfig{Name: fmt.Sprintf("wf-%d", i+1)}
+		items[i] = cfg.Workflows[i].Name
+	}
+	m := Model{
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorWorkflow,
+			cursor: 0,
+			items:  items,
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
+	result, _ := m.handleSelectorKey(msg)
+	updated := result.(Model)
+
+	if updated.selector.cursor != 9 {
+		t.Errorf("expected cursor at 9 after 'G', got %d", updated.selector.cursor)
+	}
+}
+
+func TestWorkflowSelect_CtrlDPageDown(t *testing.T) {
+	cfg := &config.Config{
+		Workflows: make([]config.WorkflowConfig, 10),
+	}
+	items := make([]string, 10)
+	for i := range cfg.Workflows {
+		cfg.Workflows[i] = config.WorkflowConfig{Name: fmt.Sprintf("wf-%d", i+1)}
+		items[i] = cfg.Workflows[i].Name
+	}
+	m := Model{
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorWorkflow,
+			cursor: 0,
+			items:  items,
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
+	result, _ := m.handleSelectorKey(msg)
+	updated := result.(Model)
+
+	// half = 10/2 = 5
+	if updated.selector.cursor != 5 {
+		t.Errorf("expected cursor at 5 after ctrl+d, got %d", updated.selector.cursor)
+	}
+}
+
+func TestWorkflowSelect_CtrlUPageUp(t *testing.T) {
+	cfg := &config.Config{
+		Workflows: make([]config.WorkflowConfig, 10),
+	}
+	items := make([]string, 10)
+	for i := range cfg.Workflows {
+		cfg.Workflows[i] = config.WorkflowConfig{Name: fmt.Sprintf("wf-%d", i+1)}
+		items[i] = cfg.Workflows[i].Name
+	}
+	m := Model{
+		cfg:    cfg,
+		keys:   newKeyMap(),
+		list:   newListView(false, ""),
+		detail: newDetailView(),
+		view:   viewList,
+		selector: selector{
+			kind:   selectorWorkflow,
+			cursor: 8,
+			items:  items,
+		},
+	}
+
+	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
+	result, _ := m.handleSelectorKey(msg)
+	updated := result.(Model)
+
+	// half = 10/2 = 5
+	if updated.selector.cursor != 3 {
+		t.Errorf("expected cursor at 3 after ctrl+u, got %d", updated.selector.cursor)
+	}
+}
+
+// --- selectorPriority: vim navigation (gg, G, ctrl+d, ctrl+u) ---
 
 func TestPrioritySelect_GGGoesToTop(t *testing.T) {
 	m := Model{
@@ -365,133 +388,7 @@ func TestPrioritySelect_CtrlUPageUp(t *testing.T) {
 	}
 }
 
-func TestTaskSelect_GGGoesToTop(t *testing.T) {
-	cfg := &config.Config{
-		OneOff: make([]config.WorkflowConfig, 10),
-	}
-	items := make([]string, 10)
-	for i := range cfg.OneOff {
-		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1), Description: fmt.Sprintf("desc %d", i+1)}
-		items[i] = cfg.OneOff[i].Name
-	}
-	m := Model{
-		cfg:    cfg,
-		keys:   newKeyMap(),
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		selector: selector{
-			kind:   selectorTask,
-			cursor: 7,
-			items:  items,
-		},
-	}
-
-	gMsg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}}
-	result, _ := m.handleSelectorKey(gMsg)
-	m = result.(Model)
-	result, _ = m.handleSelectorKey(gMsg)
-	m = result.(Model)
-
-	if m.selector.cursor != 0 {
-		t.Errorf("expected cursor at 0 after 'gg', got %d", m.selector.cursor)
-	}
-}
-
-func TestTaskSelect_ShiftGGoesToBottom(t *testing.T) {
-	cfg := &config.Config{
-		OneOff: make([]config.WorkflowConfig, 10),
-	}
-	items := make([]string, 10)
-	for i := range cfg.OneOff {
-		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
-		items[i] = cfg.OneOff[i].Name
-	}
-	m := Model{
-		cfg:    cfg,
-		keys:   newKeyMap(),
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		selector: selector{
-			kind:   selectorTask,
-			cursor: 0,
-			items:  items,
-		},
-	}
-
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'G'}}
-	result, _ := m.handleSelectorKey(msg)
-	updated := result.(Model)
-
-	if updated.selector.cursor != 9 {
-		t.Errorf("expected cursor at 9 after 'G', got %d", updated.selector.cursor)
-	}
-}
-
-func TestTaskSelect_CtrlDPageDown(t *testing.T) {
-	cfg := &config.Config{
-		OneOff: make([]config.WorkflowConfig, 10),
-	}
-	items := make([]string, 10)
-	for i := range cfg.OneOff {
-		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
-		items[i] = cfg.OneOff[i].Name
-	}
-	m := Model{
-		cfg:    cfg,
-		keys:   newKeyMap(),
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		selector: selector{
-			kind:   selectorTask,
-			cursor: 0,
-			items:  items,
-		},
-	}
-
-	msg := tea.KeyMsg{Type: tea.KeyCtrlD}
-	result, _ := m.handleSelectorKey(msg)
-	updated := result.(Model)
-
-	// half = 10/2 = 5
-	if updated.selector.cursor != 5 {
-		t.Errorf("expected cursor at 5 after ctrl+d, got %d", updated.selector.cursor)
-	}
-}
-
-func TestTaskSelect_CtrlUPageUp(t *testing.T) {
-	cfg := &config.Config{
-		OneOff: make([]config.WorkflowConfig, 10),
-	}
-	items := make([]string, 10)
-	for i := range cfg.OneOff {
-		cfg.OneOff[i] = config.WorkflowConfig{Name: fmt.Sprintf("task-%d", i+1)}
-		items[i] = cfg.OneOff[i].Name
-	}
-	m := Model{
-		cfg:    cfg,
-		keys:   newKeyMap(),
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		selector: selector{
-			kind:   selectorTask,
-			cursor: 8,
-			items:  items,
-		},
-	}
-
-	msg := tea.KeyMsg{Type: tea.KeyCtrlU}
-	result, _ := m.handleSelectorKey(msg)
-	updated := result.(Model)
-
-	// half = 10/2 = 5
-	if updated.selector.cursor != 3 {
-		t.Errorf("expected cursor at 3 after ctrl+u, got %d", updated.selector.cursor)
-	}
-}
+// --- selectorArtifact: navigation ---
 
 func TestArtifactSelect_GGGoesToTop(t *testing.T) {
 	m := Model{
@@ -767,175 +664,5 @@ func TestHandleArtifactViewKey_EscReturnsToList(t *testing.T) {
 	}
 	if cmd != nil {
 		t.Error("expected no command, got non-nil")
-	}
-}
-
-func TestViewRendersTaskSelection_HidesUnlisted(t *testing.T) {
-	// Since unlisted is removed, all one-off workflows are now visible
-	m := Model{
-		keys:   newKeyMap(),
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		selector: selector{
-			kind:   selectorTask,
-			cursor: 0,
-			items:  []string{"Visible", "Hidden"},
-			title:  "Run Predefined Task",
-		},
-		cfg: &config.Config{
-			OneOff: []config.WorkflowConfig{
-				{Name: "Visible", Description: "A visible task"},
-				{Name: "Hidden", Description: "A hidden task"},
-			},
-		},
-	}
-
-	output := m.View()
-
-	if !strings.Contains(output, "Visible") {
-		t.Error("expected 'Visible' task in selection view")
-	}
-	if !strings.Contains(output, "Hidden") {
-		t.Error("expected 'Hidden' task to be visible (unlisted removed)")
-	}
-}
-
-func TestViewRendersStepContextSelection(t *testing.T) {
-	m := Model{
-		keys:   newKeyMap(),
-		list:   newListView(false, ""),
-		detail: newDetailView(),
-		view:   viewList,
-		selector: selector{
-			kind:   selectorArtifact,
-			cursor: 0,
-			items:  []string{"implement", "review"},
-			title:  "Select Step Context",
-			action: "view",
-		},
-	}
-
-	output := m.View()
-
-	if !strings.Contains(output, "Select Step Context") {
-		t.Error("expected selection screen to contain 'Select Step Context' title")
-	}
-	if !strings.Contains(output, "implement") {
-		t.Error("expected selection to contain 'implement'")
-	}
-	if !strings.Contains(output, "review") {
-		t.Error("expected selection to contain 'review'")
-	}
-}
-
-func TestArtifactViewState_View(t *testing.T) {
-	v := &artifactViewState{}
-	v.SetSize(80, 24)
-	v.SetContent("implement", "This is the step context content.\nLine 2.")
-
-	output := v.View()
-
-	if !strings.Contains(output, "Step Context: implement") {
-		t.Error("expected view to contain 'Step Context: implement'")
-	}
-	if !strings.Contains(output, "step context content") {
-		t.Error("expected view to contain step context content")
-	}
-	if !strings.Contains(output, "esc/q") {
-		t.Error("expected view help to contain 'esc/q'")
-	}
-}
-
-func TestTaskStepsLoadedMsg_SwitchesToArtifactView(t *testing.T) {
-	m := Model{
-		keys: newKeyMap(),
-		list: newListView(false, ""),
-		view: viewList,
-	}
-	m.artifactView.SetSize(80, 24)
-
-	now := time.Now()
-	msg := taskStepsLoadedMsg{
-		taskID: 1,
-		steps: []daemon.TaskStepDetail{
-			{Name: "implement", Status: stepStatusCompleted, Context: "test content", CompletedAt: &now},
-		},
-		action: "view",
-	}
-	result, _ := m.Update(msg)
-	updated := result.(Model)
-
-	if updated.view != viewArtifact {
-		t.Errorf("expected view to be viewArtifact (%d), got %d", viewArtifact, updated.view)
-	}
-}
-
-func TestTaskStepsLoadedMsg_SingleStepShowsDirectly(t *testing.T) {
-	// When only one actionable step is returned, it should be shown directly without selection
-	m := Model{
-		keys: newKeyMap(),
-		list: newListView(false, ""),
-		view: viewList,
-	}
-	m.artifactView.SetSize(80, 24)
-
-	now := time.Now()
-	msg := taskStepsLoadedMsg{
-		taskID: 1,
-		steps: []daemon.TaskStepDetail{
-			{Name: "implement", Status: stepStatusCompleted, Context: "step output", CompletedAt: &now},
-			{Name: "review", Status: stepStatusPending},
-		},
-		action: "view",
-	}
-	result, _ := m.Update(msg)
-	updated := result.(Model)
-
-	if updated.selector.kind == selectorArtifact && len(updated.selector.items) > 0 {
-		t.Error("expected selector to be empty for single actionable step")
-	}
-	if updated.view != viewArtifact {
-		t.Errorf("expected view to be viewArtifact, got %d", updated.view)
-	}
-}
-
-func TestFullHelp_ContainsArtifactBindings(t *testing.T) {
-	keys := newKeyMap()
-	groups := keys.FullHelp()
-
-	found := false
-	for _, group := range groups {
-		for _, b := range group {
-			if b.Help().Key == "oa" {
-				found = true
-				break
-			}
-		}
-	}
-	if !found {
-		t.Error("expected FullHelp to contain 'oa' open artifact binding")
-	}
-}
-
-func TestTaskInfoKeyMap_ContainsArtifactBindings(t *testing.T) {
-	keys := newTaskInfoKeyMap()
-	bindings := keys.ShortHelp()
-
-	foundOA := false
-	foundEA := false
-	for _, b := range bindings {
-		if b.Help().Key == "oa" {
-			foundOA = true
-		}
-		if b.Help().Key == "ea" {
-			foundEA = true
-		}
-	}
-	if !foundOA {
-		t.Error("expected task info ShortHelp to contain 'oa' binding")
-	}
-	if !foundEA {
-		t.Error("expected task info ShortHelp to contain 'ea' binding")
 	}
 }

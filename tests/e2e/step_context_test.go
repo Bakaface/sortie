@@ -16,16 +16,15 @@ git:
   base_branch: main
 on_complete: merge
 workflows:
-  tasks:
-    - name: plan-impl-review
-      print: true
-      steps:
-        - name: planning
-          prompt: "Plan the task"
-        - name: implementing
-          prompt: "Implement based on: {{step.planning.context}}"
-        - name: reviewing
-          prompt: "Review implementation"
+  - name: plan-impl-review
+    print: true
+    steps:
+      - name: planning
+        prompt: "Plan the task"
+      - name: implementing
+        prompt: "Implement based on: {{step.planning.context}}"
+      - name: reviewing
+        prompt: "Review implementation"
 `, stubPath)
 }
 

@@ -34,9 +34,7 @@ type ProjectConfig struct {
     Claude                     *ClaudeConfig           // Per-project claude binary / default args
     Verification               *VerificationConfig
     Git                        GitConfig               // BaseBranch, BranchTemplate, OnComplete
-    Workflows                  ProjectWorkflows        // tasks, one-off, init
-    Workflow                   WorkflowConfig          // deprecated, backward compat
-    Tasks                      []TaskConfig            // deprecated, use workflows.one-off
+    Workflows                  []WorkflowEntry         `yaml:"workflows"` // flat list (string ref or inline)
     SystemPrompt               string
     WorktreeSyncPaths          WorktreeSyncPathsConfig // Paths to copy/link into worktrees
     WorktreeSetupCommand       string                  // Single setup command (legacy)
@@ -48,6 +46,8 @@ type ProjectConfig struct {
     AllowedSummarizationModels []string                // Allowlist of haiku/sonnet/opus for the summarizer
 }
 ```
+
+`WorkflowEntry` is a single item in the flat `workflows:` list — exactly one of `Ref` (string) or `Inline` (`*WorkflowConfig`) is set. String entries resolve to `.sortie/workflows/<name>.yml` (local first, then global pool).
 
 ### OptionsConfig
 
@@ -75,6 +75,13 @@ Value options: `:set X=N`. See `command.go` `boolOptions`/`intOptions` registrie
 type WorkflowConfig struct {
     Name                  string
     Description           string
+    // Pinnable New Task screen fields — when set, the corresponding field is
+    // hidden and pre-filled. IsFullySpec() returns true when all are pinned,
+    // allowing the New Task screen to be skipped entirely.
+    Worktree              *bool                   // pins the worktree toggle
+    Branch                string                  // pins a new-branch template (forces branch-mode "new")
+    Checkout              string                  // pins an existing branch to check out (forces branch-mode "existing")
+    Target                string                  // pins the target/base branch
     Print                 bool                    // workflow-level default: true = headless `claude -p`, false = tmux. Step-level Print overrides.
     Steps                 []StepConfig
     SummarizerPrompt      string
@@ -85,9 +92,11 @@ type WorkflowConfig struct {
 
     // Populated by the loader, not from YAML:
     Hidden                bool                    // file-based workflow not referenced from .sortie.yml
-    Source                string                  // "inline" or path under .sortie/workflows/<cat>/
+    Source                string                  // "inline" or path under .sortie/workflows/
 }
 ```
+
+Methods: `IsFullySpec() bool` (true when description + worktree + branch/checkout + target are all pinned, so the New Task screen is skipped); `ValidatePins() error` (branch and checkout are mutually exclusive; branch/checkout/target are rejected when worktree is pinned false).
 
 The legacy `tmux:` field is rejected at parse time with a migration error — the replacement is the inverted `Print` field.
 
@@ -118,23 +127,31 @@ type VerificationConfig struct {
 }
 ```
 
-## Workflow Categories
+## Workflow List
+
+`workflows:` is a flat YAML sequence. Each item is either a string ref (resolves to `.sortie/workflows/<name>.yml`) or an inline mapping:
 
 ```yaml
 workflows:
-  tasks:    [...]   # User-created tasks with title + description
-  one-off:  [...]   # Predefined jobs with built-in descriptions
-  init:     [...]   # Initialization pipelines
+  - name: fast                   # no pins → always prompts New Task screen
+    steps: [...]
+  - update-changelog             # string ref → .sortie/workflows/update-changelog.yml
+  - name: housekeeping           # all fields pinned → skips New Task screen
+    description: "Run standard maintenance"
+    worktree: true
+    branch: sortie/housekeeping-{{task.id}}
+    target: main
+    steps: [...]
 ```
 
-Legacy formats supported: plain list (`workflows: [...]`) and singular (`workflow: { steps: [...] }`).
+"Kind" is now an emergent property of how completely a workflow pins the New Task form — not a config category. The `n` key (and `:RunTask`) operates over the single flat list; fully-pinned workflows create a task immediately without showing the form.
 
 ## StepConfig
 
 ```go
 type StepConfig struct {
     Name, Prompt, Mode    string
-    Tmux                  *bool          // Override workflow-level tmux
+    Print                 *bool          // Override workflow-level Print; nil = inherit
     Timeout               string         // Parsed duration, default 30m (DefaultStepTimeout)
     Human                 bool           // Approval gate
     Loop                  *LoopConfig    // Optional retry loop
@@ -186,13 +203,11 @@ Variables: `{{task_id}}`, `{{task_slug}}`, `{{task.title}}`, `{{task.id}}`, `{{t
 ## Config Accessors
 
 ```go
-GetWorkflow(name string) *WorkflowConfig
-GetPredefinedTask(name string) *WorkflowConfig     // From one-off workflows
-GetInitWorkflow(name string) *WorkflowConfig
-DefaultWorkflow() WorkflowConfig                    // Built-in default workflow
-ListWorkflowNames() []string
-ListPredefinedTaskNames() []string
-ListInitWorkflowNames() []string
+GetWorkflow(name string) *WorkflowConfig            // By name; returns first if name=""; returns DefaultWorkflow() if not found
+GetTaskWorkflow(name string) *WorkflowConfig        // By name (includes hidden); returns first non-hidden if name=""; nil if not found
+DefaultWorkflow() WorkflowConfig                    // Built-in single-step default workflow
+ListWorkflowNames() []string                        // Active (non-hidden) workflow names; ["default"] if none configured
+ListAllWorkflowNames() []string                     // All workflow names including hidden (for pickers/tab-completion)
 GetStepTimeout(step StepConfig) time.Duration       // Parses Timeout string, falls back to 30m
 GetWorktreeSetupCommand(wf *WorkflowConfig) string  // Workflow-level override, then project-level
 GetTmuxSetupCommand(wf *WorkflowConfig) string      // Workflow-level override, then project-level
@@ -223,7 +238,7 @@ SanitizeProjectName(name string) string             // Replaces dots with unders
 
 ## Patterns
 
-- Access workflows via `ListWorkflowNames()`, `GetWorkflow()`, `ListPredefinedTaskNames()`
+- Access workflows via `ListWorkflowNames()`, `GetWorkflow()`, `GetTaskWorkflow()`
 - `ClaudeConfig.Args()` adds `--dangerously-skip-permissions` if Yolo
 - Config validation at parse time; invalid configs return errors
 - New fields: add to struct + YAML tag + merge logic + test fixtures

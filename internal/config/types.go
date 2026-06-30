@@ -81,9 +81,7 @@ type ProjectConfig struct {
 	// workflow finishes ("commit" | "merge" | "none"). Overridable per-workflow
 	// via WorkflowConfig.OnComplete. Moved here from the former git.on_complete.
 	OnComplete               string                  `yaml:"on_complete,omitempty"`
-	Workflows                ProjectWorkflows        `yaml:"workflows"`
-	Workflow                 WorkflowConfig          `yaml:"workflow"` // deprecated, backward compat
-	Tasks                    []TaskConfig            `yaml:"tasks"`    // deprecated, use workflows.one-off
+	Workflows                []WorkflowEntry         `yaml:"workflows"`
 	Notifications            *NotificationsConfig    `yaml:"notifications,omitempty"`
 	TmuxNestedAttachBehavior string                  `yaml:"tmux_nested_attach_behavior"`
 	SystemPrompt             string                  `yaml:"system_prompt"`
@@ -101,13 +99,13 @@ type ProjectConfig struct {
 	AllowedSummarizationModels []string `yaml:"allowed_summarization_models,omitempty"`
 }
 
-// WorkflowEntry is a single item in a workflows.<category>: list. It is either
-// a string referencing a workflow file under .sortie/workflows/<category>/<name>.yml
+// WorkflowEntry is a single item in the flat workflows: list. It is either
+// a string referencing a workflow file under .sortie/workflows/<name>.yml
 // or an inline WorkflowConfig definition. Exactly one of Ref / Inline is set.
 type WorkflowEntry struct {
 	// Ref, when non-empty, is the name of a file-based workflow under
-	// .sortie/workflows/<category>/. The file must exist at config-load time
-	// (missing files surface a hard error).
+	// .sortie/workflows/. The file must exist at config-load time (missing
+	// files surface a hard error), or resolve against the global pool.
 	Ref string
 
 	// Inline, when non-nil, is an inline workflow definition.
@@ -138,47 +136,9 @@ func (e *WorkflowEntry) UnmarshalYAML(value *yaml.Node) error {
 	}
 }
 
-// ProjectWorkflows is the consolidated workflows section in .sortie.yml.
-// Supports both the new structured format (map with one-off/tasks/init keys)
-// and the legacy list format ([]WorkflowConfig). Each category accepts a mix
-// of string refs (resolved against .sortie/workflows/<category>/) and inline
-// workflow definitions.
-type ProjectWorkflows struct {
-	OneOff []WorkflowEntry `yaml:"one-off"`
-	Tasks  []WorkflowEntry `yaml:"tasks"`
-	Init   []WorkflowEntry `yaml:"init"`
-
-	// legacy holds workflows parsed from the old list format
-	legacy []WorkflowConfig
-}
-
-// UnmarshalYAML handles both the new structured format and the legacy list format.
-func (pw *ProjectWorkflows) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind == yaml.SequenceNode {
-		return value.Decode(&pw.legacy)
-	}
-	type raw ProjectWorkflows
-	return value.Decode((*raw)(pw))
-}
-
-// IsEmpty returns true if no workflows are configured in any format.
-func (pw *ProjectWorkflows) IsEmpty() bool {
-	return len(pw.OneOff) == 0 && len(pw.Tasks) == 0 && len(pw.Init) == 0 && len(pw.legacy) == 0
-}
-
 type VerificationConfig struct {
 	MaxRetries       int  `yaml:"max_retries"`
 	VerifySummarizer bool `yaml:"verify_summarizer"`
-}
-
-// TaskConfig defines a predefined task with a built-in description and workflow steps.
-// Deprecated: use workflows.one-off in .sortie.yml instead.
-type TaskConfig struct {
-	Name             string       `yaml:"name"`
-	Description      string       `yaml:"description"`
-	Unlisted         bool         `yaml:"unlisted"` // deprecated, ignored
-	Steps            []StepConfig `yaml:"steps"`
-	SummarizerPrompt string       `yaml:"summarizer_prompt"`
 }
 
 type GitConfig struct {
@@ -221,6 +181,23 @@ func checkRemovedGitOnComplete(node *yaml.Node) error {
 type WorkflowConfig struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"`
+
+	// The following four fields pre-pin New Task screen fields. When set, the
+	// corresponding form field is hidden and its value supplied by the workflow.
+	// See IsFullySpec() and the prompt-screen pin logic.
+	//
+	//   Worktree pins the worktree toggle (task.Worktree).
+	//   Branch pins a new-branch template (forces branch-mode "new").
+	//   Checkout pins an existing branch to check out (forces branch-mode "existing").
+	//   Target pins the target/base branch (task.TargetBranch).
+	//
+	// Branch and Checkout are mutually exclusive. Setting branch/checkout/target
+	// while Worktree is pinned false is a config error (the git section is hidden).
+	Worktree *bool  `yaml:"worktree,omitempty"`
+	Branch   string `yaml:"branch,omitempty"`
+	Checkout string `yaml:"checkout,omitempty"`
+	Target   string `yaml:"target,omitempty"`
+
 	// Print controls the workflow-level default execution mode for Claude steps.
 	//   false (default): run each step in tmux (interactive Claude Code TUI).
 	//   true:            run each step headless via `claude -p`.
@@ -237,7 +214,7 @@ type WorkflowConfig struct {
 	WorktreeSetupCommands []string                `yaml:"worktree-setup-commands,omitempty"`
 	TmuxSetupCommand      string                  `yaml:"tmux-setup-command,omitempty"`
 
-	// Hidden marks workflows loaded from .sortie/workflows/<cat>/ that are NOT
+	// Hidden marks workflows loaded from .sortie/workflows/ that are NOT
 	// referenced from .sortie.yml. Hidden workflows remain engine-reachable
 	// (CLI flags, pickers, DB-persisted refs) but do not appear in TUI menus.
 	// Not serialized to YAML — populated by the loader.
@@ -245,7 +222,7 @@ type WorkflowConfig struct {
 
 	// Source records where this workflow definition originated:
 	//   "inline"           — defined inline in .sortie.yml
-	//   "<path>"           — file path under .sortie/workflows/<cat>/
+	//   "<path>"           — file path under .sortie/workflows/
 	// Not serialized to YAML — populated by the loader.
 	Source string `yaml:"-"`
 }
@@ -263,6 +240,35 @@ func (wf *WorkflowConfig) UnmarshalYAML(value *yaml.Node) error {
 	}
 	*wf = WorkflowConfig(r)
 	return nil
+}
+
+// ValidatePins checks the pinnable New Task fields for internal consistency:
+// branch and checkout are mutually exclusive, and branch/checkout/target are
+// meaningless (and rejected) when the worktree toggle is pinned off.
+func (wf *WorkflowConfig) ValidatePins() error {
+	if wf.Branch != "" && wf.Checkout != "" {
+		return fmt.Errorf("workflow %q: cannot set both branch and checkout", wf.Name)
+	}
+	if wf.Worktree != nil && !*wf.Worktree {
+		if wf.Branch != "" || wf.Checkout != "" || wf.Target != "" {
+			return fmt.Errorf("workflow %q: branch/checkout/target cannot be set when worktree: false", wf.Name)
+		}
+	}
+	return nil
+}
+
+// IsFullySpec returns true when every New Task screen field is pinned by this
+// workflow, so the screen can be skipped entirely. Title is auto-generated and
+// never gates skip.
+func (wf *WorkflowConfig) IsFullySpec() bool {
+	if wf.Description == "" || wf.Worktree == nil {
+		return false
+	}
+	if !*wf.Worktree {
+		return true // git section N/A when worktree is pinned off
+	}
+	hasBranch := wf.Branch != "" || wf.Checkout != ""
+	return hasBranch && wf.Target != ""
 }
 
 type StepConfig struct {
@@ -612,11 +618,8 @@ type Config struct {
 	// OnComplete is the resolved project-level finalization action
 	// ("commit" | "merge" | "none"). Per-workflow overrides live on
 	// WorkflowConfig.OnComplete and are resolved at finalization time.
-	OnComplete    string
-	Workflows     []WorkflowConfig // flat list for engine resolution (all kinds, with prefixed names)
-	TaskWorkflows []WorkflowConfig // "tasks" workflows (for "n" new task menu)
-	OneOff        []WorkflowConfig // "one-off" workflows (for "r" run menu)
-	InitWorkflows []WorkflowConfig // "init" workflows (for "i" init menu)
+	OnComplete string
+	Workflows  []WorkflowConfig // flat resolved workflow list
 
 	// System prompt preamble passed via --system-prompt to Claude agents
 	SystemPrompt string
@@ -674,7 +677,7 @@ type Config struct {
 
 	// globalPool holds workflows resolved from the global ~/.sortie.yml (both
 	// inline and file-based under ~/.sortie/workflows/). Project-level config
-	// string refs that don't match a local .sortie/workflows/<cat>/<name>.yml
+	// string refs that don't match a local .sortie/workflows/<name>.yml
 	// fall back to this pool, letting projects reuse globally-defined
 	// workflows by name. Populated during loadCommon, after the global
 	// .sortie.yml is processed. Not serialized.

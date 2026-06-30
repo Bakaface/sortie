@@ -271,6 +271,9 @@ func (m Model) createTaskWithPrompt(title, description, branchName string, workt
 		}
 
 		bm := int(m.prompt.branchMode)
+		// The prompt always resolves an explicit worktree value (from the toggle
+		// or the workflow pin), so pass it through as a concrete choice.
+		worktreeChoice := worktree
 		args := action.CreateArgs{
 			Title:       title,
 			Description: description,
@@ -278,7 +281,7 @@ func (m Model) createTaskWithPrompt(title, description, branchName string, workt
 			Branch:      branchName,
 			Target:      targetBranch,
 			Checkout:    checkoutBranch,
-			NoWorktree:  !worktree,
+			Worktree:    &worktreeChoice,
 			ProjectPath: m.projectPath,
 			Images:      images,
 			BranchMode:  &bm,
@@ -598,9 +601,13 @@ func (m Model) createBranchTask(branch string) tea.Cmd {
 			return nil
 		}
 
+		// Checking out an existing branch needs an isolated worktree regardless of
+		// the project default, so request one explicitly.
+		worktreeOn := true
 		res, err := action.RunCreate(m.actionCtx(), action.CreateArgs{
 			Checkout:    branch,
 			ProjectPath: m.projectPath,
+			Worktree:    &worktreeOn,
 			TmuxDirect:  true,
 		})
 		if err != nil {

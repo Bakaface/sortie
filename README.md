@@ -80,11 +80,9 @@ sortie tasks                                     # list, or `sortie tasks <id>` 
 
 ## Workflow configuration
 
-Workflows live in `.sortie.yml` at the repo root. Three categories:
+Workflows live in `.sortie.yml` at the repo root as a flat `workflows:` list. Each entry is either a string ref (resolved to `.sortie/workflows/<name>.yml`) or an inline workflow mapping.
 
-- **`tasks:`** — workflows you assign to ad-hoc tasks (the default category).
-- **`one-off:`** — workflows you trigger directly from the TUI (`x` key) without a task description, e.g. a "refactor pass" or "run tests".
-- **`init:`** — workflows for project bootstrapping (`i` key in TUI).
+A workflow may **pin** any subset of New Task screen fields (`description`, `worktree`, `branch`, `checkout`, `target`). Pinned fields are pre-filled and hidden from the form. If all fields are pinned the New Task screen is skipped entirely and the task is created immediately.
 
 Minimal `.sortie.yml`:
 
@@ -99,23 +97,39 @@ git:
 on_complete: merge                # commit | merge | none (per-workflow overridable)
 
 workflows:
-  tasks:
-    - name: sensible workflow
-      on_complete: commit         # optional: override the project-level on_complete
-      steps:
-        - name: implementing
-          prompt: |
-            Implement task #{{task.id}}: {{task.title}}
-            {{task.description}}
-          timeout: 30m
+  - name: sensible workflow
+    on_complete: commit           # optional: override the project-level on_complete
+    steps:
+      - name: implementing
+        prompt: |
+          Implement task #{{task.id}}: {{task.title}}
+          {{task.description}}
+        timeout: 30m
 
-        - name: reviewing
-          prompt: |
-            Review the implementation.
-            ## Implementation summary
-            {{steps.implementing.context}}
-          timeout: 20m
+      - name: reviewing
+        prompt: |
+          Review the implementation.
+          ## Implementation summary
+          {{steps.implementing.context}}
+        timeout: 20m
 ```
+
+Workflows with no pins always prompt the New Task screen. Workflows that pin all fields (description + worktree + branch/checkout + target) skip the screen and create the task immediately — useful for predefined maintenance jobs or project bootstrapping pipelines:
+
+```yaml
+workflows:
+  - name: housekeeping
+    description: "Run standard maintenance: linting, dead code removal"
+    worktree: true
+    branch: sortie/housekeeping-{{task.id}}
+    target: main
+    steps:
+      - name: cleaning
+        prompt: "Audit and clean the codebase."
+        print: true
+```
+
+File pool is flat: `.sortie/workflows/<name>.yml` (no `tasks/`, `one-off/`, or `init/` subdirectories). Global pool: `~/.sortie/workflows/<name>.yml`.
 
 ### Step options
 
@@ -125,7 +139,7 @@ workflows:
 | `prompt` | string | Templated prompt sent to the agent. |
 | `timeout` | duration | e.g. `30m`. Default: 30 minutes. |
 | `human` | bool | Pause and wait for explicit approval in the TUI. |
-| `tmux` | bool | Run inside a tmux session you can attach to (`t` in the TUI). Step-level overrides workflow-level. |
+| `print` | bool | `true` = headless `claude -p`; `false` (default) = tmux. Step-level overrides workflow-level. |
 | `summarization_strategy` | enum | `last_message`, `summarize_chat` (default, Haiku-summarized chat log), or `none` (no context captured). |
 | `loop` | object | Jump back to an earlier step. See below. |
 
@@ -214,8 +228,6 @@ Common keys (full help with `ctrl+h`):
 | `j` / `k` / `↑↓` | Move selection |
 | `enter` | Open task detail / follow live logs |
 | `n` / `N` | New task / new blocking task |
-| `x` | Run a one-off workflow (no task needed) |
-| `i` | Run an init workflow |
 | `c` | Continue an awaiting-approval / completed / failed task |
 | `s` | Stop the running step |
 | `r` / `R` | Retry / revert |
@@ -237,15 +249,14 @@ To opt into headless execution via `claude -p` (e.g. for short, deterministic st
 
 ```yaml
 workflows:
-  tasks:
-    - name: ship-it
-      print: true         # workflow-level default: headless
-      steps:
-        - name: implement
-          prompt: "..."
-        - name: review
-          print: false    # this step still uses tmux
-          prompt: "..."
+  - name: ship-it
+    print: true         # workflow-level default: headless
+    steps:
+      - name: implement
+        prompt: "..."
+      - name: review
+        print: false    # this step still uses tmux
+        prompt: "..."
 ```
 
 | `print` | `human` | Behavior |

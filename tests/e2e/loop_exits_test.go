@@ -41,19 +41,18 @@ git:
   base_branch: main
 on_complete: merge
 workflows:
-  tasks:
-    - name: looping
-      print: true
-      steps:
-        - name: implementing
-          prompt: "Do the work"
-        - name: checking
-          prompt: "Check if done"
-          loop:
-            goto: implementing
-            max_iterations: 5
-            exit_condition:
-              step_context_empty: checking
+  - name: looping
+    print: true
+    steps:
+      - name: implementing
+        prompt: "Do the work"
+      - name: checking
+        prompt: "Check if done"
+        loop:
+          goto: implementing
+          max_iterations: 5
+          exit_condition:
+            step_context_empty: checking
 `, counterScript)
 
 	e.WriteSortieYAML(yaml)

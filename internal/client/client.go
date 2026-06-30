@@ -828,8 +828,8 @@ func (c *Client) UpdateActiveStepContext(taskID int64, stepName, context, mode s
 	})
 }
 
-// ListWorkflows returns the workflows configured for the project rooted at
-// projectPath, grouped by kind (tasks, one-off, init).
+// ListWorkflows returns the flat list of workflows configured for the project
+// rooted at projectPath.
 func (c *Client) ListWorkflows(projectPath string) (*daemon.ListWorkflowsResponse, error) {
 	msg, err := c.request(daemon.MsgListWorkflows, daemon.ListWorkflowsRequest{ProjectPath: projectPath})
 	if err != nil {

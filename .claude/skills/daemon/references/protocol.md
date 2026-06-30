@@ -38,7 +38,7 @@ type Message struct {
 | `get_step_contexts` | `GetStepContextsRequest{TaskID}` | Get step context map (`step_name → context`) |
 | `get_task_steps` | `GetTaskStepsRequest{TaskID}` | Get per-step state (ordered, includes pending placeholders for workflow steps without DB rows) |
 | `update_step_context` | `UpdateStepContextRequest{TaskID, StepName, Context}` | Overwrite the captured context for a named step |
-| `list_workflows` | `ListWorkflowsRequest{ProjectPath}` | List workflows for a project, grouped by kind (tasks / one-off / init) |
+| `list_workflows` | `ListWorkflowsRequest{ProjectPath}` | List workflows for a project (flat list) |
 | `shutdown` | — | Graceful shutdown |
 
 ## Server -> Client Events

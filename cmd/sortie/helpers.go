@@ -11,15 +11,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// workflowAllowsEmptyDescription returns true when the named workflow's first
-// step runs in tmux. Such workflows can be started without a description because
-// the user drives the tmux session interactively.
+// workflowAllowsEmptyDescription returns true when the named workflow can be
+// started without an explicit -d/--description. This holds when the workflow
+// pins a description (the pin supplies it) or when its first step runs in tmux
+// (the user drives the session interactively).
 func workflowAllowsEmptyDescription(cfg *config.Config, workflowName string) bool {
 	if cfg == nil {
 		return false
 	}
 	wf := cfg.GetWorkflow(workflowName)
-	return wf.FirstStepIsTmux()
+	if wf == nil {
+		return false
+	}
+	return wf.Description != "" || wf.FirstStepIsTmux()
 }
 
 // taskTableRow holds the display fields for a single row in the task list table.

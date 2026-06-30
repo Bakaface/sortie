@@ -14,19 +14,23 @@ import (
 // AI-derived (or branch-derived) title when the description / checkout branch
 // makes that meaningful.
 type CreateArgs struct {
-	Title          string
-	Description    string
-	Priority       string
-	Branch         string
-	Workflow       string
-	Target         string
-	Checkout       string
-	NoWorktree     bool
-	DependsOn      []int64
-	ProjectPath    string // set by the caller from cfg.ProjectDir / m.projectPath
-	Images         []string
-	TmuxDirect     bool
-	BranchMode     *int
+	Title       string
+	Description string
+	Priority    string
+	Branch      string
+	Workflow    string
+	Target      string
+	Checkout    string
+	// Worktree is the explicit worktree choice. nil means "no explicit choice" —
+	// the daemon then defers to the workflow's worktree pin, falling back to the
+	// project default. A non-nil value (a real user choice) overrides both. Leaving
+	// this nil is what lets a workflow's worktree:false pin actually take effect.
+	Worktree    *bool
+	DependsOn   []int64
+	ProjectPath string // set by the caller from cfg.ProjectDir / m.projectPath
+	Images      []string
+	TmuxDirect  bool
+	BranchMode  *int
 }
 
 func (a CreateArgs) Validate() error {
@@ -47,7 +51,6 @@ func RunCreate(ctx Ctx, args CreateArgs) (Result, error) {
 		return Result{}, err
 	}
 
-	worktree := !args.NoWorktree
 	req := daemon.CreateTaskRequest{
 		Title:          args.Title,
 		Description:    strings.TrimSpace(args.Description),
@@ -57,7 +60,7 @@ func RunCreate(ctx Ctx, args CreateArgs) (Result, error) {
 		TargetBranch:   args.Target,
 		CheckoutBranch: args.Checkout,
 		ProjectPath:    args.ProjectPath,
-		Worktree:       &worktree,
+		Worktree:       args.Worktree,
 		BranchMode:     args.BranchMode,
 		TmuxDirect:     args.TmuxDirect,
 		Images:         args.Images,

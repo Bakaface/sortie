@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -141,32 +142,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case key.Matches(msg, m.keys.RunTask):
-		// Show predefined one-off selection (active + hidden) if any are configured.
-		if m.client != nil && m.projectPath != "" {
-			tasks := m.cfg.ListAllPredefinedTaskNames()
-			if len(tasks) > 0 {
-				var descs []string
-				for _, name := range tasks {
-					if tc := m.cfg.GetPredefinedTask(name); tc != nil {
-						descs = append(descs, tc.Description)
-					} else {
-						descs = append(descs, "")
-					}
-				}
-				m.selector = selector{
-					kind:            selectorTask,
-					title:           "Run One-off",
-					items:           append([]string(nil), tasks...),
-					descriptions:    append([]string(nil), descs...),
-					filterable:      true,
-					allItems:        tasks,
-					allDescriptions: descs,
-				}
-				return m, nil
-			}
-		}
-
 	case key.Matches(msg, m.keys.Revert):
 		if task := m.list.Selected(); task != nil && m.client != nil {
 			if task.Status == "completed" || task.Status == "failed" {
@@ -236,33 +211,6 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case key.Matches(msg, m.keys.InitWorkflow):
-		// Show init workflow selection (active + hidden) if any are configured.
-		if m.client != nil && m.projectPath != "" {
-			inits := m.cfg.ListAllInitWorkflowNames()
-			if len(inits) > 0 {
-				var descs []string
-				for _, name := range inits {
-					if ic := m.cfg.GetInitWorkflow(name); ic != nil {
-						descs = append(descs, ic.Description)
-					} else {
-						descs = append(descs, "")
-					}
-				}
-				m.selector = selector{
-					kind:            selectorInit,
-					title:           "Run Init Workflow",
-					items:           append([]string(nil), inits...),
-					descriptions:    append([]string(nil), descs...),
-					filterable:      true,
-					allItems:        inits,
-					allDescriptions: descs,
-				}
-				return m, nil
-			}
-		}
-		return m, nil
-
 	case key.Matches(msg, m.keys.NewTask):
 		// If search is active, "n" navigates to next match
 		if len(m.list.matchedIndices) > 0 {
@@ -275,12 +223,20 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		workflows := m.cfg.ListWorkflowNames()
 		m.selectedWorkflow = m.resolveDefaultWorkflow(workflows)
+		wf := m.cfg.GetTaskWorkflow(m.selectedWorkflow)
+		// Fully-pinned workflow → skip the screen and create immediately.
+		if wf != nil && wf.IsFullySpec() {
+			return m, m.createTaskWithPrompt("", wf.Description, wf.Branch, *wf.Worktree, nil, wf.Target, wf.Checkout)
+		}
 		m.view = viewPrompt
 		m.prompt.defaultWorkflow = m.defaultWorkflow
 		m.prompt.Reset()
 		m.prompt.workflowName = m.selectedWorkflow
 		m.prompt.workflows = workflows
 		m.prompt.workflowCursor = m.prompt.defaultWorkflowCursor()
+		if wf != nil {
+			m.prompt.applyPins(wf)
+		}
 		m.prompt.SetSize(m.width, m.height) // recalc widths for split layout
 		m.prompt.Focus()
 		return m, nil
@@ -302,12 +258,21 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.blockingTaskID = task.ID
 		workflows := m.cfg.ListWorkflowNames()
 		m.selectedWorkflow = m.resolveDefaultWorkflow(workflows)
+		wf := m.cfg.GetTaskWorkflow(m.selectedWorkflow)
+		// Fully-pinned workflow → create the blocking task immediately
+		// (m.blockingTaskID is threaded through createTaskWithPrompt).
+		if wf != nil && wf.IsFullySpec() {
+			return m, m.createTaskWithPrompt("", wf.Description, wf.Branch, *wf.Worktree, nil, wf.Target, wf.Checkout)
+		}
 		m.view = viewPrompt
 		m.prompt.defaultWorkflow = m.defaultWorkflow
 		m.prompt.Reset()
 		m.prompt.workflowName = m.selectedWorkflow
 		m.prompt.workflows = workflows
 		m.prompt.workflowCursor = m.prompt.defaultWorkflowCursor()
+		if wf != nil {
+			m.prompt.applyPins(wf)
+		}
 		m.prompt.blockingTaskID = m.blockingTaskID
 		m.prompt.blockingTaskTitle = m.blockingTaskTitleFromList(m.blockingTaskID)
 		m.prompt.SetSize(m.width, m.height)
@@ -522,30 +487,6 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 	m.selector.Reset()
 
 	switch kind {
-	case selectorTask:
-		taskCfg := m.cfg.GetPredefinedTask(item)
-		if taskCfg == nil {
-			return m, nil
-		}
-		m.selectedWorkflow = "oneoff:" + taskCfg.Name
-		description := taskCfg.Description
-		if description == "" {
-			description = taskCfg.Name
-		}
-		return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
-
-	case selectorInit:
-		initCfg := m.cfg.GetInitWorkflow(item)
-		if initCfg == nil {
-			return m, nil
-		}
-		m.selectedWorkflow = "init:" + initCfg.Name
-		description := initCfg.Description
-		if description == "" {
-			description = initCfg.Name
-		}
-		return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
-
 	case selectorPriority:
 		return m, m.updateTaskPriority(taskID, item)
 
@@ -555,25 +496,42 @@ func (m Model) handleSelectorChoice() (tea.Model, tea.Cmd) {
 	case selectorRetryStep:
 		return m, m.retryTask(taskID, item)
 
-	case selectorTaskWorkflow:
-		// Open the new-task prompt with the workflow preselected and the
-		// cycler hidden (workflows slice contains just this one name).
-		if m.client == nil || m.projectPath == "" {
-			return m, nil
-		}
-		m.selectedWorkflow = item
-		m.view = viewPrompt
-		m.prompt.defaultWorkflow = m.defaultWorkflow
-		m.prompt.Reset()
-		m.prompt.preselectedWorkflow = item
-		m.prompt.workflowName = item
-		m.prompt.workflows = []string{item}
-		m.prompt.workflowCursor = 0
-		m.prompt.SetSize(m.width, m.height)
-		m.prompt.Focus()
-		return m, nil
+	case selectorWorkflow:
+		return m.launchWorkflow(item)
 	}
 
+	return m, nil
+}
+
+// launchWorkflow starts a task for the named workflow. When the workflow pins
+// every New Task field it is created immediately; otherwise the New Task prompt
+// opens with the workflow preselected (cycler locked to this one name) and any
+// pinned fields populated and hidden.
+func (m Model) launchWorkflow(wfName string) (tea.Model, tea.Cmd) {
+	if m.client == nil || m.projectPath == "" {
+		return m, nil
+	}
+	wf := m.cfg.GetTaskWorkflow(wfName)
+	if wf == nil {
+		m.err = fmt.Errorf("unknown workflow: %s", wfName)
+		return m, nil
+	}
+	m.selectedWorkflow = wfName
+
+	if wf.IsFullySpec() {
+		return m, m.createTaskWithPrompt("", wf.Description, wf.Branch, *wf.Worktree, nil, wf.Target, wf.Checkout)
+	}
+
+	m.view = viewPrompt
+	m.prompt.defaultWorkflow = m.defaultWorkflow
+	m.prompt.Reset()
+	m.prompt.preselectedWorkflow = wfName
+	m.prompt.workflowName = wfName
+	m.prompt.workflows = []string{wfName}
+	m.prompt.workflowCursor = 0
+	m.prompt.applyPins(wf)
+	m.prompt.SetSize(m.width, m.height)
+	m.prompt.Focus()
 	return m, nil
 }
 
@@ -698,4 +656,3 @@ func (m Model) resolveDefaultWorkflow(workflows []string) string {
 	}
 	return ""
 }
-

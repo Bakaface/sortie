@@ -8,10 +8,10 @@ import (
 	"github.com/Bakaface/sortie/internal/config"
 )
 
-// handleListWorkflows returns the task / one-off / init workflows for the
-// project rooted at req.ProjectPath. The project is resolved (or created)
-// the same way CreateTask resolves it, so the response reflects the daemon's
-// view of the config rather than a fresh read by the caller.
+// handleListWorkflows returns the flat list of workflows for the project rooted
+// at req.ProjectPath. The project is resolved (or created) the same way
+// CreateTask resolves it, so the response reflects the daemon's view of the
+// config rather than a fresh read by the caller.
 func (s *Server) handleListWorkflows(conn net.Conn, req ListWorkflowsRequest) {
 	projectPath := strings.TrimSpace(req.ProjectPath)
 	if projectPath == "" {
@@ -34,16 +34,14 @@ func (s *Server) handleListWorkflows(conn net.Conn, req ListWorkflowsRequest) {
 	resp := ListWorkflowsResponse{
 		ProjectPath: proj.Path,
 		ProjectName: pc.cfg.Project.Name,
-		Tasks:       summarizeWorkflows(pc.cfg.TaskWorkflows),
-		OneOff:      summarizeWorkflows(pc.cfg.OneOff),
-		Init:        summarizeWorkflows(pc.cfg.InitWorkflows),
+		Workflows:   summarizeWorkflows(pc.cfg.Workflows),
 	}
 
-	// If no task workflows are configured, expose the built-in default so the
-	// MCP caller sees the same surface as `sortie create -w default`.
-	if len(resp.Tasks) == 0 {
+	// If no workflows are configured, expose the built-in default so the MCP
+	// caller sees the same surface as `sortie create -w default`.
+	if len(resp.Workflows) == 0 {
 		def := config.DefaultWorkflow()
-		resp.Tasks = summarizeWorkflows([]config.WorkflowConfig{def})
+		resp.Workflows = summarizeWorkflows([]config.WorkflowConfig{def})
 	}
 
 	s.sendMessage(conn, MsgListWorkflows, resp)
@@ -56,6 +54,11 @@ func summarizeWorkflows(workflows []config.WorkflowConfig) []WorkflowSummary {
 		summary := WorkflowSummary{
 			Name:            wf.Name,
 			Description:     wf.Description,
+			Worktree:        wf.Worktree,
+			Branch:          wf.Branch,
+			Checkout:        wf.Checkout,
+			Target:          wf.Target,
+			FullySpec:       wf.IsFullySpec(),
 			Print:           wf.Print,
 			FirstStepIsTmux: wf.FirstStepIsTmux(),
 			Hidden:          wf.Hidden,

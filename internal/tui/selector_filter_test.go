@@ -8,7 +8,7 @@ import (
 func TestSelectorFilterable_FiltersOnTyping(t *testing.T) {
 	items := []string{"alpha", "beta", "gamma", "alligator"}
 	s := selector{
-		kind:       selectorTaskWorkflow,
+		kind:       selectorWorkflow,
 		title:      "Pick",
 		items:      append([]string(nil), items...),
 		filterable: true,
@@ -80,7 +80,7 @@ func TestSelectorFilterable_EnterChoosesFiltered(t *testing.T) {
 
 func TestSelectorView_FilterableShowsFilterLine(t *testing.T) {
 	s := selector{
-		kind:       selectorTask,
+		kind:       selectorWorkflow,
 		title:      "Pick One",
 		items:      []string{"alpha", "beta"},
 		filterable: true,

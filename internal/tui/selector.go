@@ -12,12 +12,10 @@ type selectorKind int
 
 const (
 	selectorNone selectorKind = iota
-	selectorTask     // one-off picker (legacy "x" shortcut behavior)
-	selectorInit     // init picker
 	selectorPriority
 	selectorArtifact
-	selectorTaskWorkflow // tasks-category picker: opens new-task prompt with workflow preselected
-	selectorRetryStep    // retry: pick which workflow step to restart from
+	selectorWorkflow  // workflow picker: opens new-task prompt with workflow preselected (or skips if fully-pinned)
+	selectorRetryStep // retry: pick which workflow step to restart from
 )
 
 // selectionResult is returned by selector.HandleKey to signal what happened.

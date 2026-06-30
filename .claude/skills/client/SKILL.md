@@ -77,7 +77,7 @@ UpdateStepContext(taskID int64, stepName, context string) error // overwrite cap
 
 ### Workflow Discovery
 ```go
-ListWorkflows(projectPath string) (*daemon.ListWorkflowsResponse, error)  // grouped by tasks / one-off / init
+ListWorkflows(projectPath string) (*daemon.ListWorkflowsResponse, error)  // flat list
 ```
 
 ### Dependency & Branch Operations

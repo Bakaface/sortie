@@ -244,10 +244,17 @@ type WorkflowStepSummary struct {
 	Loop  bool   `json:"loop,omitempty"`
 }
 
-// WorkflowSummary describes a single workflow available in a project.
+// WorkflowSummary describes a single workflow available in a project. It
+// carries the pinnable New Task fields (worktree/branch/checkout/target) and
+// FullySpec so consumers can decide skip-vs-show without re-resolving config.
 type WorkflowSummary struct {
 	Name            string                `json:"name"`
 	Description     string                `json:"description,omitempty"`
+	Worktree        *bool                 `json:"worktree,omitempty"`           // pinned worktree toggle (nil = unpinned)
+	Branch          string                `json:"branch,omitempty"`             // pinned new-branch template
+	Checkout        string                `json:"checkout,omitempty"`           // pinned existing branch to check out
+	Target          string                `json:"target,omitempty"`             // pinned target/base branch
+	FullySpec       bool                  `json:"fully_spec"`                   // every New Task field pinned → screen can be skipped
 	Print           bool                  `json:"print,omitempty"`              // workflow-level default (true = headless claude -p)
 	FirstStepIsTmux bool                  `json:"first_step_is_tmux,omitempty"` // derived; useful for picking interactive workflows
 	Hidden          bool                  `json:"hidden,omitempty"`             // file-based workflow not referenced from .sortie.yml
@@ -255,14 +262,12 @@ type WorkflowSummary struct {
 	Steps           []WorkflowStepSummary `json:"steps,omitempty"`
 }
 
-// ListWorkflowsResponse groups workflows by kind. Kinds match the keys in
-// .sortie.yml's workflows: section: tasks, one-off, init.
+// ListWorkflowsResponse returns the flat list of workflows available in a
+// project.
 type ListWorkflowsResponse struct {
 	ProjectPath string            `json:"project_path"`
 	ProjectName string            `json:"project_name,omitempty"`
-	Tasks       []WorkflowSummary `json:"tasks"`
-	OneOff      []WorkflowSummary `json:"one_off"`
-	Init        []WorkflowSummary `json:"init"`
+	Workflows   []WorkflowSummary `json:"workflows"`
 }
 
 type CreateTaskResponse struct {

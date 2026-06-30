@@ -16,12 +16,11 @@ poll_interval: 100ms
 git:
   base_branch: main
 workflows:
-  tasks:
-    - name: failing
-      print: true
-      steps:
-        - name: implementing
-          prompt: "Implement the task"
+  - name: failing
+    print: true
+    steps:
+      - name: implementing
+        prompt: "Implement the task"
 `, stubPath)
 }
 

@@ -301,3 +301,259 @@ func TestValidateTaskRefs_InitStatusAutoBlocks(t *testing.T) {
 		t.Errorf("init-status dep should be auto-blocker, got %v", auto)
 	}
 }
+
+// --- Pin-fallback tests for createTaskFromRequest --------------------------
+
+// setupServerWithPinnedWorkflow creates a server with an in-memory DB, a
+// project registered at projectPath, and injects a pre-built projectContext
+// carrying a config that contains the given workflow. This avoids loading real
+// global config files (which differ per developer machine) while still exercising
+// the full getProjectContext → createTaskFromRequest pin-fallback path.
+func setupServerWithPinnedWorkflow(t *testing.T, projectPath string, wf config.WorkflowConfig) (*Server, int64) {
+	t.Helper()
+	database, err := db.Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	proj, err := database.GetOrCreateProject(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Build a config that contains the pinned workflow.
+	pinnedCfg := &config.Config{
+		Workflows: []config.WorkflowConfig{wf},
+	}
+
+	s := NewServer(&config.Config{}, database)
+
+	// Directly inject the projectContext so getProjectContext returns our config
+	// without loading any file on disk or the global ~/.sortie.yml.
+	s.projectsMu.Lock()
+	s.projects[proj.ID] = &projectContext{
+		cfg:      pinnedCfg,
+		repoRoot: projectPath,
+	}
+	s.projectsMu.Unlock()
+
+	return s, proj.ID
+}
+
+// TestCreateTaskFromRequest_WorkflowPinsFallback verifies that workflow pin
+// fields (description, branch, target, worktree) are applied as fallbacks when
+// the CreateTaskRequest leaves the corresponding field empty, and that an
+// explicit request value overrides the pin.
+func TestCreateTaskFromRequest_WorkflowPinsFallback(t *testing.T) {
+	worktreeTrue := true
+
+	t.Run("description branch and target pins applied when request leaves them empty", func(t *testing.T) {
+		wf := config.WorkflowConfig{
+			Name:        "pinned",
+			Description: "Do the thing",
+			Branch:      "feat/pinned-{{task.id}}",
+			Target:      "main",
+			Worktree:    &worktreeTrue,
+			Steps:       []config.StepConfig{{Name: "implement"}},
+		}
+		s, _ := setupServerWithPinnedWorkflow(t, "/tmp/sortie-pin-test", wf)
+
+		tk, _, err := s.createTaskFromRequest(CreateTaskRequest{
+			ProjectPath: "/tmp/sortie-pin-test",
+			Workflow:    "pinned",
+			// No Description, BranchName, TargetBranch, or Worktree.
+		})
+		if err != nil {
+			t.Fatalf("createTaskFromRequest: %v", err)
+		}
+		if tk.Description != "Do the thing" {
+			t.Errorf("description: got %q, want %q (from workflow pin)", tk.Description, "Do the thing")
+		}
+		if tk.TargetBranch != "main" {
+			t.Errorf("target_branch: got %q, want %q (from workflow pin)", tk.TargetBranch, "main")
+		}
+		if !tk.Worktree {
+			t.Errorf("worktree: got false, want true (from workflow pin)")
+		}
+		// BranchName is the template stored before slug resolution; non-empty confirms the pin was applied.
+		if tk.BranchName == "" {
+			t.Errorf("branch_name: expected non-empty (from workflow branch pin)")
+		}
+	})
+
+	t.Run("explicit request target overrides workflow pin", func(t *testing.T) {
+		wf := config.WorkflowConfig{
+			Name:        "pinned",
+			Description: "Do the thing",
+			Branch:      "feat/pinned-{{task.id}}",
+			Target:      "main",
+			Worktree:    &worktreeTrue,
+			Steps:       []config.StepConfig{{Name: "implement"}},
+		}
+		s, _ := setupServerWithPinnedWorkflow(t, "/tmp/sortie-pin-test-2", wf)
+
+		tk, _, err := s.createTaskFromRequest(CreateTaskRequest{
+			ProjectPath:  "/tmp/sortie-pin-test-2",
+			Workflow:     "pinned",
+			TargetBranch: "develop", // explicit override of the "main" pin
+		})
+		if err != nil {
+			t.Fatalf("createTaskFromRequest: %v", err)
+		}
+		if tk.TargetBranch != "develop" {
+			t.Errorf("target_branch: got %q, want %q (explicit request should win over pin)", tk.TargetBranch, "develop")
+		}
+	})
+
+	t.Run("explicit request description overrides workflow pin", func(t *testing.T) {
+		wf := config.WorkflowConfig{
+			Name:        "pinned",
+			Description: "Pinned description",
+			Branch:      "feat/x",
+			Target:      "main",
+			Worktree:    &worktreeTrue,
+			Steps:       []config.StepConfig{{Name: "implement"}},
+		}
+		s, _ := setupServerWithPinnedWorkflow(t, "/tmp/sortie-pin-test-3", wf)
+
+		tk, _, err := s.createTaskFromRequest(CreateTaskRequest{
+			ProjectPath: "/tmp/sortie-pin-test-3",
+			Workflow:    "pinned",
+			Description: "Override description",
+		})
+		if err != nil {
+			t.Fatalf("createTaskFromRequest: %v", err)
+		}
+		if tk.Description != "Override description" {
+			t.Errorf("description: got %q, want %q (explicit request should win over pin)", tk.Description, "Override description")
+		}
+	})
+
+	t.Run("explicit worktree=false overrides workflow pin worktree=true", func(t *testing.T) {
+		wf := config.WorkflowConfig{
+			Name:        "pinned",
+			Description: "Do the thing",
+			Branch:      "feat/x",
+			Target:      "main",
+			Worktree:    &worktreeTrue,
+			Steps:       []config.StepConfig{{Name: "implement"}},
+		}
+		s, _ := setupServerWithPinnedWorkflow(t, "/tmp/sortie-pin-test-4", wf)
+
+		worktreeFalse := false
+		tk, _, err := s.createTaskFromRequest(CreateTaskRequest{
+			ProjectPath: "/tmp/sortie-pin-test-4",
+			Workflow:    "pinned",
+			Worktree:    &worktreeFalse, // explicit false overrides pin true
+		})
+		if err != nil {
+			t.Fatalf("createTaskFromRequest: %v", err)
+		}
+		if tk.Worktree {
+			t.Errorf("worktree: got true, want false (explicit request false should win over pin true)")
+		}
+	})
+
+	t.Run("pin worktree=false overrides project default worktree=true", func(t *testing.T) {
+		// The symmetric *bool case to the explicit-false test above: a workflow
+		// that pins worktree:false must win over a project DefaultWorktree of true
+		// when the request leaves worktree unset.
+		worktreeFalse := false
+		wf := config.WorkflowConfig{
+			Name:        "no-worktree",
+			Description: "Run in place",
+			Worktree:    &worktreeFalse,
+			Steps:       []config.StepConfig{{Name: "implement"}},
+		}
+		s, projID := setupServerWithPinnedWorkflow(t, "/tmp/sortie-pin-test-5", wf)
+		if err := s.database.UpdateProjectDefaultWorktree(projID, true); err != nil {
+			t.Fatalf("seed project default worktree: %v", err)
+		}
+
+		tk, _, err := s.createTaskFromRequest(CreateTaskRequest{
+			ProjectPath: "/tmp/sortie-pin-test-5",
+			Workflow:    "no-worktree",
+			// No Worktree on the request — the pin must win over the project default.
+		})
+		if err != nil {
+			t.Fatalf("createTaskFromRequest: %v", err)
+		}
+		if tk.Worktree {
+			t.Errorf("worktree: got true, want false (pin false should win over project default true)")
+		}
+	})
+
+	t.Run("checkout pin applied when request leaves branch-mode empty", func(t *testing.T) {
+		// A pinned checkout drives a different path than a branch pin: it permits
+		// an empty description and produces the branch-derived "⎇ <branch>" title.
+		wf := config.WorkflowConfig{
+			Name:     "review",
+			Checkout: "release/x",
+			Target:   "main",
+			Worktree: &worktreeTrue,
+			Steps:    []config.StepConfig{{Name: "review"}},
+		}
+		s, _ := setupServerWithPinnedWorkflow(t, "/tmp/sortie-pin-test-6", wf)
+
+		tk, title, err := s.createTaskFromRequest(CreateTaskRequest{
+			ProjectPath: "/tmp/sortie-pin-test-6",
+			Workflow:    "review",
+			// No Description, BranchName, or CheckoutBranch — checkout pin satisfies
+			// the empty-description gate and supplies the checkout branch.
+		})
+		if err != nil {
+			t.Fatalf("createTaskFromRequest: %v", err)
+		}
+		if tk.CheckoutBranch != "release/x" {
+			t.Errorf("checkout_branch: got %q, want %q (from workflow pin)", tk.CheckoutBranch, "release/x")
+		}
+		if tk.Description != "" {
+			t.Errorf("description: got %q, want empty (checkout pin allows empty description)", tk.Description)
+		}
+		if tk.BranchName != "" {
+			t.Errorf("branch_name: got %q, want empty (checkout pin must not also set a new-branch template)", tk.BranchName)
+		}
+		if title != "⎇ release/x" {
+			t.Errorf("title: got %q, want %q (branch-derived title for checkout-only task)", title, "⎇ release/x")
+		}
+	})
+
+	t.Run("pin-derived worktree does not leak into persisted project default", func(t *testing.T) {
+		// Core invariant: a workflow pin can set this task's worktree, but it must
+		// never overwrite the project's saved DefaultWorktree — only an explicit
+		// request value (a real user choice) may persist.
+		wf := config.WorkflowConfig{
+			Name:        "pinned",
+			Description: "Do the thing",
+			Branch:      "feat/x",
+			Target:      "main",
+			Worktree:    &worktreeTrue, // pin worktree=true
+			Steps:       []config.StepConfig{{Name: "implement"}},
+		}
+		s, projID := setupServerWithPinnedWorkflow(t, "/tmp/sortie-pin-test-7", wf)
+		// Seed the saved project default to the OPPOSITE of the pin.
+		if err := s.database.UpdateProjectDefaultWorktree(projID, false); err != nil {
+			t.Fatalf("seed project default worktree: %v", err)
+		}
+
+		tk, _, err := s.createTaskFromRequest(CreateTaskRequest{
+			ProjectPath: "/tmp/sortie-pin-test-7",
+			Workflow:    "pinned",
+			// No Worktree on the request — only the pin sets it.
+		})
+		if err != nil {
+			t.Fatalf("createTaskFromRequest: %v", err)
+		}
+		if !tk.Worktree {
+			t.Errorf("task worktree: got false, want true (pin should apply to the task)")
+		}
+		proj, err := s.database.GetProject(projID)
+		if err != nil {
+			t.Fatalf("GetProject: %v", err)
+		}
+		if proj.DefaultWorktree {
+			t.Errorf("persisted project DefaultWorktree: got true, want false (pin-derived worktree must not leak into project defaults)")
+		}
+	})
+}

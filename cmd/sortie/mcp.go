@@ -18,8 +18,8 @@ Exposed tools:
   create_task    Create a task in the project rooted at cwd (or an
                  explicit project_path). Supports workflow choice,
                  branch templates, dependencies, and tmux mode.
-  list_workflows List the workflows configured for a project,
-                 grouped by kind (tasks / one-off / init).
+  list_workflows List the workflows configured for a project as a
+                 flat list.
   get_task       Fetch a task's status, current step, optional
                  per-step state, captured step contexts, and
                  recent agent output.

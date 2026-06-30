@@ -26,9 +26,9 @@ type command struct {
 
 // boolOption defines a boolean option togglable via :set name / :set noname / :set name!
 type boolOption struct {
-	name    string
-	get     func(m *Model) bool
-	set     func(m *Model, v bool)
+	name     string
+	get      func(m *Model) bool
+	set      func(m *Model, v bool)
 	afterSet func(m *Model) // optional hook called after set (e.g. refilter)
 }
 
@@ -55,9 +55,9 @@ var boolOptions = []boolOption{
 		set:  func(m *Model, v bool) { m.list.showLineNumbers = v },
 	},
 	{
-		name: "finished",
-		get:  func(m *Model) bool { return m.list.showFinished },
-		set:  func(m *Model, v bool) { m.list.showFinished = v },
+		name:     "finished",
+		get:      func(m *Model) bool { return m.list.showFinished },
+		set:      func(m *Model, v bool) { m.list.showFinished = v },
 		afterSet: func(m *Model) { m.list.applyFilter() },
 	},
 	{
@@ -238,17 +238,7 @@ var commands = []command{
 	{
 		match: matchRunTask,
 		exec:  execRunTask,
-		help:  "run a tasks-category workflow (deprecated alias for :create --workflow=<name>)",
-	},
-	{
-		match: matchRunOneOff,
-		exec:  execRunOneOff,
-		help:  "run a one-off workflow (deprecated alias for :create --workflow=oneoff:<name>)",
-	},
-	{
-		match: matchRunInit,
-		exec:  execRunInit,
-		help:  "run an init workflow (deprecated alias for :create --workflow=init:<name>)",
+		help:  "pick a workflow to start a new task (alias for :create --workflow=<name>)",
 	},
 	{
 		match: matchActionVerb,
@@ -430,16 +420,6 @@ func matchRunTask(input string) (string, bool) {
 	return matchRunCommand("RunTask", input)
 }
 
-// matchRunOneOff matches "RunOneOff" / "RunOneOff <name>" commands.
-func matchRunOneOff(input string) (string, bool) {
-	return matchRunCommand("RunOneOff", input)
-}
-
-// matchRunInit matches "RunInit" / "RunInit <name>" commands.
-func matchRunInit(input string) (string, bool) {
-	return matchRunCommand("RunInit", input)
-}
-
 // matchRunCommand is the shared matcher: accepts the bare name and "name arg".
 func matchRunCommand(name, input string) (string, bool) {
 	input = strings.TrimSpace(input)
@@ -452,9 +432,10 @@ func matchRunCommand(name, input string) (string, bool) {
 	return "", false
 }
 
-// execRunTask opens a fuzzy picker over the tasks-category workflows. On
-// select (or when a name is passed as argument), opens the new-task prompt
-// with the workflow preselected (cycler hidden).
+// execRunTask opens a fuzzy picker over all workflows. On select (or when a
+// name is passed as argument), launches the workflow: fully-pinned workflows
+// create a task immediately, otherwise the new-task prompt opens with the
+// workflow preselected and pinned fields populated.
 func execRunTask(m Model, args string) (tea.Model, tea.Cmd) {
 	if m.client == nil || m.projectPath == "" {
 		m.err = fmt.Errorf("not connected to daemon")
@@ -467,26 +448,16 @@ func execRunTask(m Model, args string) (tea.Model, tea.Cmd) {
 
 	allNames := m.cfg.ListAllWorkflowNames()
 	if args != "" {
-		// Direct invocation with workflow name — preselect immediately.
+		// Direct invocation with workflow name.
 		if !contains(allNames, args) {
 			m.err = fmt.Errorf("unknown workflow: %s", args)
 			return m, nil
 		}
-		m.selectedWorkflow = args
-		m.view = viewPrompt
-		m.prompt.defaultWorkflow = m.defaultWorkflow
-		m.prompt.Reset()
-		m.prompt.preselectedWorkflow = args
-		m.prompt.workflowName = args
-		m.prompt.workflows = []string{args}
-		m.prompt.workflowCursor = 0
-		m.prompt.SetSize(m.width, m.height)
-		m.prompt.Focus()
-		return m, nil
+		return m.launchWorkflow(args)
 	}
 
 	if len(allNames) == 0 {
-		m.err = fmt.Errorf("no task workflows configured")
+		m.err = fmt.Errorf("no workflows configured")
 		return m, nil
 	}
 	descs := make([]string, len(allNames))
@@ -496,102 +467,8 @@ func execRunTask(m Model, args string) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.selector = selector{
-		kind:            selectorTaskWorkflow,
+		kind:            selectorWorkflow,
 		title:           "Run Task",
-		items:           append([]string(nil), allNames...),
-		descriptions:    append([]string(nil), descs...),
-		filterable:      true,
-		allItems:        allNames,
-		allDescriptions: descs,
-	}
-	return m, nil
-}
-
-// execRunOneOff runs a one-off workflow by name, or opens a picker.
-func execRunOneOff(m Model, args string) (tea.Model, tea.Cmd) {
-	if m.client == nil || m.projectPath == "" {
-		m.err = fmt.Errorf("not connected to daemon")
-		return m, nil
-	}
-	if m.cfg == nil {
-		m.err = fmt.Errorf("no config loaded")
-		return m, nil
-	}
-	if args != "" {
-		taskCfg := m.cfg.GetPredefinedTask(args)
-		if taskCfg == nil {
-			m.err = fmt.Errorf("unknown one-off: %s", args)
-			return m, nil
-		}
-		m.selectedWorkflow = "oneoff:" + taskCfg.Name
-		description := taskCfg.Description
-		if description == "" {
-			description = taskCfg.Name
-		}
-		return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
-	}
-
-	allNames := m.cfg.ListAllPredefinedTaskNames()
-	if len(allNames) == 0 {
-		m.err = fmt.Errorf("no one-off workflows configured")
-		return m, nil
-	}
-	descs := make([]string, len(allNames))
-	for i, name := range allNames {
-		if tc := m.cfg.GetPredefinedTask(name); tc != nil {
-			descs[i] = tc.Description
-		}
-	}
-	m.selector = selector{
-		kind:            selectorTask,
-		title:           "Run One-off",
-		items:           append([]string(nil), allNames...),
-		descriptions:    append([]string(nil), descs...),
-		filterable:      true,
-		allItems:        allNames,
-		allDescriptions: descs,
-	}
-	return m, nil
-}
-
-// execRunInit runs an init workflow by name, or opens a picker.
-func execRunInit(m Model, args string) (tea.Model, tea.Cmd) {
-	if m.client == nil || m.projectPath == "" {
-		m.err = fmt.Errorf("not connected to daemon")
-		return m, nil
-	}
-	if m.cfg == nil {
-		m.err = fmt.Errorf("no config loaded")
-		return m, nil
-	}
-	if args != "" {
-		initCfg := m.cfg.GetInitWorkflow(args)
-		if initCfg == nil {
-			m.err = fmt.Errorf("unknown init workflow: %s", args)
-			return m, nil
-		}
-		m.selectedWorkflow = "init:" + initCfg.Name
-		description := initCfg.Description
-		if description == "" {
-			description = initCfg.Name
-		}
-		return m, m.createTaskWithPrompt("", description, "", true, nil, "", "")
-	}
-
-	allNames := m.cfg.ListAllInitWorkflowNames()
-	if len(allNames) == 0 {
-		m.err = fmt.Errorf("no init workflows configured")
-		return m, nil
-	}
-	descs := make([]string, len(allNames))
-	for i, name := range allNames {
-		if ic := m.cfg.GetInitWorkflow(name); ic != nil {
-			descs[i] = ic.Description
-		}
-	}
-	m.selector = selector{
-		kind:            selectorInit,
-		title:           "Run Init Workflow",
 		items:           append([]string(nil), allNames...),
 		descriptions:    append([]string(nil), descs...),
 		filterable:      true,
@@ -611,27 +488,13 @@ func contains(names []string, s string) bool {
 	return false
 }
 
-// completeRunTask returns tab-completed command input for RunTask/RunOneOff/RunInit.
-// It matches workflow names (including hidden) against the partial input after the command.
+// completeRunTask returns tab-completed command input for RunTask. It matches
+// workflow names (including hidden) against the partial input after the command.
 func completeRunTask(m Model, input string) (string, bool) {
 	if m.cfg == nil {
 		return "", false
 	}
-	// Try each Run* command in order — the first whose prefix matches wins.
-	candidates := []struct {
-		cmd   string
-		names func() []string
-	}{
-		{"RunTask", m.cfg.ListAllWorkflowNames},
-		{"RunOneOff", m.cfg.ListAllPredefinedTaskNames},
-		{"RunInit", m.cfg.ListAllInitWorkflowNames},
-	}
-	for _, c := range candidates {
-		if completed, ok := completeRunCommand(input, c.cmd, c.names()); ok {
-			return completed, true
-		}
-	}
-	return "", false
+	return completeRunCommand(input, "RunTask", m.cfg.ListAllWorkflowNames())
 }
 
 // completeRunCommand handles tab-completion for a single "RunFoo [name]" command.

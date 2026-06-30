@@ -53,7 +53,7 @@ type Server struct {
 | `handlers_task.go` | Task CRUD & metadata: create, get, list, delete, retry, update priority/field/dependency, revert, step contexts, title generation |
 | `handlers_agent.go` | Agent ops, subscriptions, logs: list/start/stop agents, get output, subscribe/unsubscribe, get logs |
 | `handlers_continue.go` | Continuation flow: continue/finalize tasks, worktree/branch management, tmux setup, detach/attach branch |
-| `handlers_workflows.go` | `list_workflows` handler — projects → workflow listings (tasks/one-off/init) |
+| `handlers_workflows.go` | `list_workflows` handler — projects → flat workflow listing |
 | `tmux_monitor.go` | Background tmux activity monitoring loop, broadcasts activity changes to subscribers |
 | `broadcast.go` | Event broadcasting, agent state change handling |
 | `protocol.go` | Message types, request/response structs |
