@@ -50,23 +50,29 @@ workflows:
 | `max_workers` | int | `3` | Max concurrent Claude agents |
 | `default_priority` | string | `"medium"` | `low`, `medium`, `high`, `urgent` |
 | `yolo` | bool | `false` | Pass `--dangerously-skip-permissions` to Claude |
+| `poll_interval` | string | `"5s"` | Daemon task-polling cadence (Go duration string). Rarely overridden per-project. |
 | `system_prompt` | string | minimal default | Preamble written to each worktree's `CLAUDE.md` |
-| `verification` | object | — | Summarizer verification settings |
+| `verification` | object | — | Summarizer verification settings (`max_retries`, `verify_summarizer`) |
 | `git` | object | — | Branch naming, base branch, completion action |
 | `workflows` | object | — | **Primary config block** — defines all workflow pipelines |
 | `notifications` | object | — | Desktop notification toggles |
+| `claude` | object | — | Override the Claude binary: `command` (path/name) and `default_args` (list of strings). |
+| `allowed_summarization_models` | list[string] | `[haiku, sonnet, opus]` | Restrict which models the summarizer auto-selects from (subset of `haiku`, `sonnet`, `opus`; cheapest fitting model wins). Per-step override available. |
+| `options` | object | — | TUI display toggles: `number`, `branch`, `target`, `branchview` (bools), `animation` (`enabled` bool, `duration` ms). |
 | `tmux_nested_attach_behavior` | string | `"switch"` | `"switch"` or `"nest"` for tmux-in-tmux |
-| `worktree-sync-paths` | object | — | Hard-link or copy paths from main checkout into each worktree (e.g., `.docs`, `.env`). See [Sharing files into worktrees](#sharing-files-into-worktrees). |
-| `worktree-setup-command` | string | — | Single shell command run after worktree creation (`{{worktree_path}}` available) |
-| `worktree-setup-commands` | list[string] | — | Multiple setup commands run in order; preferred over the singular form when more than one step is needed |
-| `tmux-setup-command` | string | — | Shell command run when launching a tmux step. Variables: `{{session_name}}`, `{{worktree_path}}`, `{{run_agent}}` |
+| `worktree-sync-paths` | object | — | Hard-link or copy paths from main checkout into each worktree (e.g., `.docs`, `.env`). Also settable per-workflow. See [Sharing files into worktrees](#sharing-files-into-worktrees). |
+| `worktree-setup-command` | string | — | Single shell command run after worktree creation (`{{worktree_path}}` available). Also settable per-workflow. |
+| `worktree-setup-commands` | list[string] | — | Multiple setup commands run in order; preferred over the singular form when more than one step is needed. Also settable per-workflow. |
+| `tmux-setup-command` | string | — | Shell command run when launching a tmux step. Variables: `{{session_name}}`, `{{worktree_path}}`, `{{run_agent}}`. Also settable per-workflow. |
+
+> **Per-workflow overrides:** `worktree-sync-paths`, `worktree-setup-command`, `worktree-setup-commands`, and `tmux-setup-command` may be set on an individual workflow (inside a `workflows.<category>` entry). A non-empty workflow-level value fully overrides the project-level one for tasks running that workflow.
 
 ### Field-name convention
 
 Top-level field names mix two casing styles — **don't guess, copy exactly**:
 
 - **kebab-case:** `worktree-sync-paths`, `worktree-setup-command`, `worktree-setup-commands`, `tmux-setup-command`
-- **snake_case:** `max_workers`, `default_priority`, `system_prompt`, `tmux_nested_attach_behavior`, `base_branch`, `branch_template`, `on_complete`
+- **snake_case:** `max_workers`, `default_priority`, `system_prompt`, `poll_interval`, `allowed_summarization_models`, `tmux_nested_attach_behavior`, `base_branch`, `branch_template`, `on_complete`
 
 If you author an unrecognized variant (`worktree_sync_paths`, `tmux_setup_command`, etc.), Sortie will silently ignore it.
 
@@ -160,17 +166,18 @@ projects, inline beats file-sprawl.
 ```yaml
 - name: my-workflow          # unique name (required)
   description: "..."         # human-readable (used as task desc for one-off/init)
-  tmux: false                # default tmux mode for all steps
+  print: false               # workflow-level default execution mode (false = tmux, true = headless `claude -p`)
   summarizer_prompt: "..."   # custom prompt for post-completion summarizer
+  worktree-sync-paths: {...} # optional per-workflow override of the project-level value
   steps:                     # ordered list of steps (required)
     - name: step-name        # unique step identifier (required)
       prompt: "..."          # template string sent to Claude (required)
-      mode: ""               # execution mode (e.g., "automatic")
-      tmux: true/false       # per-step override (omit to inherit workflow default)
+      print: true            # per-step override (omit to inherit workflow default)
       timeout: "30m"         # Go duration string
       human: false           # pause for human approval
       summarization_strategy: summarize_chat   # how this step's context is captured (see below)
       summarization_prompt: "..."              # prompt fed to the summarizer for THIS step's context
+      allowed_summarization_models: [haiku]    # optional per-step summarizer model allowlist
       loop:                  # optional: jump back to earlier step
         goto: "step-name"    # must reference an earlier step
         max_iterations: 3    # >= 1
@@ -178,11 +185,33 @@ projects, inline beats file-sprawl.
           step_context_empty: "step-name"  # exit early if this step's context is empty
 ```
 
+### `print`: tmux vs. headless execution
+
+**Tmux is the default execution mode.** Each step runs inside an interactive tmux session hosting the Claude Code TUI, and the daemon auto-advances on turn-end. Set `print: true` to run a step headless via `claude -p` instead.
+
+- **Workflow-level `print`** (bool, default `false`) sets the default for all steps.
+- **Step-level `print`** (bool) overrides the workflow default for that step. Omit it to inherit.
+
+| `print` | `human` | Behavior |
+|---|---|---|
+| `false` (default) | `false` | tmux + auto-advance on turn-end |
+| `false` | `true` | tmux + manual approval |
+| `true` | `false` | headless `claude -p` + auto-advance on exit |
+| `true` | `true` | headless `claude -p`, then pause at `awaiting-approval` |
+
+> **⚠️ The legacy `tmux:` field was removed (pre-Sortie-54) and the daemon now refuses to load any config containing it.** Never emit `tmux:` on a workflow or step. Migration: `tmux: true` → `print: false` (or omit — tmux is the default); `tmux: false` → `print: true`.
+
+The `mode:` field (e.g. `mode: "automatic"`) is vestigial — it is parsed but does not affect execution. Do not rely on it; omit it from new configs.
+
 ### Step summarization
 
-By default, the agent's final output becomes the step's context. Set `summarization_strategy: summarize_chat` to instead summarize the entire transcript via a second Claude call using `summarization_prompt`. Inside `summarization_prompt`, the variable `{{chat}}` expands to the full transcript. This is essential for tmux/grilling steps where the meaningful output is the conversation, not a final message.
+**The default strategy is `summarize_chat`** (when `summarization_strategy` is unset). It summarizes the entire transcript via a second Claude call using `summarization_prompt`. Inside `summarization_prompt`, the variable `{{chat}}` expands to the full transcript. This is essential for tmux/grilling steps where the meaningful output is the conversation, not a final message; it is also the default for ordinary steps.
+
+Set `summarization_strategy: last_message` to instead capture only the agent's final output message as context (cheap — no extra Claude call — but often a one-liner that loses decisions; not usable for tmux steps, which have no NDJSON result event).
 
 Set `summarization_strategy: none` to skip context capture entirely for the step — no last-message text is stored and no summarization pass is run. Useful for steps whose output is not meaningful to later steps (`{{steps.<name>.context}}` will resolve to empty).
+
+The summarizer auto-selects the cheapest model (`haiku` < `sonnet` < `opus`) whose prompt-size ceiling fits the transcript. Restrict the candidate set with `allowed_summarization_models` at project level or per-step (step-level overrides project-level).
 
 ### Prompt formatting
 
@@ -262,7 +291,7 @@ When the user describes what they want, follow this:
 
 1. **"Just implement tasks"** → Single task workflow with an `implementing` step
 2. **"Review before completing"** → Add a step with `human: true`
-3. **"Interactive tmux session"** → Set `tmux: true` on workflow or step
+3. **"Interactive tmux session"** → This is the default — omit `print` (or set `print: false`). Set `print: true` only to opt a step into headless `claude -p`.
 4. **"Multi-step pipeline"** → Multiple steps with step context passing results between steps
 5. **"Iterative review loop"** → Use `loop` config on a fix step pointing back to review
 6. **"Predefined maintenance job"** → Use `workflows.one-off`
@@ -287,9 +316,10 @@ This lists every YAML field name the binary will accept. Cross-reference unknown
 
 - Step `name` values must be unique within a workflow
 - Loop `goto` must reference an earlier step (no forward jumps, no self-reference)
-- Loop steps cannot have `human: true` or `tmux: true`
+- Loop steps cannot have `human: true`, and cannot run in tmux — set `print: true` on the loop step (or its workflow)
 - Loop ranges cannot overlap
 - `on_complete` (top-level, or per-workflow override) values: `"commit"`, `"merge"`, `"none"` — moved out of `git:`; `git.on_complete` is now an error
+- Never emit the removed `tmux:` field — use `print:` (inverted). The daemon hard-rejects `tmux:` at load.
 - `git.branch_template` supports: `{{task_id}}`, `{{task_slug}}`, `{{task.id}}`, `{{task.title}}`, `{{task.slug}}`
 - The file goes at the project root as `.sortie.yml`
 - For one-off and init workflows, the `description` field is used as the task description
@@ -307,8 +337,10 @@ sortie validate path/to/.sortie.yml   # validates an explicit file
 
 - YAML syntax errors
 - **Unknown top-level fields** (catches typos like `worktree_sync_paths` for `worktree-sync-paths`)
-- Workflow loop validity (forward `goto`, self-reference, missing target step, `max_iterations < 1`, overlapping ranges, `human`/`tmux` on a loop step)
+- **Removed `tmux:` field** on a workflow or step (hard error pointing at `print:`)
+- Workflow loop validity (forward `goto`, self-reference, missing target step, `max_iterations < 1`, overlapping ranges, `human: true` or tmux mode on a loop step)
 - Invalid `summarization_strategy` values
+- Invalid `allowed_summarization_models` entries (must be `haiku`, `sonnet`, or `opus`)
 - Invalid `on_complete` — top-level or per-workflow (must be `commit`, `merge`, or `none`); the removed `git.on_complete` location produces a migration error
 - Invalid `default_priority` (must be `low`, `medium`, `high`, or `urgent`)
 - Invalid `tmux_nested_attach_behavior` (must be `switch` or `nest`)

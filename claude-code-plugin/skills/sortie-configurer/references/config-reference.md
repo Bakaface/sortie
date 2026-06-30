@@ -58,8 +58,64 @@ project-level → default (`commit`)**.
 
 ```yaml
 verification:
-  verify_summarizer: true    # Retry summarizer if context comes back empty
+  max_retries: 2             # int
+  verify_summarizer: true    # bool
 ```
+
+Both fields are accepted by the schema (and validated) but are **not currently read by any execution path** — the block is inert at runtime today. Keep it minimal; do not rely on it to change behavior.
+
+---
+
+## Claude Binary Override
+
+```yaml
+claude:
+  command: claude            # Binary name or path (default: "claude")
+  default_args:              # Extra args prepended to every invocation
+    - --model
+    - opus
+```
+
+`--dangerously-skip-permissions` is appended automatically when top-level `yolo: true`.
+
+---
+
+## Poll Interval
+
+```yaml
+poll_interval: 5s            # Daemon task-polling cadence (Go duration; default 5s)
+```
+
+Invalid duration strings are a hard load error. Rarely set per-project.
+
+---
+
+## Summarization Model Allowlist
+
+```yaml
+allowed_summarization_models:   # Subset of: haiku, sonnet, opus
+  - haiku
+  - sonnet
+```
+
+Restricts which models the summarizer auto-selects from. The summarizer picks the **cheapest** allowed model (`haiku` < `sonnet` < `opus`) whose prompt-size ceiling fits the transcript. When omitted, all three are allowed. Override per-step with `allowed_summarization_models` on a `StepConfig` (step-level takes precedence over this project-level list). Invalid entries are a hard load error.
+
+---
+
+## Options (TUI Display)
+
+```yaml
+options:
+  number: true               # Show task numbers in the list
+  branch: true               # Show branch column
+  target: true               # Show target/base branch column
+  branchview: false          # Group the list by branch
+  animation:
+    enabled: true            # Sortie (airplane) animation on task submission
+    duration: 800            # Animation duration in milliseconds
+```
+
+Cosmetic-only; does not affect task execution.
 
 ---
 
@@ -105,18 +161,26 @@ worktree-setup-commands:
   - ln -s /shared/build-cache {{worktree_path}}/.cache
 ```
 
-### Per-entry target override
+### Entries are plain path strings
 
-When the destination inside the worktree should differ from the source path, the entry can be an object with a `target` field:
+Each `copy:` / `link:` entry is a **string path relative to the project root** — the destination inside the worktree always mirrors the source path. There is no per-entry `target`/rename form (the schema is `copy: []string` and `link: []string`). To place a synced file at a different path, use a `worktree-setup-command` to move or symlink it after sync.
+
+A missing source path is skipped silently. A `link:` failure (e.g. cross-filesystem) is collected and reported but does not abort the other entries.
+
+### Per-workflow override
+
+`worktree-sync-paths` (and `worktree-setup-command`, `worktree-setup-commands`, `tmux-setup-command`) may also be set on an individual workflow. A non-empty workflow-level value fully replaces the project-level one for tasks running that workflow:
 
 ```yaml
-worktree-sync-paths:
-  link:
-    - path: ../shared-docs
-      target: .docs
+workflows:
+  tasks:
+    - name: heavy
+      worktree-sync-paths:
+        link: [.docs, vendor/cache]
+      steps:
+        - name: implementing
+          prompt: "..."
 ```
-
-If unspecified, `target` defaults to the source path.
 
 ---
 
@@ -183,11 +247,11 @@ After each step completes, the result from Claude's output is captured as step c
 
 ### Step Summarization
 
-By default, the step's captured context is the agent's final output message. Two fields override this:
+By default (`summarization_strategy` unset), the step's context is produced by **`summarize_chat`** — a second Claude call summarizes the full transcript. `last_message` and `none` are the alternatives:
 
 ```yaml
 - name: grilling
-  tmux: true
+  # print omitted → tmux (the default)
   summarization_strategy: summarize_chat
   summarization_prompt: |
     Extract the durable design decisions reached in this Q&A.
@@ -205,9 +269,9 @@ By default, the step's captured context is the agent's final output message. Two
 
 | Strategy | What gets captured |
 |---|---|
-| (unset) | The agent's final output message |
-| `last_message` | The agent's final output message (explicit) |
-| `summarize_chat` | A second Claude call summarizes the full transcript using `summarization_prompt` |
+| (unset) | **Defaults to `summarize_chat`** |
+| `summarize_chat` | A second Claude call summarizes the full transcript using `summarization_prompt` (the default) |
+| `last_message` | The agent's final output message only (no extra Claude call; unusable for tmux steps) |
 | `none` | Nothing — no step context is captured; later `{{steps.<name>.context}}` references resolve to empty |
 
 `summarize_chat` is essential for tmux/grilling steps where the meaningful output is the dialogue, not a final message. The summarizer step also unlocks the `step_context_empty` loop exit pattern: instruct the summarizer to emit empty output when "no issues found", and the loop will terminate.
@@ -243,18 +307,20 @@ steps:
 
 When `human: true`, the task pauses at `awaiting-approval` status. The user reviews in the TUI and approves to continue. Use for review gates.
 
-### Tmux Steps
+### Tmux Steps (the default) vs. headless `print`
 
-When a step uses tmux (`tmux: true` on step or inherited from workflow):
+Tmux is the **default** execution mode — a step runs in tmux unless `print: true` is set. When a step runs in tmux:
 - Claude runs inside an interactive tmux session
 - User can attach to watch/interact
 - Task shows `tmux` status in TUI
-- Press `c` on a tmux task to finalize it
+- The daemon auto-advances on turn-end (or press `c` to finalize manually)
 
-Tmux resolution order:
-1. Step-level `tmux` field (if set)
-2. Workflow-level `tmux` field (default for all steps)
-3. Falls back to `false`
+Execution-mode resolution order:
+1. Step-level `print` field (if set: `true` = headless, `false` = tmux)
+2. Workflow-level `print` field (default for all steps)
+3. Falls back to `false` (tmux)
+
+> The removed `tmux:` field is a **hard load error** — use `print:` (inverted). See the [`print` section in SKILL.md](../SKILL.md) for the full `print` × `human` behavior table.
 
 ### Loop Configuration
 
@@ -276,6 +342,7 @@ steps:
       </step-context>
     human: true
   - name: fixing
+    print: true            # required: loop steps cannot run in tmux
     prompt: |
       Fix the issues found during review:
       <step-context name="reviewing">
@@ -293,7 +360,7 @@ steps:
 - No self-reference
 - `max_iterations` must be >= 1
 - Loop steps cannot have `human: true`
-- Loop steps cannot have `tmux: true`
+- Loop steps cannot run in tmux — set `print: true` on the loop step (or its workflow)
 - Loop ranges cannot overlap with other loops
 
 ---
@@ -420,6 +487,7 @@ workflows:
           human: true
           timeout: 20m
         - name: fixing
+          print: true        # required: loop steps cannot run in tmux
           prompt: |
             Fix the issues found during review:
             <step-context name="reviewing">
@@ -433,7 +501,7 @@ workflows:
               step_context_empty: reviewing
 
     - name: quick
-      tmux: true
+      # tmux is the default — no `print` needed for an interactive session
       steps:
         - name: implementing
           prompt: |
