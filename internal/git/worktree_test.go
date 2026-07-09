@@ -9,6 +9,7 @@ import (
 
 func TestCheckoutBranch(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create a feature branch
 	runGit(t, repo, "checkout", "-b", "feature-branch")
@@ -19,11 +20,11 @@ func TestCheckoutBranch(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "add feature")
 
 	// Checkout main using our function
-	if err := CheckoutBranch(repo, "main"); err != nil {
+	if err := r.CheckoutBranch("main"); err != nil {
 		t.Fatalf("CheckoutBranch failed: %v", err)
 	}
 
-	branch, err := GetCurrentBranch(repo)
+	branch, err := r.GetCurrentBranch(repo)
 	if err != nil {
 		t.Fatalf("GetCurrentBranch failed: %v", err)
 	}
@@ -34,8 +35,9 @@ func TestCheckoutBranch(t *testing.T) {
 
 func TestCheckoutBranch_InvalidBranch(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
-	err := CheckoutBranch(repo, "nonexistent-branch")
+	err := r.CheckoutBranch("nonexistent-branch")
 	if err == nil {
 		t.Fatal("expected error for nonexistent branch")
 	}
@@ -43,8 +45,9 @@ func TestCheckoutBranch_InvalidBranch(t *testing.T) {
 
 func TestGetDefaultBranch(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
-	branch := GetDefaultBranch(repo)
+	branch := r.GetDefaultBranch()
 	if branch != "main" {
 		t.Errorf("expected default branch main, got %s", branch)
 	}
@@ -72,7 +75,7 @@ func TestGetDefaultBranch_Master(t *testing.T) {
 	runGit(t, dir, "add", "-A")
 	runGit(t, dir, "commit", "-m", "initial commit")
 
-	branch := GetDefaultBranch(dir)
+	branch := NewRepo(dir).GetDefaultBranch()
 	if branch != "master" {
 		t.Errorf("expected default branch master, got %s", branch)
 	}
@@ -80,6 +83,7 @@ func TestGetDefaultBranch_Master(t *testing.T) {
 
 func TestCheckoutBranch_AutoCheckoutMainAfterReattach(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create a feature branch with a commit
 	runGit(t, repo, "checkout", "-b", "feature-branch")
@@ -103,17 +107,17 @@ func TestCheckoutBranch_AutoCheckoutMainAfterReattach(t *testing.T) {
 	}
 
 	// Simulate user checking out the feature branch on root while worktree is detached
-	if err := CheckoutBranch(repo, "feature-branch"); err != nil {
+	if err := r.CheckoutBranch("feature-branch"); err != nil {
 		t.Fatalf("CheckoutBranch to feature-branch failed: %v", err)
 	}
-	branch, _ := GetCurrentBranch(repo)
+	branch, _ := r.GetCurrentBranch(repo)
 	if branch != "feature-branch" {
 		t.Fatalf("expected root to be on feature-branch, got %s", branch)
 	}
 
 	// Now simulate "A" keybind: first checkout main on root, then reattach
-	defaultBranch := GetDefaultBranch(repo)
-	if err := CheckoutBranch(repo, defaultBranch); err != nil {
+	defaultBranch := r.GetDefaultBranch()
+	if err := r.CheckoutBranch(defaultBranch); err != nil {
 		t.Fatalf("CheckoutBranch to default branch failed: %v", err)
 	}
 
@@ -122,7 +126,7 @@ func TestCheckoutBranch_AutoCheckoutMainAfterReattach(t *testing.T) {
 	}
 
 	// Verify root is on main
-	branch, err := GetCurrentBranch(repo)
+	branch, err := r.GetCurrentBranch(repo)
 	if err != nil {
 		t.Fatalf("GetCurrentBranch failed: %v", err)
 	}
@@ -131,7 +135,7 @@ func TestCheckoutBranch_AutoCheckoutMainAfterReattach(t *testing.T) {
 	}
 
 	// Verify worktree is on the feature branch
-	wtBranch, err := GetCurrentBranch(worktreePath)
+	wtBranch, err := r.GetCurrentBranch(worktreePath)
 	if err != nil {
 		t.Fatalf("GetCurrentBranch for worktree failed: %v", err)
 	}

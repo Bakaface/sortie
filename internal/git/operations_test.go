@@ -49,6 +49,7 @@ func initTestRepo(t *testing.T) string {
 
 func TestForceDeleteBranch_AfterSquashMerge(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create a feature branch with a commit
 	for _, args := range [][]string{
@@ -78,13 +79,13 @@ func TestForceDeleteBranch_AfterSquashMerge(t *testing.T) {
 	}
 
 	// DeleteBranch (-d) should fail because squash merge doesn't track merge history
-	err := DeleteBranch(repo, "feature-branch")
+	err := r.DeleteBranch("feature-branch")
 	if err == nil {
 		t.Fatal("expected DeleteBranch to fail after squash merge, but it succeeded")
 	}
 
 	// ForceDeleteBranch (-D) should succeed
-	err = ForceDeleteBranch(repo, "feature-branch")
+	err = r.ForceDeleteBranch("feature-branch")
 	if err != nil {
 		t.Fatalf("ForceDeleteBranch should succeed after squash merge: %v", err)
 	}
@@ -92,6 +93,7 @@ func TestForceDeleteBranch_AfterSquashMerge(t *testing.T) {
 
 func TestDeleteBranch_FullyMerged(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create a feature branch with a commit
 	for _, args := range [][]string{
@@ -120,7 +122,7 @@ func TestDeleteBranch_FullyMerged(t *testing.T) {
 	}
 
 	// DeleteBranch (-d) should succeed for a fully merged branch
-	err := DeleteBranch(repo, "feature-branch")
+	err := r.DeleteBranch("feature-branch")
 	if err != nil {
 		t.Fatalf("DeleteBranch should succeed for fully merged branch: %v", err)
 	}
@@ -128,8 +130,9 @@ func TestDeleteBranch_FullyMerged(t *testing.T) {
 
 func TestForceDeleteBranch_NonExistent(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
-	err := ForceDeleteBranch(repo, "nonexistent-branch")
+	err := r.ForceDeleteBranch("nonexistent-branch")
 	if err == nil {
 		t.Fatal("expected ForceDeleteBranch to fail for nonexistent branch")
 	}
@@ -137,6 +140,7 @@ func TestForceDeleteBranch_NonExistent(t *testing.T) {
 
 func TestDiffStat_WithChanges(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create a feature branch with changes
 	for _, args := range [][]string{
@@ -162,7 +166,7 @@ func TestDiffStat_WithChanges(t *testing.T) {
 		}
 	}
 
-	stat, err := DiffStat(repo, "main")
+	stat, err := r.DiffStat(repo, "main")
 	if err != nil {
 		t.Fatalf("DiffStat failed: %v", err)
 	}
@@ -176,9 +180,10 @@ func TestDiffStat_WithChanges(t *testing.T) {
 
 func TestDiffStat_NoChanges(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Stay on main, no changes
-	stat, err := DiffStat(repo, "main")
+	stat, err := r.DiffStat(repo, "main")
 	if err != nil {
 		t.Fatalf("DiffStat failed: %v", err)
 	}
@@ -189,6 +194,7 @@ func TestDiffStat_NoChanges(t *testing.T) {
 
 func TestMergeBranch_SequentialMerges(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create two feature branches with non-overlapping changes
 	branches := []struct {
@@ -236,15 +242,15 @@ func TestMergeBranch_SequentialMerges(t *testing.T) {
 	// Merge both branches sequentially (as the mutex would enforce). feature-a
 	// fast-forwards from init; feature-b is rebased onto main (now at A) so it
 	// can also fast-forward.
-	if err := MergeBranch(repo, "feature-a", "main"); err != nil {
+	if err := r.MergeBranch("feature-a", "main"); err != nil {
 		t.Fatalf("MergeBranch feature-a failed: %v", err)
 	}
 	runGit(t, repo, "checkout", "feature-b")
-	if err := RebaseBranch(repo, "main"); err != nil {
+	if err := r.RebaseBranch(repo, "main"); err != nil {
 		t.Fatalf("RebaseBranch feature-b failed: %v", err)
 	}
 	runGit(t, repo, "checkout", "main")
-	if err := MergeBranch(repo, "feature-b", "main"); err != nil {
+	if err := r.MergeBranch("feature-b", "main"); err != nil {
 		t.Fatalf("MergeBranch feature-b failed: %v", err)
 	}
 
@@ -260,7 +266,7 @@ func TestMergeBranch_SequentialMerges(t *testing.T) {
 	}
 
 	// Verify we're on main
-	branch, err := GetCurrentBranch(repo)
+	branch, err := r.GetCurrentBranch(repo)
 	if err != nil {
 		t.Fatalf("GetCurrentBranch failed: %v", err)
 	}
@@ -271,6 +277,7 @@ func TestMergeBranch_SequentialMerges(t *testing.T) {
 
 func TestMergeBranch_ConcurrentWithMutex(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create multiple feature branches with non-overlapping changes
 	const numBranches = 5
@@ -325,16 +332,16 @@ func TestMergeBranch_ConcurrentWithMutex(t *testing.T) {
 			// First task fast-forwards; later tasks must rebase onto the
 			// updated main first because --ff-only refuses when their fork
 			// point has fallen behind.
-			err := MergeBranch(repo, branchName, "main")
+			err := r.MergeBranch(branchName, "main")
 			if err != nil {
 				runGit(t, repo, "checkout", branchName)
-				if rebaseErr := RebaseBranch(repo, "main"); rebaseErr != nil {
+				if rebaseErr := r.RebaseBranch(repo, "main"); rebaseErr != nil {
 					errs[idx] = rebaseErr
 					runGit(t, repo, "checkout", "main")
 					return
 				}
 				runGit(t, repo, "checkout", "main")
-				err = MergeBranch(repo, branchName, "main")
+				err = r.MergeBranch(branchName, "main")
 			}
 			errs[idx] = err
 		}(i)
@@ -359,6 +366,7 @@ func TestMergeBranch_ConcurrentWithMutex(t *testing.T) {
 
 func TestMergeBranch_PreservesHistory(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create a feature branch with multiple commits
 	runGit(t, repo, "checkout", "-b", "feature")
@@ -390,7 +398,7 @@ func TestMergeBranch_PreservesHistory(t *testing.T) {
 	featureTip := strings.TrimSpace(string(out))
 
 	runGit(t, repo, "checkout", "main")
-	if err := MergeBranch(repo, "feature", "main"); err != nil {
+	if err := r.MergeBranch("feature", "main"); err != nil {
 		t.Fatalf("MergeBranch failed: %v", err)
 	}
 
@@ -416,6 +424,7 @@ func TestMergeBranch_PreservesHistory(t *testing.T) {
 
 func TestMergeBranch_NonFastForwardCleansUp(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Add shared.txt so the branches actually diverge.
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("original"), 0644); err != nil {
@@ -444,13 +453,13 @@ func TestMergeBranch_NonFastForwardCleansUp(t *testing.T) {
 	runGit(t, repo, "checkout", "main")
 
 	// First merge fast-forwards.
-	if err := MergeBranch(repo, "branch-a", "main"); err != nil {
+	if err := r.MergeBranch("branch-a", "main"); err != nil {
 		t.Fatalf("first merge should fast-forward: %v", err)
 	}
 
 	// Second merge must fail — branch-b is not descended from main's new tip,
 	// so --ff-only refuses. The caller's job is to rebase branch-b first.
-	if err := MergeBranch(repo, "branch-b", "main"); err == nil {
+	if err := r.MergeBranch("branch-b", "main"); err == nil {
 		t.Fatal("expected --ff-only merge to refuse non-descendant branch")
 	}
 
@@ -470,13 +479,14 @@ func TestMergeBranch_NonFastForwardCleansUp(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "add other.txt")
 	runGit(t, repo, "checkout", "main")
 
-	if err := MergeBranch(repo, "branch-c", "main"); err != nil {
+	if err := r.MergeBranch("branch-c", "main"); err != nil {
 		t.Fatalf("descendant merge after refusal should succeed: %v", err)
 	}
 }
 
 func TestRebaseBranch(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create a file on main
 	if err := os.WriteFile(filepath.Join(repo, "base.txt"), []byte("base"), 0644); err != nil {
@@ -503,7 +513,7 @@ func TestRebaseBranch(t *testing.T) {
 
 	// Rebase feature onto main
 	runGit(t, repo, "checkout", "feature")
-	if err := RebaseBranch(repo, "main"); err != nil {
+	if err := r.RebaseBranch(repo, "main"); err != nil {
 		t.Fatalf("RebaseBranch should succeed for non-conflicting changes: %v", err)
 	}
 
@@ -518,6 +528,7 @@ func TestRebaseBranch(t *testing.T) {
 
 func TestRebaseBranch_ConflictAborts(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create shared.txt on main
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("original"), 0644); err != nil {
@@ -544,7 +555,7 @@ func TestRebaseBranch_ConflictAborts(t *testing.T) {
 
 	// Rebase should fail and abort cleanly
 	runGit(t, repo, "checkout", "feature")
-	err := RebaseBranch(repo, "main")
+	err := r.RebaseBranch(repo, "main")
 	if err == nil {
 		t.Fatal("expected rebase to fail due to conflict")
 	}
@@ -556,7 +567,7 @@ func TestRebaseBranch_ConflictAborts(t *testing.T) {
 	}
 
 	// Verify we're still on the feature branch (not in detached HEAD state)
-	branch, err := GetCurrentBranch(repo)
+	branch, err := r.GetCurrentBranch(repo)
 	if err != nil {
 		t.Fatalf("GetCurrentBranch failed: %v", err)
 	}
@@ -567,6 +578,7 @@ func TestRebaseBranch_ConflictAborts(t *testing.T) {
 
 func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create initial shared file
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("line1\n"), 0644); err != nil {
@@ -597,13 +609,13 @@ func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 	// Merge branch-a first — advances main
 	var mu sync.Mutex
 	mu.Lock()
-	if err := MergeBranch(repo, "branch-a", "main"); err != nil {
+	if err := r.MergeBranch("branch-a", "main"); err != nil {
 		mu.Unlock()
 		t.Fatalf("first merge failed: %v", err)
 	}
 
 	// branch-b now isn't descended from main, so --ff-only must refuse it.
-	mergeErr := MergeBranch(repo, "branch-b", "main")
+	mergeErr := r.MergeBranch("branch-b", "main")
 	if mergeErr == nil {
 		mu.Unlock()
 		t.Fatal("expected --ff-only to refuse branch-b before rebase")
@@ -612,13 +624,13 @@ func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 
 	// Rebase branch-b onto the new main, then retry.
 	runGit(t, repo, "checkout", "branch-b")
-	if err := RebaseBranch(repo, "main"); err != nil {
+	if err := r.RebaseBranch(repo, "main"); err != nil {
 		t.Fatalf("rebase should succeed for non-conflicting branches: %v", err)
 	}
 	runGit(t, repo, "checkout", "main")
 
 	mu.Lock()
-	if err := MergeBranch(repo, "branch-b", "main"); err != nil {
+	if err := r.MergeBranch("branch-b", "main"); err != nil {
 		mu.Unlock()
 		t.Fatalf("merge after rebase should succeed: %v", err)
 	}
@@ -641,6 +653,7 @@ func TestMergeBranch_RetryAfterRebase(t *testing.T) {
 
 func TestRebaseInto_ConflictLeavesRebaseInProgress(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("base"), 0644); err != nil {
 		t.Fatal(err)
@@ -666,11 +679,11 @@ func TestRebaseInto_ConflictLeavesRebaseInProgress(t *testing.T) {
 
 	// Conflict path: RebaseInto must NOT auto-abort, so the caller can resolve.
 	runGit(t, repo, "checkout", "feature")
-	if err := RebaseInto(repo, "main"); err == nil {
+	if err := r.RebaseInto(repo, "main"); err == nil {
 		t.Fatal("expected RebaseInto to surface conflict as error")
 	}
 
-	conflicts, err := GetConflictedFiles(repo)
+	conflicts, err := r.GetConflictedFiles(repo)
 	if err != nil {
 		t.Fatalf("GetConflictedFiles after RebaseInto: %v", err)
 	}
@@ -685,7 +698,7 @@ func TestRebaseInto_ConflictLeavesRebaseInProgress(t *testing.T) {
 		}
 	}
 
-	if err := AbortRebase(repo); err != nil {
+	if err := r.AbortRebase(repo); err != nil {
 		t.Fatalf("AbortRebase failed: %v", err)
 	}
 
@@ -697,6 +710,7 @@ func TestRebaseInto_ConflictLeavesRebaseInProgress(t *testing.T) {
 
 func TestContinueRebase_ResolvesConflict(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("base"), 0644); err != nil {
 		t.Fatal(err)
@@ -719,7 +733,7 @@ func TestContinueRebase_ResolvesConflict(t *testing.T) {
 	runGit(t, repo, "commit", "-m", "main edit")
 
 	runGit(t, repo, "checkout", "feature")
-	if err := RebaseInto(repo, "main"); err == nil {
+	if err := r.RebaseInto(repo, "main"); err == nil {
 		t.Fatal("expected initial rebase to conflict")
 	}
 
@@ -727,12 +741,12 @@ func TestContinueRebase_ResolvesConflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "shared.txt"), []byte("resolved"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := ContinueRebase(repo); err != nil {
+	if err := r.ContinueRebase(repo); err != nil {
 		t.Fatalf("ContinueRebase after resolution failed: %v", err)
 	}
 
 	// Resulting branch must contain main's commit + the rebased feature commit, no merge commit.
-	if branch, _ := GetCurrentBranch(repo); branch != "feature" {
+	if branch, _ := r.GetCurrentBranch(repo); branch != "feature" {
 		t.Errorf("expected to be on feature after successful rebase, got %s", branch)
 	}
 	mergesOut := runGitOutput(t, repo, "log", "--merges", "--oneline", "feature")
@@ -780,8 +794,9 @@ func TestConventionalCommitFromTitle(t *testing.T) {
 
 func TestGetLastCommitHash(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
-	hash, err := GetLastCommitHash(repo)
+	hash, err := r.GetLastCommitHash(repo)
 	if err != nil {
 		t.Fatalf("GetLastCommitHash failed: %v", err)
 	}
@@ -798,7 +813,7 @@ func TestGetLastCommitHash(t *testing.T) {
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-m", "new commit")
 
-	hash2, err := GetLastCommitHash(repo)
+	hash2, err := r.GetLastCommitHash(repo)
 	if err != nil {
 		t.Fatalf("GetLastCommitHash failed: %v", err)
 	}
@@ -810,6 +825,7 @@ func TestGetLastCommitHash(t *testing.T) {
 
 func TestRevertCommits(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Create two commits with separate files
 	if err := os.WriteFile(filepath.Join(repo, "file1.txt"), []byte("file1 content"), 0644); err != nil {
@@ -817,7 +833,7 @@ func TestRevertCommits(t *testing.T) {
 	}
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-m", "add file1")
-	hash1, err := GetLastCommitHash(repo)
+	hash1, err := r.GetLastCommitHash(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -827,7 +843,7 @@ func TestRevertCommits(t *testing.T) {
 	}
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-m", "add file2")
-	hash2, err := GetLastCommitHash(repo)
+	hash2, err := r.GetLastCommitHash(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -841,7 +857,7 @@ func TestRevertCommits(t *testing.T) {
 	}
 
 	// Revert both commits (newest first automatically)
-	if err := RevertCommits(repo, []string{hash1, hash2}); err != nil {
+	if err := r.RevertCommits([]string{hash1, hash2}); err != nil {
 		t.Fatalf("RevertCommits failed: %v", err)
 	}
 
@@ -862,27 +878,29 @@ func TestRevertCommits(t *testing.T) {
 
 func TestRevertCommits_EmptyList(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	// Reverting empty list should be a no-op
-	if err := RevertCommits(repo, []string{}); err != nil {
+	if err := r.RevertCommits([]string{}); err != nil {
 		t.Fatalf("RevertCommits with empty list should succeed: %v", err)
 	}
 }
 
 func TestRevertCommits_SingleCommit(t *testing.T) {
 	repo := initTestRepo(t)
+	r := NewRepo(repo)
 
 	if err := os.WriteFile(filepath.Join(repo, "feature.txt"), []byte("feature"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	runGit(t, repo, "add", "-A")
 	runGit(t, repo, "commit", "-m", "add feature")
-	hash, err := GetLastCommitHash(repo)
+	hash, err := r.GetLastCommitHash(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := RevertCommits(repo, []string{hash}); err != nil {
+	if err := r.RevertCommits([]string{hash}); err != nil {
 		t.Fatalf("RevertCommits failed: %v", err)
 	}
 

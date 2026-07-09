@@ -12,7 +12,12 @@ import (
 	"unicode/utf8"
 )
 
-func Commit(workDir, message string) error {
+// Commit stages and commits all pending changes in workDir. workDir is
+// explicit rather than implicit on Repo because it may be a task worktree or
+// (in non-worktree mode) the repo root itself — the caller decides which
+// working directory is being committed. No-op (returns nil) if there is
+// nothing to commit.
+func (r *Repo) Commit(workDir, message string) error {
 	addCmd := exec.Command("git", "add", "-A")
 	addCmd.Dir = workDir
 
@@ -49,9 +54,12 @@ func Commit(workDir, message string) error {
 	return nil
 }
 
-func GetCurrentBranch(workDir string) (string, error) {
+// GetCurrentBranch returns the name of the branch currently checked out at
+// dir. dir may be the repo root or a task worktree — callers decide which
+// checkout they're asking about (mirrors GetLastCommitHash).
+func (r *Repo) GetCurrentBranch(dir string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = workDir
+	cmd.Dir = dir
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -64,9 +72,11 @@ func GetCurrentBranch(workDir string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-func HasChanges(workDir string) (bool, error) {
+// HasChanges reports whether the repo root's working tree has any
+// uncommitted changes (staged or unstaged).
+func (r *Repo) HasChanges() (bool, error) {
 	cmd := exec.Command("git", "status", "--porcelain")
-	cmd.Dir = workDir
+	cmd.Dir = r.root
 
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
@@ -78,24 +88,24 @@ func HasChanges(workDir string) (bool, error) {
 	return strings.TrimSpace(stdout.String()) != "", nil
 }
 
-// CleanRepoState forcibly restores a repository's working tree and index to a
-// clean state. It aborts any in-progress merge, then hard-resets to HEAD.
+// CleanRepoState forcibly restores the repo root's working tree and index to
+// a clean state. It aborts any in-progress merge, then hard-resets to HEAD.
 // Returns an error only if the repo is still dirty after cleanup.
-func CleanRepoState(repoRoot string) error {
+func (r *Repo) CleanRepoState() error {
 	// Abort any in-progress merge first (handles conflicted/half-merged index)
 	abortCmd := exec.Command("git", "merge", "--abort")
-	abortCmd.Dir = repoRoot
+	abortCmd.Dir = r.root
 	abortCmd.Run() // ignore error — no merge in progress is fine
 
 	// Hard reset index and working tree
 	resetCmd := exec.Command("git", "reset", "--hard", "HEAD")
-	resetCmd.Dir = repoRoot
+	resetCmd.Dir = r.root
 	if err := resetCmd.Run(); err != nil {
 		return fmt.Errorf("git reset --hard failed: %w", err)
 	}
 
 	// Verify the cleanup actually worked
-	dirty, err := HasChanges(repoRoot)
+	dirty, err := r.HasChanges()
 	if err != nil {
 		return fmt.Errorf("failed to verify clean state: %w", err)
 	}
@@ -105,24 +115,24 @@ func CleanRepoState(repoRoot string) error {
 	return nil
 }
 
-// MergeBranch fast-forwards baseBranch to the tip of branch. Fails if a
-// fast-forward isn't possible — callers are expected to rebase the task
-// branch onto baseBranch first (via RebaseInto) and retry. Linear history
-// is the design: no merge commits are ever produced here, so the base
-// branch's log is the task branches' commits in order.
-func MergeBranch(repoRoot, branch, baseBranch string) error {
+// MergeBranch fast-forwards the repo root's current baseBranch to the tip of
+// branch. Fails if a fast-forward isn't possible — callers are expected to
+// rebase the task branch onto baseBranch first (via RebaseInto) and retry.
+// Linear history is the design: no merge commits are ever produced here, so
+// the base branch's log is the task branches' commits in order.
+func (r *Repo) MergeBranch(branch, baseBranch string) error {
 	// Safety net: if we exit without a successful commit, ensure we don't
 	// leave staged changes on the base branch (the root cause of the race
 	// condition where parallel merges leave pending changes on main).
 	committed := false
 	defer func() {
 		if !committed {
-			CleanRepoState(repoRoot) // best-effort: abort merge + hard reset
+			r.CleanRepoState() // best-effort: abort merge + hard reset
 		}
 	}()
 
 	checkoutCmd := exec.Command("git", "checkout", baseBranch)
-	checkoutCmd.Dir = repoRoot
+	checkoutCmd.Dir = r.root
 
 	var stderr bytes.Buffer
 	checkoutCmd.Stderr = &stderr
@@ -132,7 +142,7 @@ func MergeBranch(repoRoot, branch, baseBranch string) error {
 	}
 
 	mergeCmd := exec.Command("git", "merge", "--ff-only", branch)
-	mergeCmd.Dir = repoRoot
+	mergeCmd.Dir = r.root
 	stderr.Reset()
 	mergeCmd.Stderr = &stderr
 
@@ -145,8 +155,9 @@ func MergeBranch(repoRoot, branch, baseBranch string) error {
 }
 
 // RebaseBranch rebases a branch onto the target branch using the worktree.
-// This updates the branch so it's based on the latest target, reducing merge conflicts.
-func RebaseBranch(worktreePath, baseBranch string) error {
+// This updates the branch so it's based on the latest target, reducing merge
+// conflicts. Unlike RebaseInto, it aborts automatically on conflict.
+func (r *Repo) RebaseBranch(worktreePath, baseBranch string) error {
 	cmd := exec.Command("git", "rebase", baseBranch)
 	cmd.Dir = worktreePath
 
@@ -164,16 +175,16 @@ func RebaseBranch(worktreePath, baseBranch string) error {
 	return nil
 }
 
-// ListLocalBranches returns a sorted list of local branch names in the given
-// repository, excluding the currently checked-out branch.
-func ListLocalBranches(repoRoot string) ([]string, error) {
-	currentBranch, err := GetCurrentBranch(repoRoot)
+// ListLocalBranches returns a sorted list of local branch names in the repo,
+// excluding the currently checked-out branch.
+func (r *Repo) ListLocalBranches() ([]string, error) {
+	currentBranch, err := r.GetCurrentBranch(r.root)
 	if err != nil {
 		return nil, err
 	}
 
 	cmd := exec.Command("git", "branch", "--list", "--format=%(refname:short)")
-	cmd.Dir = repoRoot
+	cmd.Dir = r.root
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -195,9 +206,10 @@ func ListLocalBranches(repoRoot string) ([]string, error) {
 	return branches, nil
 }
 
-func DeleteBranch(repoRoot, branch string) error {
+// DeleteBranch deletes a local branch (fails if not fully merged).
+func (r *Repo) DeleteBranch(branch string) error {
 	cmd := exec.Command("git", "branch", "-d", branch)
-	cmd.Dir = repoRoot
+	cmd.Dir = r.root
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -209,9 +221,10 @@ func DeleteBranch(repoRoot, branch string) error {
 	return nil
 }
 
-func ForceDeleteBranch(repoRoot, branch string) error {
+// ForceDeleteBranch deletes a local branch regardless of merge status.
+func (r *Repo) ForceDeleteBranch(branch string) error {
 	cmd := exec.Command("git", "branch", "-D", branch)
-	cmd.Dir = repoRoot
+	cmd.Dir = r.root
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -223,11 +236,11 @@ func ForceDeleteBranch(repoRoot, branch string) error {
 	return nil
 }
 
-// HasMeaningfulChanges checks whether a worktree has any changes (committed or uncommitted)
-// beyond the given exclude list. It checks both:
+// HasMeaningfulChanges checks whether workDir has any changes (committed or
+// uncommitted) beyond the given exclude list. It checks both:
 // - Committed changes vs the base (git diff HEAD --name-only)
 // - Uncommitted changes (git status --porcelain)
-func HasMeaningfulChanges(workDir string, excludeFiles []string) (bool, error) {
+func (r *Repo) HasMeaningfulChanges(workDir string, excludeFiles []string) (bool, error) {
 	excludeSet := make(map[string]bool, len(excludeFiles))
 	for _, f := range excludeFiles {
 		excludeSet[f] = true
@@ -289,9 +302,10 @@ func HasMeaningfulChanges(workDir string, excludeFiles []string) (bool, error) {
 	return false, nil
 }
 
-// DiffStat returns the --stat output for all commits on the current branch
-// relative to the given base branch. Returns empty string if no diff is available.
-func DiffStat(workDir, baseBranch string) (string, error) {
+// DiffStat returns the --stat output for all commits on workDir's current
+// branch relative to the given base branch. Returns empty string if no diff
+// is available.
+func (r *Repo) DiffStat(workDir, baseBranch string) (string, error) {
 	// Find the merge base to diff against
 	mergeBaseCmd := exec.Command("git", "merge-base", baseBranch, "HEAD")
 	mergeBaseCmd.Dir = workDir
@@ -322,13 +336,13 @@ func DiffStat(workDir, baseBranch string) (string, error) {
 	return strings.TrimSpace(diffOut.String()), nil
 }
 
-// RebaseInto rebases the worktree's current branch onto baseBranch. Unlike
-// RebaseBranch, it does NOT auto-abort on conflicts — on conflict it
-// returns an error but leaves the rebase in progress so the caller can
-// inspect conflicted files via GetConflictedFiles, stage resolutions, and
-// call ContinueRebase. Callers are responsible for invoking AbortRebase on
+// RebaseInto rebases worktreePath's current branch onto baseBranch. Unlike
+// RebaseBranch, it does NOT auto-abort on conflicts — on conflict it returns
+// an error but leaves the rebase in progress so the caller can inspect
+// conflicted files via GetConflictedFiles, stage resolutions, and call
+// ContinueRebase. Callers are responsible for invoking AbortRebase on
 // unrecoverable failures.
-func RebaseInto(worktreePath, baseBranch string) error {
+func (r *Repo) RebaseInto(worktreePath, baseBranch string) error {
 	cmd := exec.Command("git", "rebase", baseBranch)
 	cmd.Dir = worktreePath
 
@@ -343,8 +357,9 @@ func RebaseInto(worktreePath, baseBranch string) error {
 }
 
 // GetConflictedFiles returns the list of files with unresolved merge or
-// rebase conflicts. Returns an empty slice if there are no conflicts.
-func GetConflictedFiles(workDir string) ([]string, error) {
+// rebase conflicts in workDir. Returns an empty slice if there are no
+// conflicts.
+func (r *Repo) GetConflictedFiles(workDir string) ([]string, error) {
 	cmd := exec.Command("git", "diff", "--name-only", "--diff-filter=U")
 	cmd.Dir = workDir
 
@@ -366,10 +381,10 @@ func GetConflictedFiles(workDir string) ([]string, error) {
 	return files, nil
 }
 
-// ContinueRebase stages everything in the worktree and resumes an
+// ContinueRebase stages everything in worktreePath and resumes an
 // in-progress rebase, preserving the original commit message. Should be
 // called after resolving conflicts from a RebaseInto call.
-func ContinueRebase(worktreePath string) error {
+func (r *Repo) ContinueRebase(worktreePath string) error {
 	addCmd := exec.Command("git", "add", "-A")
 	addCmd.Dir = worktreePath
 
@@ -395,8 +410,9 @@ func ContinueRebase(worktreePath string) error {
 	return nil
 }
 
-// AbortRebase aborts an in-progress rebase to restore clean state.
-func AbortRebase(worktreePath string) error {
+// AbortRebase aborts an in-progress rebase in worktreePath to restore clean
+// state.
+func (r *Repo) AbortRebase(worktreePath string) error {
 	cmd := exec.Command("git", "rebase", "--abort")
 	cmd.Dir = worktreePath
 
@@ -410,8 +426,10 @@ func AbortRebase(worktreePath string) error {
 	return nil
 }
 
-// GetLastCommitHash returns the SHA of the most recent commit on the current branch.
-func GetLastCommitHash(dir string) (string, error) {
+// GetLastCommitHash returns the SHA of the most recent commit on the current
+// branch checked out at dir. dir may be the repo root or a task worktree —
+// callers decide which HEAD they're asking about.
+func (r *Repo) GetLastCommitHash(dir string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "HEAD")
 	cmd.Dir = dir
 	out, err := cmd.Output()
@@ -421,12 +439,13 @@ func GetLastCommitHash(dir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// RevertCommits performs git revert for each commit hash in reverse order (newest first).
-func RevertCommits(dir string, commits []string) error {
+// RevertCommits performs git revert for each commit hash in reverse order
+// (newest first) at the repo root.
+func (r *Repo) RevertCommits(commits []string) error {
 	// Revert in reverse order (newest first) to avoid conflicts
 	for i := len(commits) - 1; i >= 0; i-- {
 		cmd := exec.Command("git", "revert", "--no-edit", commits[i])
-		cmd.Dir = dir
+		cmd.Dir = r.root
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to revert commit %s: %w\n%s", commits[i], err, string(out))
 		}
@@ -434,7 +453,9 @@ func RevertCommits(dir string, commits []string) error {
 	return nil
 }
 
-func GetLastCommitMessage(workDir string) (string, error) {
+// GetLastCommitMessage returns the subject+body of the most recent commit at
+// workDir.
+func (r *Repo) GetLastCommitMessage(workDir string) (string, error) {
 	cmd := exec.Command("git", "log", "-1", "--pretty=%B")
 	cmd.Dir = workDir
 
@@ -473,6 +494,9 @@ var titlePrefixes = []struct {
 // ConventionalCommitFromTitle converts a freeform task title into a conventional
 // commit message. If the title already is a conventional commit, it's returned as-is.
 // Otherwise the leading verb is used to infer the type (defaulting to "feat").
+//
+// This is a pure string transformation — it doesn't touch any repository, so
+// it stays a free function rather than a Repo method.
 func ConventionalCommitFromTitle(title string) string {
 	if conventionalCommitRe.MatchString(title) {
 		return title
