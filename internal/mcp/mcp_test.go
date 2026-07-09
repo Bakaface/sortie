@@ -121,7 +121,7 @@ func startMCPServer(t *testing.T, fake *fakeDaemon) *mcppkg.Client {
 	t.Helper()
 
 	cfg := &config.Config{}
-	cfg.Daemon.SocketPath = fake.socketPath()
+	cfg.SocketPath = fake.socketPath()
 
 	c := client.New(cfg)
 	if err := c.Connect(); err != nil {

@@ -32,7 +32,7 @@ func Serve(cfg *config.Config) error {
 	// running. The connection is held for the lifetime of the MCP process.
 	c := client.New(cfg)
 	if err := c.Connect(); err != nil {
-		return fmt.Errorf("sortie daemon not reachable on %s: %w", cfg.Daemon.SocketPath, err)
+		return fmt.Errorf("sortie daemon not reachable on %s: %w", cfg.SocketPath, err)
 	}
 	defer c.Close()
 

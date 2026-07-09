@@ -20,11 +20,11 @@ import (
 // match the task's active step. That covers both a running agent step and a
 // tmux/human step paused at its approval gate — for the latter the engine has
 // already cleared current_step and marked the step row 'completed', so the
-// daemon resolves the active step as the one owning the live session (at
-// StepIndex-1) and writes there. There is no MCP-server-side notion of "the
-// calling agent's task ID", so the client must pass task_id explicitly;
-// misrouted updates are caught by the active-step check rather than by trusting
-// the caller.
+// daemon resolves the active step as the one owning the live session (the
+// paused step — see workflow.PausedStep) and writes there. There is no
+// MCP-server-side notion of "the calling agent's task ID", so the client must
+// pass task_id explicitly; misrouted updates are caught by the active-step
+// check rather than by trusting the caller.
 type UpdateStepContextArgs struct {
 	TaskID   int64  `json:"task_id" jsonschema:"Task ID whose active step should receive the context. Required. Must be a task that's currently in a running step."`
 	StepName string `json:"step_name" jsonschema:"Name of the workflow step receiving the context. Must match the task's currently-active step — updates to non-active steps are rejected."`
