@@ -94,34 +94,38 @@ func (c *Config) GetTaskWorkflow(name string) *WorkflowConfig {
 
 // GetWorktreeSyncPaths returns the sync paths for a workflow, falling back to the global config.
 func (c *Config) GetWorktreeSyncPaths(wf *WorkflowConfig) WorktreeSyncPathsConfig {
-	if wf != nil && !wf.WorktreeSyncPaths.IsEmpty() {
-		return wf.WorktreeSyncPaths
+	var wfVal WorktreeSyncPathsConfig
+	if wf != nil {
+		wfVal = wf.WorktreeSyncPaths
 	}
-	return c.WorktreeSyncPaths
+	return firstNonEmptyValue(wfVal, c.WorktreeSyncPaths)
 }
 
 // GetWorktreeSetupCommand returns the setup command for a workflow, falling back to the global config.
 func (c *Config) GetWorktreeSetupCommand(wf *WorkflowConfig) string {
-	if wf != nil && wf.WorktreeSetupCommand != "" {
-		return wf.WorktreeSetupCommand
+	var wfVal string
+	if wf != nil {
+		wfVal = wf.WorktreeSetupCommand
 	}
-	return c.WorktreeSetupCommand
+	return firstNonZero(wfVal, c.WorktreeSetupCommand)
 }
 
 // GetWorktreeSetupCommands returns the setup commands for a workflow, falling back to the global config.
 func (c *Config) GetWorktreeSetupCommands(wf *WorkflowConfig) []string {
-	if wf != nil && len(wf.WorktreeSetupCommands) > 0 {
-		return wf.WorktreeSetupCommands
+	var wfVal []string
+	if wf != nil {
+		wfVal = wf.WorktreeSetupCommands
 	}
-	return c.WorktreeSetupCommands
+	return firstNonEmptySlice(wfVal, c.WorktreeSetupCommands)
 }
 
 // GetTmuxSetupCommand returns the tmux setup command for a workflow, falling back to the global config.
 func (c *Config) GetTmuxSetupCommand(wf *WorkflowConfig) string {
-	if wf != nil && wf.TmuxSetupCommand != "" {
-		return wf.TmuxSetupCommand
+	var wfVal string
+	if wf != nil {
+		wfVal = wf.TmuxSetupCommand
 	}
-	return c.TmuxSetupCommand
+	return firstNonZero(wfVal, c.TmuxSetupCommand)
 }
 
 // ResolveBranchForTask resolves the branch name for a task. If branchName is non-empty,

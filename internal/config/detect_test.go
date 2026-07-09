@@ -33,7 +33,7 @@ func TestApplyDetectedProjectUsesDirName(t *testing.T) {
 	}
 
 	cfg := defaultConfig()
-	cfg.syncCompat() // sets AutoDetect = true
+	cfg.Project.AutoDetect = true
 	cfg.ApplyDetectedProject(dir)
 
 	if cfg.Project.Name != "coolapp" {
@@ -50,7 +50,7 @@ func TestApplyDetectedProjectDoesNotOverrideExplicitName(t *testing.T) {
 	}
 
 	cfg := defaultConfig()
-	cfg.syncCompat() // sets AutoDetect = true
+	cfg.Project.AutoDetect = true
 	cfg.Project.Name = "my-custom-name"
 	cfg.ApplyDetectedProject(dir)
 
@@ -87,7 +87,7 @@ func TestApplyDetectedProjectSanitizesDots(t *testing.T) {
 	}
 
 	cfg := defaultConfig()
-	cfg.syncCompat() // sets AutoDetect = true
+	cfg.Project.AutoDetect = true
 	cfg.ApplyDetectedProject(dir)
 
 	if cfg.Project.Name != "_my-project" {

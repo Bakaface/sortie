@@ -481,8 +481,8 @@ const (
 	// DefaultStepTimeout is the fallback step timeout when none is configured.
 	DefaultStepTimeout = 30 * time.Minute
 
-	// defaultOutputBufferLines is the default size of the per-agent output ring buffer.
-	defaultOutputBufferLines = 10000
+	// DefaultOutputBufferLines is the default size of the per-agent output ring buffer.
+	DefaultOutputBufferLines = 10000
 
 	// SummarizationStrategyLastMessage uses the Claude result event text as step context.
 	// Cheap (no extra Claude call) but often misleading — the final assistant message is
@@ -662,18 +662,18 @@ type Config struct {
 	PidFile      string
 	PollInterval time.Duration
 
-	// Legacy compat fields used by detect.go during init
+	// Project holds auto-detected and user-facing project metadata (name,
+	// detected build/test/lint commands). Populated by ApplyDetectedProject
+	// during Load/LoadForProject. Kept as an anonymous struct (not a named
+	// compat type) since it stores real, non-duplicated data — see detect.go
+	// and the many `cfg.Project.Name` readers across cmd/, internal/tui,
+	// internal/daemon, and internal/workflow.
 	Project struct {
 		Name       string
 		WorkDir    string
 		Commands   CommandsConfig
 		AutoDetect bool
 	}
-
-	// Legacy compat — these wrap into the new struct for existing consumers
-	Daemon   daemonCompat
-	Database databaseCompat
-	Agents   agentsCompat
 
 	// globalPool holds workflows resolved from the global ~/.sortie.yml (both
 	// inline and file-based under ~/.sortie/workflows/). Project-level config
@@ -682,20 +682,4 @@ type Config struct {
 	// workflows by name. Populated during loadCommon, after the global
 	// .sortie.yml is processed. Not serialized.
 	globalPool *globalWorkflowPool
-}
-
-// daemonCompat provides backward-compatible access for daemon package
-type daemonCompat struct {
-	SocketPath   string
-	PidFile      string
-	PollInterval time.Duration
-}
-
-type databaseCompat struct {
-	Path string
-}
-
-type agentsCompat struct {
-	MaxConcurrent     int
-	OutputBufferLines int
 }

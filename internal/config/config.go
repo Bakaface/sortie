@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Bakaface/sortie/internal/tmux"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,10 +44,6 @@ func defaultConfig() *Config {
 			},
 		},
 		PollInterval: 5 * time.Second,
-		Agents: agentsCompat{
-			MaxConcurrent:     3,
-			OutputBufferLines: 10000,
-		},
 	}
 }
 
@@ -117,7 +114,7 @@ func Load() (*Config, error) {
 	}
 
 	cfg.computePaths()
-	cfg.syncCompat()
+	cfg.Project.AutoDetect = true
 
 	if cfg.ProjectDir != "" {
 		cfg.ApplyDetectedProject(cfg.ProjectDir)
@@ -144,7 +141,7 @@ func LoadForProject(projectDir string) (*Config, error) {
 
 	cfg.ProjectDir = projectDir
 	cfg.computePaths()
-	cfg.syncCompat()
+	cfg.Project.AutoDetect = true
 	cfg.ApplyDetectedProject(cfg.ProjectDir)
 
 	return cfg, nil
@@ -161,12 +158,8 @@ func loadGlobalConfig(path string, cfg *Config) error {
 		return err
 	}
 
-	if global.MaxWorkers > 0 {
-		cfg.MaxWorkers = global.MaxWorkers
-	}
-	if global.Yolo != nil {
-		cfg.Claude.Yolo = *global.Yolo
-	}
+	overridePositive(&cfg.MaxWorkers, global.MaxWorkers)
+	overrideFromPtr(&cfg.Claude.Yolo, global.Yolo)
 	if global.PollInterval != "" {
 		if d, err := time.ParseDuration(global.PollInterval); err == nil && d > 0 {
 			cfg.PollInterval = d
@@ -174,41 +167,23 @@ func loadGlobalConfig(path string, cfg *Config) error {
 			return fmt.Errorf("invalid poll_interval %q: %w", global.PollInterval, err)
 		}
 	}
-	if global.Verification != nil {
-		cfg.Verification = *global.Verification
-	}
+	overrideFromPtr(&cfg.Verification, global.Verification)
 	cfg.Notifications = global.Notifications
-	if global.TmuxNestedAttachBehavior != "" {
-		cfg.TmuxNestedAttachBehavior = global.TmuxNestedAttachBehavior
-	}
+	override(&cfg.TmuxNestedAttachBehavior, global.TmuxNestedAttachBehavior)
 	if global.Claude != nil {
-		if global.Claude.Command != "" {
-			cfg.Claude.Command = global.Claude.Command
-		}
-		if len(global.Claude.DefaultArgs) > 0 {
-			cfg.Claude.DefaultArgs = global.Claude.DefaultArgs
-		}
+		override(&cfg.Claude.Command, global.Claude.Command)
+		overrideNonEmptySlice(&cfg.Claude.DefaultArgs, global.Claude.DefaultArgs)
 	}
 	if global.Options != nil {
-		if global.Options.Number != nil {
-			cfg.Options.Number = global.Options.Number
-		}
-		if global.Options.Branch != nil {
-			cfg.Options.Branch = global.Options.Branch
-		}
-		if global.Options.Target != nil {
-			cfg.Options.Target = global.Options.Target
-		}
+		override(&cfg.Options.Number, global.Options.Number)
+		override(&cfg.Options.Branch, global.Options.Branch)
+		override(&cfg.Options.Target, global.Options.Target)
 		if global.Options.Animation != nil {
 			if cfg.Options.Animation == nil {
 				cfg.Options.Animation = &AnimationConfig{}
 			}
-			if global.Options.Animation.Enabled != nil {
-				cfg.Options.Animation.Enabled = global.Options.Animation.Enabled
-			}
-			if global.Options.Animation.Duration != nil {
-				cfg.Options.Animation.Duration = global.Options.Animation.Duration
-			}
+			override(&cfg.Options.Animation.Enabled, global.Options.Animation.Enabled)
+			override(&cfg.Options.Animation.Duration, global.Options.Animation.Duration)
 		}
 	}
 
@@ -233,9 +208,7 @@ func loadProjectConfig(path string, cfg *Config) error {
 		return err
 	}
 
-	if proj.MaxWorkers > 0 {
-		cfg.MaxWorkers = proj.MaxWorkers
-	}
+	overridePositive(&cfg.MaxWorkers, proj.MaxWorkers)
 	if proj.PollInterval != "" {
 		d, err := time.ParseDuration(proj.PollInterval)
 		if err != nil {
@@ -245,53 +218,23 @@ func loadProjectConfig(path string, cfg *Config) error {
 			cfg.PollInterval = d
 		}
 	}
-	if proj.Git.BaseBranch != "" {
-		cfg.Git.BaseBranch = proj.Git.BaseBranch
-	}
-	if proj.Git.BranchTemplate != "" {
-		cfg.Git.BranchTemplate = proj.Git.BranchTemplate
-	}
-	if proj.OnComplete != "" {
-		cfg.OnComplete = proj.OnComplete
-	}
-	if proj.DefaultPriority != "" {
-		cfg.DefaultPriority = proj.DefaultPriority
-	}
-	if proj.Yolo != nil {
-		cfg.Claude.Yolo = *proj.Yolo
-	}
+	override(&cfg.Git.BaseBranch, proj.Git.BaseBranch)
+	override(&cfg.Git.BranchTemplate, proj.Git.BranchTemplate)
+	override(&cfg.OnComplete, proj.OnComplete)
+	override(&cfg.DefaultPriority, proj.DefaultPriority)
+	overrideFromPtr(&cfg.Claude.Yolo, proj.Yolo)
 	if proj.Claude != nil {
-		if proj.Claude.Command != "" {
-			cfg.Claude.Command = proj.Claude.Command
-		}
-		if len(proj.Claude.DefaultArgs) > 0 {
-			cfg.Claude.DefaultArgs = proj.Claude.DefaultArgs
-		}
+		override(&cfg.Claude.Command, proj.Claude.Command)
+		overrideNonEmptySlice(&cfg.Claude.DefaultArgs, proj.Claude.DefaultArgs)
 	}
-	if proj.Verification != nil {
-		cfg.Verification = *proj.Verification
-	}
-	if proj.Notifications != nil {
-		cfg.Notifications = *proj.Notifications
-	}
-	if proj.TmuxNestedAttachBehavior != "" {
-		cfg.TmuxNestedAttachBehavior = proj.TmuxNestedAttachBehavior
-	}
-	if proj.SystemPrompt != "" {
-		cfg.SystemPrompt = proj.SystemPrompt
-	}
-	if !proj.WorktreeSyncPaths.IsEmpty() {
-		cfg.WorktreeSyncPaths = proj.WorktreeSyncPaths
-	}
-	if proj.WorktreeSetupCommand != "" {
-		cfg.WorktreeSetupCommand = proj.WorktreeSetupCommand
-	}
-	if len(proj.WorktreeSetupCommands) > 0 {
-		cfg.WorktreeSetupCommands = proj.WorktreeSetupCommands
-	}
-	if proj.TmuxSetupCommand != "" {
-		cfg.TmuxSetupCommand = proj.TmuxSetupCommand
-	}
+	overrideFromPtr(&cfg.Verification, proj.Verification)
+	overrideFromPtr(&cfg.Notifications, proj.Notifications)
+	override(&cfg.TmuxNestedAttachBehavior, proj.TmuxNestedAttachBehavior)
+	override(&cfg.SystemPrompt, proj.SystemPrompt)
+	overrideIfNotEmpty(&cfg.WorktreeSyncPaths, proj.WorktreeSyncPaths)
+	override(&cfg.WorktreeSetupCommand, proj.WorktreeSetupCommand)
+	overrideNonEmptySlice(&cfg.WorktreeSetupCommands, proj.WorktreeSetupCommands)
+	override(&cfg.TmuxSetupCommand, proj.TmuxSetupCommand)
 	if len(proj.AllowedSummarizationModels) > 0 {
 		for _, m := range proj.AllowedSummarizationModels {
 			if !ValidSummarizationModels[m] {
@@ -302,25 +245,15 @@ func loadProjectConfig(path string, cfg *Config) error {
 		cfg.AllowedSummarizationModels = append([]string(nil), proj.AllowedSummarizationModels...)
 	}
 	if proj.Options != nil {
-		if proj.Options.Number != nil {
-			cfg.Options.Number = proj.Options.Number
-		}
-		if proj.Options.Branch != nil {
-			cfg.Options.Branch = proj.Options.Branch
-		}
-		if proj.Options.Target != nil {
-			cfg.Options.Target = proj.Options.Target
-		}
+		override(&cfg.Options.Number, proj.Options.Number)
+		override(&cfg.Options.Branch, proj.Options.Branch)
+		override(&cfg.Options.Target, proj.Options.Target)
 		if proj.Options.Animation != nil {
 			if cfg.Options.Animation == nil {
 				cfg.Options.Animation = &AnimationConfig{}
 			}
-			if proj.Options.Animation.Enabled != nil {
-				cfg.Options.Animation.Enabled = proj.Options.Animation.Enabled
-			}
-			if proj.Options.Animation.Duration != nil {
-				cfg.Options.Animation.Duration = proj.Options.Animation.Duration
-			}
+			override(&cfg.Options.Animation.Enabled, proj.Options.Animation.Enabled)
+			override(&cfg.Options.Animation.Duration, proj.Options.Animation.Duration)
 		}
 	}
 
@@ -680,22 +613,6 @@ func GetGlobalDataDir() string {
 	return getGlobalDataDir()
 }
 
-func (c *Config) syncCompat() {
-	c.Daemon = daemonCompat{
-		SocketPath:   c.SocketPath,
-		PidFile:      c.PidFile,
-		PollInterval: c.PollInterval,
-	}
-	c.Database = databaseCompat{
-		Path: c.DatabasePath,
-	}
-	c.Agents = agentsCompat{
-		MaxConcurrent:     c.MaxWorkers,
-		OutputBufferLines: defaultOutputBufferLines,
-	}
-	c.Project.AutoDetect = true
-}
-
 // EnsureDirs creates the .sortie directory and any parent dirs needed.
 func (c *Config) EnsureDirs() error {
 	dirs := []string{
@@ -795,8 +712,12 @@ func getProjectConfigPath() string {
 // consumers (e.g. tmux silently converts dots to underscores, breaking session
 // prefix matching). Applied at project name creation time so all consumers get
 // a clean, consistent name.
+//
+// This delegates to tmux.SanitizeName, the single source of truth for the
+// sanitization rule, since the reason it exists here is exactly "make a name
+// tmux will accept".
 func SanitizeProjectName(name string) string {
-	return strings.ReplaceAll(name, ".", "_")
+	return tmux.SanitizeName(name)
 }
 
 // ProjectNameFromPath derives the canonical project name from a directory path.
