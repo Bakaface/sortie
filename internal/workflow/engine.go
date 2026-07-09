@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/Bakaface/sortie/internal/config"
-	"github.com/Bakaface/sortie/internal/db"
 	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/merge"
 	"github.com/Bakaface/sortie/internal/notify"
@@ -23,19 +23,36 @@ const (
 )
 
 type Engine struct {
-	cfg      *config.Config
-	database *db.DB
+	cfg      *engineConfig
+	database taskStore
 	notifier *notify.Notifier
 	repoRoot string
+	repo     *gitpkg.Repo // git operations scoped to repoRoot / task worktrees
 	dataDir  string
 	coord    *merge.Coordinator // owns merge serialization, retry, and cleanup-on-failure
+
+	// runner is the AGENT-RUNNER seam: runStep calls it (instead of calling
+	// runClaudeStep directly) to execute a headless step's Claude agent, so
+	// tests can substitute a fake that returns scripted results without
+	// spawning a real claude subprocess. Defaults to realAgentRunner{} (see
+	// step.go); tests in this package override it by setting the field
+	// directly after construction — the same pattern already used for e.repo
+	// in fasttrack_test.go. The tmux path (runClaudeStepTmux) is NOT behind
+	// this seam; see agentRunner's doc comment in step.go for why.
+	runner agentRunner
 }
 
-// NewEngine creates a new workflow engine. The optional Lock parameter is an
-// externally-owned per-repo merge serializer; when non-nil, the lock survives
-// config reloads (the daemon owns it via merge.Locks). When nil, a fresh lock
-// is created for standalone/test usage.
-func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, repoRoot string, lock ...*merge.Lock) *Engine {
+// NewEngine creates a new workflow engine. It still accepts the full
+// *config.Config (callers — the daemon and tests — construct/reload the
+// whole blob, so there's no reason to make them narrow it themselves) but
+// only retains the narrow engineConfig view internally; see engine_config.go
+// for the dependency surface this actually uses.
+//
+// The optional Lock parameter is an externally-owned per-repo merge
+// serializer; when non-nil, the lock survives config reloads (the daemon
+// owns it via merge.Locks). When nil, a fresh lock is created for
+// standalone/test usage.
+func NewEngine(cfg *config.Config, database taskStore, notifier *notify.Notifier, repoRoot string, lock ...*merge.Lock) *Engine {
 	var lk *merge.Lock
 	if len(lock) > 0 && lock[0] != nil {
 		lk = lock[0]
@@ -43,11 +60,13 @@ func NewEngine(cfg *config.Config, database *db.DB, notifier *notify.Notifier, r
 		lk = &merge.Lock{}
 	}
 	e := &Engine{
-		cfg:      cfg,
+		cfg:      newEngineConfig(cfg),
 		database: database,
 		notifier: notifier,
 		repoRoot: repoRoot,
+		repo:     gitpkg.NewRepo(repoRoot),
 		dataDir:  filepath.Join(repoRoot, ".sortie"),
+		runner:   realAgentRunner{},
 	}
 	e.coord = merge.NewCoordinator(
 		repoRoot,
@@ -73,7 +92,7 @@ func (e *Engine) buildTemplateContext(t *task.Task, taskVars TaskVars, stepConte
 		Task:  taskVars,
 		Steps: stepContexts,
 		Git: GitVars{
-			BaseBranch:   e.cfg.Git.BaseBranch,
+			BaseBranch:   e.cfg.BaseBranch,
 			TargetBranch: e.effectiveBaseBranch(t),
 			RepoRoot:     e.repoRoot,
 		},
@@ -99,8 +118,8 @@ func (e *Engine) effectiveBaseBranch(t *task.Task) string {
 	if t.TargetBranch != "" {
 		return t.TargetBranch
 	}
-	if e.cfg.Git.BaseBranch != "" {
-		return e.cfg.Git.BaseBranch
+	if e.cfg.BaseBranch != "" {
+		return e.cfg.BaseBranch
 	}
 	return "main"
 }
@@ -114,48 +133,164 @@ func (e *Engine) effectiveOnComplete(t *task.Task) string {
 	return e.cfg.OnComplete
 }
 
+// dirExists reports whether path exists and is a directory. Used by
+// EnsureWorktree's checkDisk mode to detect a worktree whose directory has
+// vanished out from under a persisted t.WorktreePath (e.g. after
+// cleanupWorktreeAndBranch ran on a task that's now being resumed).
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// EnsureWorktree idempotently provisions the git worktree for a
+// worktree-mode task: resolving/persisting the branch name, then creating a
+// new worktree (or checking out an existing branch when t.CheckoutBranch is
+// set) unless one is already in place. It is the single implementation
+// shared by Engine.RunTask (first-run provisioning) and the daemon's
+// worktree-recreation path (handlers_continue.go's ensureWorktree, used when
+// resuming a task whose worktree may have been cleaned up) — those two call
+// sites previously duplicated this sequence and had drifted; see the
+// checkDisk doc below for the one behavioral difference preserved between
+// them.
+//
+// No-op for non-worktree tasks (t.Worktree == false): returns
+// (t.WorktreePath, false, nil). Callers own the no-worktree path themselves
+// (RunTask sets WorktreePath = repoRoot; the daemon does the same in
+// handleContinueTask) since it isn't "provisioning a worktree" at all.
+//
+// checkDisk controls the idempotency check that decides "is a worktree
+// already provisioned":
+//   - false (RunTask's historical behavior): a non-empty t.WorktreePath
+//     alone is trusted as already-provisioned, even if the directory no
+//     longer exists on disk.
+//   - true (the daemon's recreation semantics): the directory is also
+//     verified to exist, and a missing directory triggers recreation even
+//     though WorktreePath was persisted from an earlier run.
+//
+// Returns the resolved worktree path, whether this call actually performed a
+// create/checkout (false when an existing worktree was reused — callers use
+// this to decide whether to (re-)run sync-paths/setup-commands), and any
+// error from the underlying git operation.
+func (e *Engine) EnsureWorktree(t *task.Task, checkDisk bool) (path string, provisioned bool, err error) {
+	if !t.Worktree {
+		return t.WorktreePath, false, nil
+	}
+	if t.WorktreePath != "" && (!checkDisk || dirExists(t.WorktreePath)) {
+		return t.WorktreePath, false, nil
+	}
+
+	if t.CheckoutBranch != "" {
+		// Checkout existing branch mode
+		if t.Branch == "" {
+			t.Branch = t.CheckoutBranch
+		}
+		if dbErr := e.database.UpdateTaskBranch(t.ID, t.Branch); dbErr != nil {
+			log.Printf("Warning: failed to persist branch name for task #%d: %v", t.ID, dbErr)
+		}
+		worktree, err := e.repo.CheckoutWorktree(t.ID, t.CheckoutBranch)
+		if err != nil {
+			return "", false, fmt.Errorf("failed to checkout worktree: %w", err)
+		}
+		t.WorktreePath = worktree.Path
+	} else {
+		// Normal new branch mode
+		if t.Branch == "" {
+			t.Branch = e.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
+			if dbErr := e.database.UpdateTaskBranch(t.ID, t.Branch); dbErr != nil {
+				log.Printf("Warning: failed to persist branch name for task #%d: %v", t.ID, dbErr)
+			}
+		}
+		worktree, err := e.repo.CreateWorktree(t.ID, e.effectiveBaseBranch(t), t.Branch)
+		if err != nil {
+			return "", false, fmt.Errorf("failed to create worktree: %w", err)
+		}
+		t.WorktreePath = worktree.Path
+	}
+
+	if err := e.database.UpdateTaskWorktreePath(t.ID, t.WorktreePath); err != nil {
+		log.Printf("Warning: failed to update worktree path for task #%d: %v", t.ID, err)
+	}
+	return t.WorktreePath, true, nil
+}
+
 // RunTask executes the full workflow pipeline for a task.
 // It creates/reuses the worktree, then loops through steps starting from t.StepIndex.
 // outputFn is called with parsed log lines for live streaming (may be nil).
+//
+// The pipeline is a driver loop over three named stages:
+//   - prepareWorkspace: everything that happens once, before the step loop
+//     (worktree provisioning, path sync, setup commands, image copy).
+//   - runStep: builds the per-step template context/prompt and executes the
+//     step (headless via the agentRunner seam, or tmux), returning a
+//     stepResult. An error here means the step itself failed to run (spawn
+//     error or non-zero exit) — RunTask returns immediately.
+//   - applyStepResult: the post-step decisions (session recording, waits-on
+//     suspension, no-output validation, step-context capture, loop
+//     evaluation, approval/tmux pausing) — returns a stepOutcome the driver
+//     switches on.
 func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]string)) error {
 	wf := e.cfg.GetWorkflow(t.Workflow)
 	steps := wf.Steps
 
+	ws, err := e.prepareWorkspace(ctx, t, wf)
+	if err != nil {
+		return err
+	}
+
+	// Loop through steps from current index
+	for i := t.StepIndex; i < len(steps); i++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		step := steps[i]
+
+		result, err := e.runStep(ctx, t, wf, steps, step, i, ws, outputFn)
+		if err != nil {
+			return err
+		}
+
+		outcome, err := e.applyStepResult(ctx, t, wf, steps, i, result)
+		if err != nil {
+			return err
+		}
+
+		switch outcome.kind {
+		case stepOutcomeSuspend, stepOutcomePause:
+			return nil
+		case stepOutcomeGoto:
+			i = outcome.gotoIdx - 1 // for-loop will increment
+			continue
+		case stepOutcomeAdvance:
+			// fall through to the for-loop's natural i++
+		}
+	}
+
+	// All steps completed — merge, summarization, and cleanup
+	// are handled by the daemon on agent completion.
+	return nil
+}
+
+// workspaceContext carries the state prepareWorkspace produces that every
+// step in the loop needs. Currently just the attached-image paths (resolved
+// once, relative to the worktree) — the worktree path itself lives on
+// t.WorktreePath, which prepareWorkspace also sets.
+type workspaceContext struct {
+	imageRelPaths []string
+}
+
+// prepareWorkspace runs everything RunTask needs to do exactly once, before
+// the per-step loop: provisioning/reusing the worktree, syncing configured
+// paths into it, running worktree setup command(s), ensuring the .sortie
+// work dirs exist, and copying attached images. Extracted verbatim from the
+// front of RunTask; see EnsureWorktree's doc comment for the worktree
+// provisioning semantics this delegates to.
+func (e *Engine) prepareWorkspace(ctx context.Context, t *task.Task, wf *config.WorkflowConfig) (workspaceContext, error) {
 	if t.Worktree {
-		if t.CheckoutBranch != "" {
-			// Checkout existing branch mode
-			t.Branch = t.CheckoutBranch
-			if dbErr := e.database.UpdateTaskBranch(t.ID, t.Branch); dbErr != nil {
-				log.Printf("Warning: failed to persist branch name for task #%d: %v", t.ID, dbErr)
-			}
-			if t.WorktreePath == "" {
-				worktree, err := gitpkg.CheckoutWorktree(e.repoRoot, t.ID, t.CheckoutBranch)
-				if err != nil {
-					return fmt.Errorf("failed to checkout worktree: %w", err)
-				}
-				t.WorktreePath = worktree.Path
-				if err := e.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
-					log.Printf("Warning: failed to update worktree path: %v", err)
-				}
-			}
-		} else {
-			// Normal new branch mode
-			if t.Branch == "" {
-				t.Branch = e.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
-				if dbErr := e.database.UpdateTaskBranch(t.ID, t.Branch); dbErr != nil {
-					log.Printf("Warning: failed to persist branch name for task #%d: %v", t.ID, dbErr)
-				}
-			}
-			if t.WorktreePath == "" {
-				worktree, err := gitpkg.CreateWorktree(e.repoRoot, t.ID, e.effectiveBaseBranch(t), t.Branch)
-				if err != nil {
-					return fmt.Errorf("failed to create worktree: %w", err)
-				}
-				t.WorktreePath = worktree.Path
-				if err := e.database.UpdateTaskWorktreePath(t.ID, worktree.Path); err != nil {
-					log.Printf("Warning: failed to update worktree path: %v", err)
-				}
-			}
+		if _, _, err := e.EnsureWorktree(t, false); err != nil {
+			return workspaceContext{}, err
 		}
 	} else {
 		// No-worktree mode: run in project root directory.
@@ -167,7 +302,11 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 	}
 
-	// Sync configured paths from project root into the worktree
+	// Sync configured paths from project root into the worktree. This runs on
+	// every RunTask call (including resumes after approval), not just when
+	// EnsureWorktree actually provisioned a fresh worktree — see
+	// EnsureWorktree's doc comment for why the daemon's recreation path
+	// (ensureWorktree in handlers_continue.go) does not mirror this.
 	if t.Worktree {
 		syncPaths := e.cfg.GetWorktreeSyncPaths(wf)
 		if !syncPaths.IsEmpty() {
@@ -181,19 +320,19 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 	if t.Worktree {
 		if setupCmd := e.cfg.GetWorktreeSetupCommand(wf); setupCmd != "" {
 			if err := RunWorktreeSetupCommand(ctx, e.repoRoot, t.WorktreePath, setupCmd); err != nil {
-				return fmt.Errorf("worktree setup failed: %w", err)
+				return workspaceContext{}, fmt.Errorf("worktree setup failed: %w", err)
 			}
 		}
 		if setupCmds := e.cfg.GetWorktreeSetupCommands(wf); len(setupCmds) > 0 {
 			if err := RunWorktreeSetupCommands(ctx, e.repoRoot, t.WorktreePath, setupCmds); err != nil {
-				return fmt.Errorf("worktree setup failed: %w", err)
+				return workspaceContext{}, fmt.Errorf("worktree setup failed: %w", err)
 			}
 		}
 	}
 
 	// Ensure .sortie directories exist in worktree
 	if err := EnsureWorkDirs(t.WorktreePath); err != nil {
-		return fmt.Errorf("failed to create sortie dirs: %w", err)
+		return workspaceContext{}, fmt.Errorf("failed to create sortie dirs: %w", err)
 	}
 
 	// Copy attached images to worktree
@@ -206,297 +345,300 @@ func (e *Engine) RunTask(ctx context.Context, t *task.Task, outputFn func([]stri
 		}
 	}
 
-	// Loop through steps from current index
-	for i := t.StepIndex; i < len(steps); i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
+	return workspaceContext{imageRelPaths: imageRelPaths}, nil
+}
 
-		step := steps[i]
+// stepResult carries a single step's execution outcome from runStep to
+// applyStepResult.
+type stepResult struct {
+	step       config.StepConfig
+	exitCode   int
+	resultText string
+	outputTail string
+	sessionID  string
+	useTmux    bool
+}
 
-		// Update step tracking
-		if err := e.database.UpdateTaskStep(t.ID, i, step.Name); err != nil {
-			log.Printf("Warning: failed to update task step: %v", err)
-		}
+// runStep builds the per-step template context/prompt and executes step i,
+// either headless (through the agentRunner seam — see step.go) or in tmux.
+// A non-nil error means the step itself did not complete successfully (spawn
+// error or non-zero exit): RunTask's driver returns immediately in that
+// case, so this function performs the same exit-code bookkeeping the
+// original inline loop body did (UpdateTaskExitCode + formatted error)
+// before any post-step decision (session recording, loop evaluation,
+// approval pausing, ...) gets a chance to run.
+func (e *Engine) runStep(ctx context.Context, t *task.Task, wf *config.WorkflowConfig, steps []config.StepConfig, step config.StepConfig, i int, ws workspaceContext, outputFn func([]string)) (stepResult, error) {
+	// Update step tracking
+	if err := e.database.UpdateTaskStep(t.ID, i, step.Name); err != nil {
+		log.Printf("Warning: failed to update task step: %v", err)
+	}
 
-		// If we are resuming after children finished (StatusAwaitingChildren →
-		// pending via the poller), the wait-on edges still exist. Snapshot the
-		// children for {{children.*}} template vars, then clear the edges so
-		// the post-step check sees only NEW edges added during this run.
-		// First-time step runs simply find an empty list and skip the work.
-		childrenVars, err := e.loadAndClearChildren(t)
-		if err != nil {
-			log.Printf("Warning: failed to load waits-on children for task #%d: %v", t.ID, err)
-		}
+	// If we are resuming after children finished (StatusAwaitingChildren →
+	// pending via the poller), the wait-on edges still exist. Snapshot the
+	// children for {{children.*}} template vars, then clear the edges so
+	// the post-step check sees only NEW edges added during this run.
+	// First-time step runs simply find an empty list and skip the work.
+	childrenVars, err := e.loadAndClearChildren(t)
+	if err != nil {
+		log.Printf("Warning: failed to load waits-on children for task #%d: %v", t.ID, err)
+	}
 
-		// Record step start in task_steps table
-		if err := e.database.CreateTaskStep(t.ID, step.Name); err != nil {
-			log.Printf("Warning: failed to create task step record: %v", err)
-		}
+	// Record step start in task_steps table
+	if err := e.database.CreateTaskStep(t.ID, step.Name); err != nil {
+		log.Printf("Warning: failed to create task step record: %v", err)
+	}
 
-		// Collect step contexts from ALL steps that have a recorded context.
-		// We include later-indexed steps too because loops can populate them
-		// in earlier iterations (e.g. reviewing's issues feeding back to
-		// implementing on the next pass). Steps that haven't run yet simply
-		// have no DB row and resolve to "".
-		var allStepNames []string
+	// Collect step contexts from ALL steps that have a recorded context.
+	// We include later-indexed steps too because loops can populate them
+	// in earlier iterations (e.g. reviewing's issues feeding back to
+	// implementing on the next pass). Steps that haven't run yet simply
+	// have no DB row and resolve to "".
+	var allStepNames []string
+	for _, s := range steps {
+		allStepNames = append(allStepNames, s.Name)
+	}
+	stepContexts, err := e.database.GetTaskStepContexts(t.ID, allStepNames)
+	if err != nil {
+		log.Printf("Warning: failed to get step contexts: %v", err)
+		stepContexts = make(map[string]string)
+	}
+
+	// Build template context and resolve prompt
+	loopVars := LoopVars{}
+	if step.Loop != nil {
+		loopVars.Iteration = t.LoopIteration
+		loopVars.MaxIterations = step.Loop.MaxIterations
+	} else {
+		// Check if any step in the current loop range references this step
+		// to populate loop vars for non-loop steps inside a loop
 		for _, s := range steps {
-			allStepNames = append(allStepNames, s.Name)
-		}
-		stepContexts, err := e.database.GetTaskStepContexts(t.ID, allStepNames)
-		if err != nil {
-			log.Printf("Warning: failed to get step contexts: %v", err)
-			stepContexts = make(map[string]string)
-		}
-
-		// Build template context and resolve prompt
-		loopVars := LoopVars{}
-		if step.Loop != nil {
-			loopVars.Iteration = t.LoopIteration
-			loopVars.MaxIterations = step.Loop.MaxIterations
-		} else {
-			// Check if any step in the current loop range references this step
-			// to populate loop vars for non-loop steps inside a loop
-			for _, s := range steps {
-				if s.Loop != nil && s.Loop.Goto != "" {
-					targetIdx := findStepIndex(steps, s.Loop.Goto)
-					if targetIdx >= 0 && targetIdx <= i && i <= findStepIndex(steps, s.Name) {
-						loopVars.Iteration = t.LoopIteration
-						loopVars.MaxIterations = s.Loop.MaxIterations
-						break
-					}
+			if s.Loop != nil && s.Loop.Goto != "" {
+				targetIdx := findStepIndex(steps, s.Loop.Goto)
+				if targetIdx >= 0 && targetIdx <= i && i <= findStepIndex(steps, s.Name) {
+					loopVars.Iteration = t.LoopIteration
+					loopVars.MaxIterations = s.Loop.MaxIterations
+					break
 				}
 			}
 		}
-		// Pre-resolve any {{tasks.X.field}} refs inside this task's own
-		// description / context so step prompts that inline {{task.description}}
-		// or {{task.context}} see the expanded text. Single-pass — nested refs
-		// in the looked-up task's fields remain verbatim.
-		resolvedDescription := ResolveTaskRefs(t.Description, e.database.GetTask)
-		resolvedContext := ResolveTaskRefs(t.Context, e.database.GetTask)
+	}
+	// Pre-resolve any {{tasks.X.field}} refs inside this task's own
+	// description / context so step prompts that inline {{task.description}}
+	// or {{task.context}} see the expanded text. Single-pass — nested refs
+	// in the looked-up task's fields remain verbatim.
+	resolvedDescription := ResolveTaskRefs(t.Description, e.database.GetTask)
+	resolvedContext := ResolveTaskRefs(t.Context, e.database.GetTask)
 
-		tmplCtx := e.buildTemplateContext(t, TaskVars{
-			ID:          t.ID,
-			Title:       t.Title,
-			Description: resolvedDescription,
-			Context:     resolvedContext,
-			Slug:        t.Slug,
-			Branch:      t.Branch,
-			Images:      imageRelPaths,
-		}, stepContexts, loopVars)
-		tmplCtx.Children = childrenVars
+	tmplCtx := e.buildTemplateContext(t, TaskVars{
+		ID:          t.ID,
+		Title:       t.Title,
+		Description: resolvedDescription,
+		Context:     resolvedContext,
+		Slug:        t.Slug,
+		Branch:      t.Branch,
+		Images:      ws.imageRelPaths,
+	}, stepContexts, loopVars)
+	tmplCtx.Children = childrenVars
 
-		resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
+	resolvedPrompt := ResolveTemplate(step.Prompt, tmplCtx)
 
-		sysPrompt := BuildSystemPrompt(resolvedPrompt, e.cfg.SystemPrompt, imageRelPaths)
+	sysPrompt := BuildSystemPrompt(resolvedPrompt, e.cfg.SystemPrompt, ws.imageRelPaths)
 
-		// Set environment variables
-		env := map[string]string{
-			"SORTIE_TASK_ID":  fmt.Sprintf("%d", t.ID),
-			"SORTIE_STEP":     step.Name,
-			"SORTIE_WORKTREE": t.WorktreePath,
-			"SORTIE_PURPOSE":  "step",
-			// SORTIE_PROJECT_PATH is the absolute path to the project repo
-			// root (NOT the worktree). MCP servers / scripts spawned inside
-			// the step that need to create child tasks under the same
-			// project use this so they don't accidentally register their
-			// `git rev-parse --show-toplevel` (which in a worktree returns
-			// the worktree path) as a new project row.
-			"SORTIE_PROJECT_PATH": e.repoRoot,
+	// Set environment variables
+	env := map[string]string{
+		"SORTIE_TASK_ID":  fmt.Sprintf("%d", t.ID),
+		"SORTIE_STEP":     step.Name,
+		"SORTIE_WORKTREE": t.WorktreePath,
+		"SORTIE_PURPOSE":  "step",
+		// SORTIE_PROJECT_PATH is the absolute path to the project repo
+		// root (NOT the worktree). MCP servers / scripts spawned inside
+		// the step that need to create child tasks under the same
+		// project use this so they don't accidentally register their
+		// `git rev-parse --show-toplevel` (which in a worktree returns
+		// the worktree path) as a new project row.
+		"SORTIE_PROJECT_PATH": e.repoRoot,
+	}
+
+	// Spawn Claude process (tmux or direct)
+	useTmux := step.UseTmux(wf.Print)
+	var exitCode int
+	var resultText string
+	var outputTail string
+	var sessionID string
+	var spawnErr error
+	if useTmux {
+		exitCode, outputTail, spawnErr = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
+	} else {
+		exitCode, resultText, sessionID, outputTail, spawnErr = e.runner.runHeadlessStep(ctx, e, t, step, resolvedPrompt, env, outputFn, sysPrompt)
+	}
+	if spawnErr != nil {
+		e.database.UpdateTaskExitCode(t.ID, 1, spawnErr.Error())
+		return stepResult{}, fmt.Errorf("step %q failed: %w", step.Name, spawnErr)
+	}
+
+	if exitCode != 0 {
+		errMsg := fmt.Sprintf("step %q exited with code %d", step.Name, exitCode)
+		if outputTail != "" {
+			errMsg += "\n" + outputTail
 		}
+		e.database.UpdateTaskExitCode(t.ID, exitCode, errMsg)
+		return stepResult{}, errors.New(errMsg)
+	}
 
-		// Spawn Claude process (tmux or direct)
-		useTmux := step.UseTmux(wf.Print)
-		var exitCode int
-		var resultText string
-		var outputTail string
-		var sessionID string
-		if useTmux {
-			exitCode, outputTail, err = e.runClaudeStepTmux(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
-		} else {
-			exitCode, resultText, sessionID, outputTail, err = e.runClaudeStep(ctx, t, step, resolvedPrompt, env, outputFn, sysPrompt)
-		}
-		if err != nil {
-			e.database.UpdateTaskExitCode(t.ID, 1, err.Error())
-			return fmt.Errorf("step %q failed: %w", step.Name, err)
-		}
+	return stepResult{
+		step:       step,
+		exitCode:   exitCode,
+		resultText: resultText,
+		outputTail: outputTail,
+		sessionID:  sessionID,
+		useTmux:    useTmux,
+	}, nil
+}
 
-		if exitCode != 0 {
-			errMsg := fmt.Sprintf("step %q exited with code %d", step.Name, exitCode)
-			if outputTail != "" {
-				errMsg += "\n" + outputTail
-			}
-			e.database.UpdateTaskExitCode(t.ID, exitCode, errMsg)
-			return errors.New(errMsg)
-		}
+// stepOutcomeKind is the driver-level signal applyStepResult returns to tell
+// RunTask's loop what to do next — the control-flow equivalent of the
+// continue/return-nil/loop-back branches the original inline loop body had.
+type stepOutcomeKind int
 
-		// Record Claude session for this step
-		if sessionID != "" {
-			if chatErr := e.database.UpsertChat(t.ID, step.Name, sessionID, ""); chatErr != nil {
-				log.Printf("Warning: failed to upsert chat for task #%d step %q: %v", t.ID, step.Name, chatErr)
-			}
-		}
+const (
+	// stepOutcomeAdvance: proceed to the next step (the for-loop's natural i++).
+	stepOutcomeAdvance stepOutcomeKind = iota
+	// stepOutcomeGoto: jump back to gotoIdx (a loop step's Goto target).
+	stepOutcomeGoto
+	// stepOutcomeSuspend: the step spawned child tasks it must wait on;
+	// RunTask returns nil immediately, StepIndex left pointing at this step.
+	stepOutcomeSuspend
+	// stepOutcomePause: the step requires human approval or ran in tmux;
+	// RunTask returns nil immediately, StepIndex already advanced past it.
+	stepOutcomePause
+)
 
-		// If this step spawned child tasks via the MCP create_tasks_and_wait /
-		// wait_for_tasks tools, the daemon recorded task_waits_on edges. Suspend
-		// the task at the SAME step (do not advance step_index) so the engine
-		// re-runs this step once the children reach terminal status. The poller
-		// detects "all children terminal" and flips status back to pending. On
-		// the re-run, loadAndClearChildren above will surface their results via
-		// {{children.*}} template variables.
-		hasWaits, waitsErr := e.database.HasAnyWaitsOn(t.ID)
-		if waitsErr != nil {
-			log.Printf("Warning: failed to check waits-on for task #%d: %v", t.ID, waitsErr)
-		}
-		if hasWaits {
-			// Skip output validation, step completion record, summarize_chat,
-			// loop handling, and the tmux/human approval pause — none of them
-			// apply to a step that is going to re-run. The step_index stays at
-			// i so the next invocation resumes here.
-			if err := e.database.UpdateTaskStatus(t.ID, task.StatusAwaitingChildren); err != nil {
-				log.Printf("Warning: failed to set %s status for task #%d: %v", task.StatusAwaitingChildren, t.ID, err)
-			}
-			log.Printf("Task #%d suspended at step %q: waiting for spawned child tasks", t.ID, step.Name)
-			return nil
-		}
+type stepOutcome struct {
+	kind    stepOutcomeKind
+	gotoIdx int
+}
 
-		// Validate that the step produced meaningful changes
-		// Skip for human and tmux steps (handled separately or not yet complete)
-		if !step.Human && !useTmux {
-			if strings.TrimSpace(resultText) == "" {
-				// No output — require a diff as the alternative signal
-				noiseFiles := []string{".claude-output.log"}
-				hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
-				if err != nil {
-					log.Printf("Warning: failed to check for changes in step %q: %v", step.Name, err)
-				} else if !hasChanges {
-					errMsg := fmt.Sprintf("step %q exited successfully but produced no output or code changes", step.Name)
-					e.database.UpdateTaskExitCode(t.ID, 1, errMsg)
-					return errors.New(errMsg)
-				}
-			}
-		}
+// applyStepResult makes the post-step decisions that follow a successfully-
+// executed step (runStep already handled spawn/exit-code failures): record
+// the Claude session, check for waits-on suspension, validate the step
+// produced meaningful output, capture the step's context, evaluate any loop
+// condition, and pause for approval/tmux if required. Returns the outcome
+// RunTask's driver switches on, or a non-nil error when the step must fail
+// the task (no-output validation).
+func (e *Engine) applyStepResult(ctx context.Context, t *task.Task, wf *config.WorkflowConfig, steps []config.StepConfig, i int, result stepResult) (stepOutcome, error) {
+	step := result.step
 
-		// Detect a manual context override pushed via the update_step_context
-		// MCP tool while the step was running. The step row is still 'running'
-		// at this point (CompleteTaskStep below flips it to 'completed'), and
-		// CreateTaskStep resets the context on each run, so a non-empty value
-		// here can only be a deliberate manual write. When present it takes
-		// precedence over both last_message capture and summarize_chat.
-		manualContext, mErr := e.database.GetRunningTaskStepContext(t.ID, step.Name)
-		if mErr != nil {
-			log.Printf("Warning: failed to read running step context for step %q of task #%d: %v", step.Name, t.ID, mErr)
-		}
-		hasManualContext := strings.TrimSpace(manualContext) != ""
-
-		// Record step completion with context.
-		// For summarize_chat, store last_message immediately and kick off
-		// background summarization that will overwrite the context when done.
-		// For "none", skip context capture entirely so later steps see no context.
-		// A manual override is preserved verbatim regardless of strategy.
-		strategy := step.EffectiveSummarizationStrategy()
-		stepContextText := resultText
-		var ctxPtr *string
-		if hasManualContext {
-			ctxPtr = &manualContext
-		} else if strategy != config.SummarizationStrategyNone && stepContextText != "" {
-			ctxPtr = &stepContextText
-		}
-		if err := e.database.CompleteTaskStep(t.ID, step.Name, ctxPtr, exitCode); err != nil {
-			log.Printf("Warning: failed to complete task step record: %v", err)
-		}
-
-		if hasManualContext {
-			log.Printf("Step %q of task #%d has a manual context override (%d chars); skipping summarize_chat", step.Name, t.ID, len(manualContext))
-		}
-
-		if !hasManualContext && strategy == config.SummarizationStrategySummarizeChat {
-			chat, chatErr := e.loadStepChatContent(t, step.Name, useTmux)
-			if chatErr != nil {
-				log.Printf("Warning: failed to load chat content for step %q of task #%d: %v", step.Name, t.ID, chatErr)
-			} else if chat != "" && shouldSummarizeChat(chat, resultText, useTmux) {
-				// Surface the step summarization phase via the task status so
-				// the TUI can distinguish it from regular step execution.
-				restore := e.markSummarizingStep(t, wf)
-				summary, sumErr := e.summarizeChatLog(ctx, t, step.Name, step.SummarizationPrompt, chat, step.EffectiveAllowedSummarizationModels(e.cfg.AllowedSummarizationModels))
-				restore()
-				if sumErr != nil {
-					log.Printf("Warning: summarize_chat failed for step %q of task #%d: %v", step.Name, t.ID, sumErr)
-				} else if summary != "" {
-					if dbErr := e.database.UpdateTaskStepContext(t.ID, step.Name, summary); dbErr != nil {
-						log.Printf("Warning: failed to update step context after summarize_chat for step %q of task #%d: %v", step.Name, t.ID, dbErr)
-					} else {
-						log.Printf("summarize_chat updated step context for step %q of task #%d (%d chars)", step.Name, t.ID, len(summary))
-					}
-				}
-			}
-		}
-
-		// Evaluate loop condition
-		if step.Loop != nil {
-			shouldLoop := true
-
-			// Check max iterations
-			if t.LoopIteration >= step.Loop.MaxIterations {
-				shouldLoop = false
-			}
-
-			// Check exit condition
-			if shouldLoop && step.Loop.ExitCondition != nil {
-				if step.Loop.ExitCondition.StepContextEmpty != "" {
-					content, _ := e.database.GetTaskStepContext(t.ID, step.Loop.ExitCondition.StepContextEmpty)
-					if strings.TrimSpace(content) == "" {
-						shouldLoop = false
-						log.Printf("Loop exit: step context %q is empty for task #%d", step.Loop.ExitCondition.StepContextEmpty, t.ID)
-					}
-				}
-			}
-
-			if shouldLoop {
-				targetIdx := findStepIndex(steps, step.Loop.Goto)
-				t.LoopIteration++
-				if err := e.database.UpdateTaskLoopIteration(t.ID, t.LoopIteration); err != nil {
-					log.Printf("Warning: failed to update loop iteration: %v", err)
-				}
-				if err := e.database.UpdateTaskStep(t.ID, targetIdx, steps[targetIdx].Name); err != nil {
-					log.Printf("Warning: failed to update task step for loop: %v", err)
-				}
-				log.Printf("Task #%d looping back to step %q (iteration %d/%d)", t.ID, step.Loop.Goto, t.LoopIteration, step.Loop.MaxIterations)
-				i = targetIdx - 1 // for-loop will increment
-				continue
-			}
-
-			// Loop done, reset counter
-			log.Printf("Task #%d loop completed after %d iterations", t.ID, t.LoopIteration)
-			t.LoopIteration = 0
-			if err := e.database.UpdateTaskLoopIteration(t.ID, 0); err != nil {
-				log.Printf("Warning: failed to reset loop iteration: %v", err)
-			}
-		}
-
-		// Check if approval required before continuing
-		needsApproval := step.Human || useTmux
-		if needsApproval {
-			// Set status to pause the task. The daemon will wait for user action.
-			if err := e.database.UpdateTaskStep(t.ID, i+1, ""); err != nil {
-				log.Printf("Warning: failed to update task step: %v", err)
-			}
-			pauseStatus := task.StatusAwaitingApproval
-			if useTmux {
-				pauseStatus = task.StatusTmux
-			}
-			if err := e.database.UpdateTaskStatus(t.ID, pauseStatus); err != nil {
-				log.Printf("Warning: failed to set %s: %v", pauseStatus, err)
-			}
-			return nil
+	// Record Claude session for this step
+	if result.sessionID != "" {
+		if chatErr := e.database.UpsertChat(t.ID, step.Name, result.sessionID, ""); chatErr != nil {
+			log.Printf("Warning: failed to upsert chat for task #%d step %q: %v", t.ID, step.Name, chatErr)
 		}
 	}
 
-	// All steps completed — merge, summarization, and cleanup
-	// are handled by the daemon on agent completion.
-	return nil
+	// If this step spawned child tasks via the MCP create_tasks_and_wait /
+	// wait_for_tasks tools, the daemon recorded task_waits_on edges. Suspend
+	// the task at the SAME step (do not advance step_index) so the engine
+	// re-runs this step once the children reach terminal status. The poller
+	// detects "all children terminal" and flips status back to pending. On
+	// the re-run, loadAndClearChildren (runStep) will surface their results
+	// via {{children.*}} template variables.
+	hasWaits, waitsErr := e.database.HasAnyWaitsOn(t.ID)
+	if waitsErr != nil {
+		log.Printf("Warning: failed to check waits-on for task #%d: %v", t.ID, waitsErr)
+	}
+	if hasWaits {
+		// Skip output validation, step completion record, summarize_chat,
+		// loop handling, and the tmux/human approval pause — none of them
+		// apply to a step that is going to re-run. The step_index stays at
+		// i so the next invocation resumes here.
+		if err := e.database.UpdateTaskStatus(t.ID, task.StatusAwaitingChildren); err != nil {
+			log.Printf("Warning: failed to set %s status for task #%d: %v", task.StatusAwaitingChildren, t.ID, err)
+		}
+		log.Printf("Task #%d suspended at step %q: waiting for spawned child tasks", t.ID, step.Name)
+		return stepOutcome{kind: stepOutcomeSuspend}, nil
+	}
+
+	// Validate that the step produced meaningful changes
+	// Skip for human and tmux steps (handled separately or not yet complete)
+	if !step.Human && !result.useTmux {
+		if strings.TrimSpace(result.resultText) == "" {
+			// No output — require a diff as the alternative signal
+			noiseFiles := []string{".claude-output.log"}
+			hasChanges, err := e.repo.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
+			if err != nil {
+				log.Printf("Warning: failed to check for changes in step %q: %v", step.Name, err)
+			} else if !hasChanges {
+				errMsg := fmt.Sprintf("step %q exited successfully but produced no output or code changes", step.Name)
+				e.database.UpdateTaskExitCode(t.ID, 1, errMsg)
+				return stepOutcome{}, errors.New(errMsg)
+			}
+		}
+	}
+
+	// Capture this step's context following the manual > last_message >
+	// summarize_chat precedence and the running/paused row-status routing
+	// documented once in stepcontext.go (STEP-CONTEXT LIFECYCLE).
+	e.captureHeadlessStepContext(ctx, t, wf, step, result.resultText, result.exitCode, result.useTmux)
+
+	// Evaluate loop condition
+	if step.Loop != nil {
+		shouldLoop := true
+
+		// Check max iterations
+		if t.LoopIteration >= step.Loop.MaxIterations {
+			shouldLoop = false
+		}
+
+		// Check exit condition
+		if shouldLoop && step.Loop.ExitCondition != nil {
+			if step.Loop.ExitCondition.StepContextEmpty != "" {
+				content, _ := e.database.GetTaskStepContext(t.ID, step.Loop.ExitCondition.StepContextEmpty)
+				if strings.TrimSpace(content) == "" {
+					shouldLoop = false
+					log.Printf("Loop exit: step context %q is empty for task #%d", step.Loop.ExitCondition.StepContextEmpty, t.ID)
+				}
+			}
+		}
+
+		if shouldLoop {
+			targetIdx := findStepIndex(steps, step.Loop.Goto)
+			t.LoopIteration++
+			if err := e.database.UpdateTaskLoopIteration(t.ID, t.LoopIteration); err != nil {
+				log.Printf("Warning: failed to update loop iteration: %v", err)
+			}
+			if err := e.database.UpdateTaskStep(t.ID, targetIdx, steps[targetIdx].Name); err != nil {
+				log.Printf("Warning: failed to update task step for loop: %v", err)
+			}
+			log.Printf("Task #%d looping back to step %q (iteration %d/%d)", t.ID, step.Loop.Goto, t.LoopIteration, step.Loop.MaxIterations)
+			return stepOutcome{kind: stepOutcomeGoto, gotoIdx: targetIdx}, nil
+		}
+
+		// Loop done, reset counter
+		log.Printf("Task #%d loop completed after %d iterations", t.ID, t.LoopIteration)
+		t.LoopIteration = 0
+		if err := e.database.UpdateTaskLoopIteration(t.ID, 0); err != nil {
+			log.Printf("Warning: failed to reset loop iteration: %v", err)
+		}
+	}
+
+	// Check if approval required before continuing
+	needsApproval := step.Human || result.useTmux
+	if needsApproval {
+		// Set status to pause the task. The daemon will wait for user action.
+		if err := e.database.UpdateTaskStep(t.ID, i+1, ""); err != nil {
+			log.Printf("Warning: failed to update task step: %v", err)
+		}
+		pauseStatus := task.StatusAwaitingApproval
+		if result.useTmux {
+			pauseStatus = task.StatusTmux
+		}
+		if err := e.database.UpdateTaskStatus(t.ID, pauseStatus); err != nil {
+			log.Printf("Warning: failed to set %s: %v", pauseStatus, err)
+		}
+		return stepOutcome{kind: stepOutcomePause}, nil
+	}
+
+	return stepOutcome{kind: stepOutcomeAdvance}, nil
 }
 
 // ErrStepContextRequired is returned by summarizePreviousTmuxStep when a step
@@ -522,8 +664,14 @@ func (e *Engine) ResumeAfterApproval(ctx context.Context, t *task.Task, outputFn
 	return e.RunTask(ctx, t, outputFn)
 }
 
-// summarizePreviousTmuxStep runs summarize_chat for the step at t.StepIndex-1
-// when that step is tmux with the summarize_chat strategy. No-op otherwise.
+// summarizePreviousTmuxStep runs summarize_chat for the paused step (see
+// PausedStep and the cursor invariant in cursor.go) when that step is tmux
+// with the summarize_chat strategy. No-op otherwise. This is the real capture
+// point for tmux steps in the manual > last_message > summarize_chat
+// precedence chain documented in stepcontext.go (STEP-CONTEXT LIFECYCLE) —
+// tmux steps have no last_message fallback, and captureHeadlessStepContext's
+// attempt during RunTask almost always no-ops because the chat doesn't exist
+// yet when a tmux step's spawn returns.
 // This is the shared hook for capturing tmux step context after the engine
 // has paused (since tmux steps return before their chat is meaningful):
 //   - ResumeAfterApproval calls it when the user advances to the next step
@@ -542,10 +690,10 @@ func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, lo
 	}
 
 	wf := e.cfg.GetWorkflow(t.Workflow)
-	if wf == nil || t.StepIndex <= 0 || t.StepIndex > len(wf.Steps) {
+	prevStep, ok := PausedStep(t, wf)
+	if !ok {
 		return nil
 	}
-	prevStep := wf.Steps[t.StepIndex-1]
 	if !prevStep.UseTmux(wf.Print) || prevStep.EffectiveSummarizationStrategy() != config.SummarizationStrategySummarizeChat {
 		return nil
 	}
@@ -555,8 +703,10 @@ func (e *Engine) summarizePreviousTmuxStep(ctx context.Context, t *task.Task, lo
 	// is the canonical artifact and must not be clobbered by the auto
 	// summarizer. Folding manually is the whole point of update_step_context for
 	// tmux steps, so respecting an existing context is the expected behaviour
-	// (and it satisfies require_context: the context IS captured).
-	if existing, ctxErr := e.database.GetTaskStepContext(t.ID, prevStep.Name); ctxErr == nil && strings.TrimSpace(existing) != "" {
+	// (and it satisfies require_context: the context IS captured). See
+	// readManualOverride (stepcontext.go) for the row-status this checks
+	// (pausedTmux=true: the COMPLETED row).
+	if existing, hasManual, ctxErr := e.readManualOverride(t.ID, prevStep.Name, true); ctxErr == nil && hasManual {
 		logMsg("Step %q of task #%d already has a manually-folded context (%d chars); skipping summarize_chat", prevStep.Name, t.ID, len(existing))
 		return nil
 	}

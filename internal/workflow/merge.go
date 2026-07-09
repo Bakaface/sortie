@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/Bakaface/sortie/internal/config"
-	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
 )
 
@@ -36,7 +35,7 @@ func (e *Engine) bindConflictResolver() func(ctx context.Context, t *task.Task, 
 func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFiles []string, outputFn func([]string)) error {
 	var sb strings.Builder
 	sb.WriteString("You are resolving merge conflicts in an automated merge pipeline.\n\n")
-	sb.WriteString(fmt.Sprintf("The branch `%s` is being merged into `%s`, and the following files have conflicts:\n\n", e.cfg.Git.BaseBranch, t.Branch))
+	sb.WriteString(fmt.Sprintf("The branch `%s` is being merged into `%s`, and the following files have conflicts:\n\n", e.cfg.BaseBranch, t.Branch))
 	for _, f := range conflictFiles {
 		sb.WriteString(fmt.Sprintf("- `%s`\n", f))
 	}
@@ -81,17 +80,17 @@ func (e *Engine) resolveConflicts(ctx context.Context, t *task.Task, conflictFil
 // cleanupMergedWorktree removes the worktree and branch after a successful merge.
 func (e *Engine) cleanupMergedWorktree(t *task.Task, logf func(string, ...any)) {
 	logf("Cleaning up worktree and branch...")
-	if err := gitpkg.RemoveWorktree(e.repoRoot, t.WorktreePath); err != nil {
+	if err := e.repo.RemoveWorktree(t.WorktreePath); err != nil {
 		log.Printf("Warning: failed to remove worktree: %v", err)
 	}
 	// Prune stale worktree references so git doesn't think the branch
 	// is still checked out in a (now-removed) worktree.
-	if err := gitpkg.CleanupWorktrees(e.repoRoot); err != nil {
+	if err := e.repo.CleanupWorktrees(); err != nil {
 		log.Printf("Warning: failed to prune worktrees: %v", err)
 	}
 	// Only delete branches that sortie created; preserve user-provided branches
 	if t.CheckoutBranch == "" {
-		if err := gitpkg.ForceDeleteBranch(e.repoRoot, t.Branch); err != nil {
+		if err := e.repo.ForceDeleteBranch(t.Branch); err != nil {
 			log.Printf("Warning: failed to delete branch: %v", err)
 		}
 	}

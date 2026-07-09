@@ -13,9 +13,42 @@ import (
 	"time"
 
 	"github.com/Bakaface/sortie/internal/config"
-	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
 )
+
+// CheckFastTrackCompletion is the single owner of the "no meaningful changes"
+// fast-track rule: whether a task whose workflow run has finished can skip
+// the full finalization pipeline (FinalizeTask: merge → summarize → cleanup)
+// and instead be completed directly. It previously existed as two
+// near-verbatim copies — daemon/broadcast.go's finalizeCompletedTask (the
+// agent-completion path) and daemon/handlers_continue.go's advanceTmuxTask
+// (the tmux-advance / Finalize-request path) — that both computed
+// HasMeaningfulChanges against the same noiseFiles list and diverged only in
+// what they did AFTER the decision (notifications, response messages). That
+// divergent tail stays daemon-side; see the daemon's maybeFastTrackCompletion
+// helper (broadcast.go) which both call sites now share for the identical
+// side effects (cleanup, status, broadcast) and layer their own extra
+// behavior on top of.
+//
+// noiseFiles enumerates paths that don't count toward "meaningful" (e.g.
+// .claude-output.log, CLAUDE.md). Ownership of that list stays with the
+// daemon (it's daemon/tmux bookkeeping, not a workflow config concept) —
+// it's passed in rather than hardcoded here.
+//
+// Returns false (do full finalization) when t has no worktree path or is a
+// non-worktree task, or when the meaningful-changes check itself errors —
+// callers should log the error and fall through to full finalization rather
+// than silently completing a task that might have real, uninspected work.
+func (e *Engine) CheckFastTrackCompletion(t *task.Task, noiseFiles []string) (fastTrack bool, err error) {
+	if t.WorktreePath == "" || !t.Worktree {
+		return false, nil
+	}
+	hasChanges, err := e.repo.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
+	if err != nil {
+		return false, err
+	}
+	return !hasChanges, nil
+}
 
 // FinalizeTask runs the on_complete action, then the summarizer, then worktree cleanup.
 // Used when finalizing a tmux-continued task.
@@ -72,7 +105,7 @@ func (e *Engine) FinalizeTask(ctx context.Context, t *task.Task) error {
 	if t.Worktree && t.WorktreePath != "" {
 		baseBranch := e.effectiveBaseBranch(t)
 		var diffErr error
-		preMergeDiffStat, diffErr = gitpkg.DiffStat(t.WorktreePath, baseBranch)
+		preMergeDiffStat, diffErr = e.repo.DiffStat(t.WorktreePath, baseBranch)
 		if diffErr != nil {
 			logFn("Warning: failed to compute pre-merge diff stat for task #%d: %v", t.ID, diffErr)
 		}

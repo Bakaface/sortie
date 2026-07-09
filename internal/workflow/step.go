@@ -48,6 +48,41 @@ func buildTmuxClaudeCmd(claudeBin string, yolo bool, settingsPath string, defaul
 	return cmd
 }
 
+// agentRunner is the AGENT-RUNNER seam between the engine's step-execution
+// driver (runStep, engine.go) and how a headless step's Claude agent
+// actually runs. runStep calls e.runner.runHeadlessStep instead of calling
+// runClaudeStep directly, so tests can substitute a fake that returns
+// scripted results without spawning a real claude subprocess. NewEngine sets
+// e.runner to realAgentRunner{} by default; tests in this package override
+// the field directly after construction (the same pattern already used for
+// e.repo in fasttrack_test.go — see Engine.runner's doc comment).
+//
+// The tmux path (runClaudeStepTmux) is deliberately NOT behind this seam.
+// Tmux steps don't return a synchronous outcome the way headless steps do —
+// they spawn a detached session and return immediately (exitCode 0, no
+// resultText) so the engine can pause at the approval gate; the actual
+// result only becomes known later via ResumeAfterApproval /
+// summarizePreviousTmuxStep. There's no meaningful "scripted result" for a
+// fake to return that runStep doesn't already synthesize inline for that
+// path (see the useTmux branch in runStep), so seaming it would add
+// indirection without buying any new coverage. Headless is also where
+// essentially all of the exercisable workflow logic lives (loop evaluation,
+// step-context capture, no-output validation, waits-on suspension) —
+// seaming it alone is enough to exercise that logic in-process without a
+// real claude binary.
+type agentRunner interface {
+	runHeadlessStep(ctx context.Context, e *Engine, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (exitCode int, resultText, sessionID, outputTail string, err error)
+}
+
+// realAgentRunner is the production agentRunner: it delegates to
+// Engine.runClaudeStep, which spawns a real claude.Process. This is the
+// default runner NewEngine wires up.
+type realAgentRunner struct{}
+
+func (realAgentRunner) runHeadlessStep(ctx context.Context, e *Engine, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, string, string, error) {
+	return e.runClaudeStep(ctx, t, step, prompt, envVars, outputFn, systemPrompt...)
+}
+
 func (e *Engine) runClaudeStep(ctx context.Context, t *task.Task, step config.StepConfig, prompt string, envVars map[string]string, outputFn func([]string), systemPrompt ...string) (int, string, string, string, error) {
 	proc := claude.NewProcess(fmt.Sprintf("%d", t.ID), t.WorktreePath, &e.cfg.Claude)
 
@@ -195,7 +230,7 @@ func (e *Engine) runClaudeStepTmux(ctx context.Context, t *task.Task, step confi
 	}
 
 	taskID := fmt.Sprintf("%d", t.ID)
-	session := tmux.NewSession(e.cfg.Project.Name, taskID, t.WorktreePath)
+	session := tmux.NewSession(e.cfg.ProjectName, taskID, t.WorktreePath)
 
 	// Kill stale session if exists (handles retries)
 	if session.Exists() {

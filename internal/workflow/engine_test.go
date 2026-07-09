@@ -407,7 +407,7 @@ func TestRunClaudeSyncSetsWorkDir(t *testing.T) {
 			Command: script,
 		},
 	}
-	engine := NewEngine(cfg, nil, nil, dir)
+	engine := NewEngine(cfg, (*db.DB)(nil), nil, dir)
 
 	ctx := context.Background()
 	output, err := engine.runClaudeSync(ctx, "test prompt", dir, "", "")
@@ -432,7 +432,7 @@ func TestRunClaudeSyncEmptyWorkDir(t *testing.T) {
 			Command: script,
 		},
 	}
-	engine := NewEngine(cfg, nil, nil, "")
+	engine := NewEngine(cfg, (*db.DB)(nil), nil, "")
 
 	ctx := context.Background()
 	output, err := engine.runClaudeSync(ctx, "test prompt", "", "", "")
@@ -1521,7 +1521,7 @@ func TestEffectiveOnComplete(t *testing.T) {
 			{Name: "overrides", OnComplete: "commit", Steps: []config.StepConfig{{Name: "s"}}},
 		},
 	}
-	e := &Engine{cfg: cfg}
+	e := &Engine{cfg: newEngineConfig(cfg)}
 
 	cases := []struct {
 		name     string
