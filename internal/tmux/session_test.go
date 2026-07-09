@@ -4,7 +4,7 @@ import (
 	"testing"
 )
 
-func TestSanitizeSessionName(t *testing.T) {
+func TestSanitizeName(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
@@ -19,9 +19,9 @@ func TestSanitizeSessionName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := sanitizeSessionName(tt.input)
+			got := SanitizeName(tt.input)
 			if got != tt.expected {
-				t.Errorf("sanitizeSessionName(%q) = %q, want %q", tt.input, got, tt.expected)
+				t.Errorf("SanitizeName(%q) = %q, want %q", tt.input, got, tt.expected)
 			}
 		})
 	}
