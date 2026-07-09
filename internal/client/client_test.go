@@ -184,17 +184,17 @@ func TestSendAndWait_BroadcastsNotRoutedToResponses(t *testing.T) {
 	// Inject a broadcast message directly into the connection to simulate
 	// a server-pushed update arriving while a request is in flight.
 	// We can't easily do this with a simple mock, so instead verify the
-	// isBroadcast routing logic.
+	// daemon.IsBroadcast routing logic.
 	broadcastTypes := []daemon.MessageType{daemon.MsgAgentUpdate, daemon.MsgTaskUpdate}
 	for _, bt := range broadcastTypes {
-		if !isBroadcast(bt) {
+		if !daemon.IsBroadcast(bt) {
 			t.Errorf("expected %s to be classified as broadcast", bt)
 		}
 	}
 
 	nonBroadcastTypes := []daemon.MessageType{daemon.MsgOK, daemon.MsgError, daemon.MsgTaskList, daemon.MsgPong}
 	for _, nbt := range nonBroadcastTypes {
-		if isBroadcast(nbt) {
+		if daemon.IsBroadcast(nbt) {
 			t.Errorf("expected %s to NOT be classified as broadcast", nbt)
 		}
 	}
@@ -455,7 +455,7 @@ func TestClient_ReconnectAfterServerSideBreak(t *testing.T) {
 	defer srv.close()
 
 	cfg := &config.Config{}
-	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	cfg.SocketPath = srv.listener.Addr().String()
 	c := New(cfg)
 	if err := c.Connect(); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -495,7 +495,7 @@ func TestClient_ReconnectSecondFailureEscalates(t *testing.T) {
 	})
 
 	cfg := &config.Config{}
-	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	cfg.SocketPath = srv.listener.Addr().String()
 	c := New(cfg)
 	if err := c.Connect(); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -529,7 +529,7 @@ func TestClient_ReconnectNotAttemptedAfterClose(t *testing.T) {
 	defer srv.close()
 
 	cfg := &config.Config{}
-	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	cfg.SocketPath = srv.listener.Addr().String()
 	c := New(cfg)
 	if err := c.Connect(); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -576,7 +576,7 @@ func TestClient_SubscriptionPreservedAcrossReconnect(t *testing.T) {
 	defer srv.close()
 
 	cfg := &config.Config{}
-	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	cfg.SocketPath = srv.listener.Addr().String()
 	c := New(cfg)
 	if err := c.Connect(); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -634,7 +634,7 @@ func TestClient_FireAndForgetReconnectsOnBrokenPipe(t *testing.T) {
 	defer srv.close()
 
 	cfg := &config.Config{}
-	cfg.Daemon.SocketPath = srv.listener.Addr().String()
+	cfg.SocketPath = srv.listener.Addr().String()
 	c := New(cfg)
 	if err := c.Connect(); err != nil {
 		t.Fatalf("connect: %v", err)

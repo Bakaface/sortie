@@ -67,7 +67,7 @@ func (c *Client) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	conn, err := net.Dial("unix", c.cfg.Daemon.SocketPath)
+	conn, err := net.Dial("unix", c.cfg.SocketPath)
 	if err != nil {
 		return fmt.Errorf("failed to connect to daemon: %w", err)
 	}
@@ -92,17 +92,6 @@ func (c *Client) Close() error {
 	return nil
 }
 
-// isBroadcast returns true for message types that are pushed by the daemon
-// to subscribers, as opposed to responses to client requests.
-func isBroadcast(t daemon.MessageType) bool {
-	switch t {
-	case daemon.MsgAgentUpdate, daemon.MsgTaskUpdate, daemon.MsgTmuxActivity:
-		return true
-	default:
-		return false
-	}
-}
-
 // readLoop reads messages from conn (NOT c.conn) until conn fails or closes.
 // Passing conn as a parameter lets reconnect() start a fresh readLoop while
 // any prior readLoop drains and exits on the now-closed previous connection.
@@ -122,7 +111,7 @@ func (c *Client) readLoop(conn net.Conn) {
 		}
 
 		ch := c.respChan
-		if isBroadcast(msg.Type) {
+		if daemon.IsBroadcast(msg.Type) {
 			ch = c.subChan
 		}
 
@@ -193,7 +182,7 @@ func (c *Client) reconnectLocked(skipResubscribe bool) error {
 
 	c.drainStaleSignalsLocked()
 
-	newConn, err := net.Dial("unix", c.cfg.Daemon.SocketPath)
+	newConn, err := net.Dial("unix", c.cfg.SocketPath)
 	if err != nil {
 		c.conn = nil
 		return fmt.Errorf("dial: %w", err)
@@ -239,11 +228,11 @@ func (c *Client) writeAndWaitLocked(data []byte) (*daemon.Message, error) {
 	}
 
 	// Read responses, skipping any broadcast messages that may have leaked
-	// into respChan (e.g. due to a missing isBroadcast entry).
+	// into respChan (e.g. due to a missing daemon.IsBroadcast entry).
 	for {
 		select {
 		case resp := <-c.respChan:
-			if isBroadcast(resp.Type) {
+			if daemon.IsBroadcast(resp.Type) {
 				continue
 			}
 			return resp, nil
