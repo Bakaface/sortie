@@ -73,6 +73,26 @@ type StatusSetter func(taskID int64, status task.Status) error
 // CommitRecorder appends a commit hash to a task's history.
 type CommitRecorder func(taskID int64, commitHash string) error
 
+// gitRepo is the narrow set of *git.Repo operations the Coordinator depends
+// on. Defining it here — rather than depending on *git.Repo directly —
+// lets tests substitute a fake and exercise the merge/conflict/cleanup
+// pipeline without a real git binary. NewCoordinator always wires up the
+// real *git.Repo for production use; only this package's fake-backed unit
+// test and the internal newCoordinator constructor use the interface
+// directly.
+type gitRepo interface {
+	Commit(worktreePath, message string) error
+	CleanRepoState() error
+	MergeBranch(branch, baseBranch string) error
+	AbortRebase(worktreePath string) error
+	RebaseInto(worktreePath, baseBranch string) error
+	GetConflictedFiles(worktreePath string) ([]string, error)
+	ContinueRebase(worktreePath string) error
+	HasChanges() (bool, error)
+	GetLastCommitHash(dir string) (string, error)
+	Root() string
+}
+
 // Coordinator owns the merge pipeline for one repository: it serializes via a
 // shared Lock, waits for the target branch to be clean, runs the merge with
 // conflict-retry, and guarantees CleanRepoState on any pipeline failure.
@@ -81,9 +101,9 @@ type CommitRecorder func(taskID int64, commitHash string) error
 // Engines pointing at the same repoRoot (so config reloads do not break
 // serialization).
 type Coordinator struct {
-	repoRoot string
-	lock     *Lock
-	cfg      Config
+	repo gitRepo
+	lock *Lock
+	cfg  Config
 
 	resolveConflicts ConflictResolver
 	setStatus        StatusSetter
@@ -91,11 +111,27 @@ type Coordinator struct {
 }
 
 // NewCoordinator wires a Lock plus its engine-local callbacks into a
-// Coordinator. Any callback may be nil — a nil ConflictResolver means
-// conflicts abort the merge instead of triggering resolution; nil
-// StatusSetter / CommitRecorder mean those side effects are skipped.
+// Coordinator backed by a real *git.Repo rooted at repoRoot. Any callback may
+// be nil — a nil ConflictResolver means conflicts abort the merge instead of
+// triggering resolution; nil StatusSetter / CommitRecorder mean those side
+// effects are skipped.
 func NewCoordinator(
 	repoRoot string,
+	lock *Lock,
+	cfg Config,
+	resolveConflicts ConflictResolver,
+	setStatus StatusSetter,
+	recordCommit CommitRecorder,
+) *Coordinator {
+	return newCoordinator(gitpkg.NewRepo(repoRoot), lock, cfg, resolveConflicts, setStatus, recordCommit)
+}
+
+// newCoordinator wires an arbitrary gitRepo implementation into a
+// Coordinator. Only NewCoordinator (real *git.Repo) and this package's
+// fake-backed unit test call it directly — production code should always go
+// through NewCoordinator.
+func newCoordinator(
+	repo gitRepo,
 	lock *Lock,
 	cfg Config,
 	resolveConflicts ConflictResolver,
@@ -112,7 +148,7 @@ func NewCoordinator(
 		lock = &Lock{}
 	}
 	return &Coordinator{
-		repoRoot:         repoRoot,
+		repo:             repo,
 		lock:             lock,
 		cfg:              cfg,
 		resolveConflicts: resolveConflicts,
@@ -126,7 +162,7 @@ func NewCoordinator(
 func (c *Coordinator) Lock() *Lock { return c.lock }
 
 // RepoRoot returns the absolute path this Coordinator merges into.
-func (c *Coordinator) RepoRoot() string { return c.repoRoot }
+func (c *Coordinator) RepoRoot() string { return c.repo.Root() }
 
 // Finalize runs the configured on_complete action for the task and guarantees
 // that on any failure during a merge the repository's working tree is restored
@@ -180,7 +216,7 @@ func (c *Coordinator) Finalize(ctx context.Context, t *task.Task, baseBranch str
 // worktree. The base repo is not touched, so no locking or cleanup is needed.
 func (c *Coordinator) commit(t *task.Task, logf LogFunc) error {
 	logf("Committing changes in worktree...")
-	if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
+	if err := c.repo.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
 		return err
 	}
 	logf("Commit completed")
@@ -214,8 +250,8 @@ func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string
 		if retErr == nil {
 			return
 		}
-		if err := gitpkg.CleanRepoState(c.repoRoot); err != nil {
-			log.Printf("merge.Coordinator: failed to clean repo state for %s after merge failure: %v", c.repoRoot, err)
+		if err := c.repo.CleanRepoState(); err != nil {
+			log.Printf("merge.Coordinator: failed to clean repo state for %s after merge failure: %v", c.repo.Root(), err)
 			logf("Warning: cleanup after merge failure failed: %v", err)
 		}
 	}()
@@ -223,7 +259,7 @@ func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string
 	// Commit any uncommitted worktree changes. Safe to do outside the per-repo
 	// lock — this writes only to the worktree's index.
 	logf("Committing changes in worktree before merge...")
-	if err := gitpkg.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
+	if err := c.repo.Commit(t.WorktreePath, gitpkg.ConventionalCommitFromTitle(t.Title)); err != nil {
 		return fmt.Errorf("commit failed: %w", err)
 	}
 
@@ -273,7 +309,7 @@ func (c *Coordinator) merge(ctx context.Context, t *task.Task, baseBranch string
 func (c *Coordinator) lockedMerge(branch, baseBranch string) error {
 	c.lock.Acquire()
 	defer c.lock.Release()
-	return gitpkg.MergeBranch(c.repoRoot, branch, baseBranch)
+	return c.repo.MergeBranch(branch, baseBranch)
 }
 
 // refreshFromBase rebases the task's worktree branch onto baseBranch,
@@ -291,13 +327,13 @@ func (c *Coordinator) refreshFromBase(ctx context.Context, t *task.Task, baseBra
 	// directory.
 	defer func() {
 		if retErr != nil {
-			gitpkg.AbortRebase(t.WorktreePath) // best-effort
+			c.repo.AbortRebase(t.WorktreePath) // best-effort
 		}
 	}()
 
-	err := gitpkg.RebaseInto(t.WorktreePath, baseBranch)
+	err := c.repo.RebaseInto(t.WorktreePath, baseBranch)
 	for err != nil {
-		conflictFiles, cfErr := gitpkg.GetConflictedFiles(t.WorktreePath)
+		conflictFiles, cfErr := c.repo.GetConflictedFiles(t.WorktreePath)
 		if cfErr != nil {
 			return fmt.Errorf("could not list conflicts: %w", cfErr)
 		}
@@ -321,7 +357,7 @@ func (c *Coordinator) refreshFromBase(ctx context.Context, t *task.Task, baseBra
 			return fmt.Errorf("rebase conflict resolution failed: %w", resolveErr)
 		}
 
-		remaining, listErr := gitpkg.GetConflictedFiles(t.WorktreePath)
+		remaining, listErr := c.repo.GetConflictedFiles(t.WorktreePath)
 		if listErr != nil {
 			return fmt.Errorf("failed to verify conflict resolution: %w", listErr)
 		}
@@ -334,7 +370,7 @@ func (c *Coordinator) refreshFromBase(ctx context.Context, t *task.Task, baseBra
 
 		// Continue may surface conflicts on a subsequent commit — the loop
 		// runs the resolver again for those.
-		err = gitpkg.ContinueRebase(t.WorktreePath)
+		err = c.repo.ContinueRebase(t.WorktreePath)
 	}
 
 	return nil
@@ -371,7 +407,7 @@ func (c *Coordinator) markResolvingConflicts(t *task.Task) func() {
 // injected StatusSetter so the UI can show why work is stalled. Runs outside
 // any lock — the goal is to let other tasks finish their merges.
 func (c *Coordinator) waitForCleanTarget(ctx context.Context, t *task.Task) error {
-	dirty, err := gitpkg.HasChanges(c.repoRoot)
+	dirty, err := c.repo.HasChanges()
 	if err != nil {
 		return fmt.Errorf("failed to check target branch: %w", err)
 	}
@@ -394,7 +430,7 @@ func (c *Coordinator) waitForCleanTarget(ctx context.Context, t *task.Task) erro
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			dirty, err := gitpkg.HasChanges(c.repoRoot)
+			dirty, err := c.repo.HasChanges()
 			if err != nil {
 				log.Printf("Task #%d: failed to check target branch: %v", t.ID, err)
 				continue
@@ -415,7 +451,7 @@ func (c *Coordinator) recordBaseCommit(t *task.Task) {
 	if c.recordCommit == nil {
 		return
 	}
-	hash, err := gitpkg.GetLastCommitHash(c.repoRoot)
+	hash, err := c.repo.GetLastCommitHash(c.repo.Root())
 	if err != nil {
 		log.Printf("Warning: failed to get base HEAD hash for task #%d: %v", t.ID, err)
 		return
@@ -431,7 +467,7 @@ func (c *Coordinator) recordWorktreeCommit(t *task.Task) {
 	if c.recordCommit == nil {
 		return
 	}
-	hash, err := gitpkg.GetLastCommitHash(t.WorktreePath)
+	hash, err := c.repo.GetLastCommitHash(t.WorktreePath)
 	if err != nil {
 		log.Printf("Warning: failed to get commit hash for task #%d: %v", t.ID, err)
 		return

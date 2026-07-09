@@ -209,7 +209,7 @@ func TestConcurrentFinalizesSerialize(t *testing.T) {
 
 	// Confirm the base repo ended up clean: no staged or unstaged files
 	// (the "race leaves merge markers on main" failure mode).
-	if dirty, err := gitpkg.HasChanges(dir); err != nil {
+	if dirty, err := gitpkg.NewRepo(dir).HasChanges(); err != nil {
 		t.Fatalf("HasChanges: %v", err)
 	} else if dirty {
 		out, _ := exec.Command("git", "-C", dir, "status", "--porcelain").CombinedOutput()
@@ -334,7 +334,7 @@ func TestCleanupOnConflictResolverFailure(t *testing.T) {
 	}
 
 	// THE INVARIANT under test: base repo is clean after failure.
-	if dirty, err := gitpkg.HasChanges(dir); err != nil {
+	if dirty, err := gitpkg.NewRepo(dir).HasChanges(); err != nil {
 		t.Fatalf("HasChanges: %v", err)
 	} else if dirty {
 		out, _ := exec.Command("git", "-C", dir, "status", "--porcelain").CombinedOutput()
@@ -581,5 +581,118 @@ func runIn(t *testing.T, dir string, args ...string) {
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+// fakeGitRepo is a test-only stand-in for *git.Repo satisfying the
+// Coordinator's gitRepo seam. It lets TestFinalizeMergeWithFakeConflictThenSuccess
+// exercise the conflict-retry path (MergeBranch fails → RebaseInto conflicts →
+// resolver runs → retry succeeds) without touching a real git binary.
+type fakeGitRepo struct {
+	root string
+
+	// mergeFailCount is how many leading MergeBranch calls should fail
+	// (simulating a non-fast-forward) before the call succeeds.
+	mergeFailCount int
+	mergeCalls     int
+
+	conflictCalls       int
+	continueRebaseCalls int
+
+	lastCommitHash string
+}
+
+func (f *fakeGitRepo) Root() string { return f.root }
+
+func (f *fakeGitRepo) Commit(worktreePath, message string) error { return nil }
+
+func (f *fakeGitRepo) CleanRepoState() error { return nil }
+
+func (f *fakeGitRepo) MergeBranch(branch, baseBranch string) error {
+	f.mergeCalls++
+	if f.mergeCalls <= f.mergeFailCount {
+		return errors.New("simulated non-fast-forward merge failure")
+	}
+	return nil
+}
+
+func (f *fakeGitRepo) AbortRebase(worktreePath string) error { return nil }
+
+func (f *fakeGitRepo) RebaseInto(worktreePath, baseBranch string) error {
+	return errors.New("simulated rebase conflict")
+}
+
+func (f *fakeGitRepo) GetConflictedFiles(worktreePath string) ([]string, error) {
+	f.conflictCalls++
+	// First call (surfacing the conflict to the resolver) reports one
+	// conflicted file; the second call (verifying resolution) reports none.
+	if f.conflictCalls == 1 {
+		return []string{"conflicted.txt"}, nil
+	}
+	return nil, nil
+}
+
+func (f *fakeGitRepo) ContinueRebase(worktreePath string) error {
+	f.continueRebaseCalls++
+	return nil
+}
+
+func (f *fakeGitRepo) HasChanges() (bool, error) { return false, nil }
+
+func (f *fakeGitRepo) GetLastCommitHash(dir string) (string, error) {
+	return f.lastCommitHash, nil
+}
+
+// TestFinalizeMergeWithFakeConflictThenSuccess demonstrates the gitRepo fake
+// seam: it drives the full conflict-retry path — MergeBranch fails once,
+// RebaseInto reports a conflict, the resolver runs and resolves it, then the
+// retried MergeBranch succeeds — using only a fake, no real git process.
+// This is the behavior TestCleanupOnConflictResolverFailure and
+// TestConcurrentFinalizesSerialize exercise via a real repo; this test
+// verifies the same conflict-path wiring in isolation.
+func TestFinalizeMergeWithFakeConflictThenSuccess(t *testing.T) {
+	fake := &fakeGitRepo{
+		root:           "/fake/repo",
+		mergeFailCount: 1,
+		lastCommitHash: "abc123fake",
+	}
+
+	resolveCalls := 0
+	resolver := func(ctx context.Context, tk *task.Task, conflictFiles []string) error {
+		resolveCalls++
+		if len(conflictFiles) != 1 || conflictFiles[0] != "conflicted.txt" {
+			t.Errorf("resolver got unexpected conflict files: %v", conflictFiles)
+		}
+		return nil
+	}
+
+	var recordedHash string
+	recordCommit := func(taskID int64, hash string) error {
+		recordedHash = hash
+		return nil
+	}
+
+	coord := newCoordinator(
+		fake, &Lock{},
+		Config{MaxAttempts: 2, BlockedPollInterval: 10 * time.Millisecond},
+		resolver, nil, recordCommit,
+	)
+
+	tk := &task.Task{ID: 99, Title: "fake test", Branch: "feature-x", Worktree: true, WorktreePath: "/fake/worktree"}
+	if err := coord.Finalize(context.Background(), tk, "main", ActionMerge, nil); err != nil {
+		t.Fatalf("Finalize returned error: %v", err)
+	}
+
+	if resolveCalls != 1 {
+		t.Errorf("expected resolver to be called once, got %d", resolveCalls)
+	}
+	if fake.mergeCalls != 2 {
+		t.Errorf("expected 2 MergeBranch attempts (fail then succeed), got %d", fake.mergeCalls)
+	}
+	if fake.continueRebaseCalls != 1 {
+		t.Errorf("expected ContinueRebase called once, got %d", fake.continueRebaseCalls)
+	}
+	if recordedHash != "abc123fake" {
+		t.Errorf("expected recordCommit to fire with the fake hash, got %q", recordedHash)
 	}
 }
