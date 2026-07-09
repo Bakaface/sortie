@@ -35,17 +35,25 @@ type Manager struct {
 	bufferSize     int
 
 	onStateChange StateChangeCallback
+
+	// shutdownPollInterval is how often Shutdown polls hasActiveAgents while
+	// waiting for running agents to exit. Defaults to 500ms (set by
+	// NewManager); tests in this package override the field directly after
+	// construction to keep Shutdown tests fast and deterministic instead of
+	// waiting out a real 500ms tick.
+	shutdownPollInterval time.Duration
 }
 
 func NewManager(maxConcurrent, bufferSize int) *Manager {
 	return &Manager{
-		agents:         make(map[string]*Agent),
-		knownTasks:     make(map[int64]bool),
-		pendingQueue:   make([]string, 0),
-		pendingRunners: make(map[string]func(ctx context.Context) error),
-		cancelFuncs:    make(map[string]context.CancelFunc),
-		maxConcurrent:  maxConcurrent,
-		bufferSize:     bufferSize,
+		agents:               make(map[string]*Agent),
+		knownTasks:           make(map[int64]bool),
+		pendingQueue:         make([]string, 0),
+		pendingRunners:       make(map[string]func(ctx context.Context) error),
+		cancelFuncs:          make(map[string]context.CancelFunc),
+		maxConcurrent:        maxConcurrent,
+		bufferSize:           bufferSize,
+		shutdownPollInterval: 500 * time.Millisecond,
 	}
 }
 
@@ -255,7 +263,7 @@ func (m *Manager) Shutdown(gracePeriod time.Duration) {
 		if !m.hasActiveAgents() {
 			return
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(m.shutdownPollInterval)
 	}
 }
 
@@ -282,4 +290,3 @@ func (m *Manager) GetOutput(agentID string, fromLine int) ([]string, int, error)
 	lines, total := agent.GetOutput(fromLine)
 	return lines, total, nil
 }
-

@@ -8,19 +8,26 @@ import (
 	"github.com/Bakaface/sortie/internal/task"
 )
 
+// Agent is a concurrency-slot handle the Manager uses to track a running
+// claude process for a task. It intentionally does NOT duplicate the task's
+// own workflow-progress fields (step index, current step name, etc.) — those
+// live authoritatively on Task, which every reader (the daemon, in
+// particular) re-fetches from the DB rather than trusting a cached copy
+// here. WorkDir is a genuine exception: it's the resolved directory the
+// agent actually runs in (worktree path, or the repo root fallback when the
+// task has no worktree), computed once by the caller of StartAgent before
+// Task.WorktreePath may even be set — see poller.go's startTaskAgent.
 type Agent struct {
 	mu sync.RWMutex
 
-	ID          string
-	Task        *task.Task
-	WorkDir     string
-	State       State
-	PID         int // Process ID of claude CLI
-	StartedAt   time.Time
-	EndedAt     time.Time
-	Error       string
-	CurrentStep string
-	StepIndex   int
+	ID        string
+	Task      *task.Task
+	WorkDir   string
+	State     State
+	PID       int // Process ID of claude CLI
+	StartedAt time.Time
+	EndedAt   time.Time
+	Error     string
 
 	outputBuffer *RingBuffer
 }
