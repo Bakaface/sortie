@@ -10,7 +10,7 @@ import (
 // CreateTaskStep inserts a new step record with status='running' and started_at=now.
 // Uses INSERT OR REPLACE to handle re-runs (e.g., loop iterations).
 func (db *DB) CreateTaskStep(taskID int64, stepName string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`INSERT OR REPLACE INTO task_steps (task_id, step_name, status, started_at)
 		 VALUES (?, ?, 'running', ?)`,
 		taskID, stepName, time.Now(),
@@ -20,7 +20,7 @@ func (db *DB) CreateTaskStep(taskID int64, stepName string) error {
 
 // CompleteTaskStep updates a step record with status='completed', context, exit_code, and completed_at.
 func (db *DB) CompleteTaskStep(taskID int64, stepName string, context *string, exitCode int) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`UPDATE task_steps SET status = 'completed', context = ?, exit_code = ?, completed_at = ?
 		 WHERE task_id = ? AND step_name = ?`,
 		context, exitCode, time.Now(), taskID, stepName,
@@ -31,7 +31,7 @@ func (db *DB) CompleteTaskStep(taskID int64, stepName string, context *string, e
 // UpdateTaskStepContext overwrites the context for a completed step.
 // Used by background summarization to replace the initial last_message context.
 func (db *DB) UpdateTaskStepContext(taskID int64, stepName string, context string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`UPDATE task_steps SET context = ? WHERE task_id = ? AND step_name = ? AND status = 'completed'`,
 		context, taskID, stepName,
 	)
@@ -74,7 +74,7 @@ func (db *DB) updateStepContextWithStatus(taskID int64, stepName, value string, 
 		err    error
 	)
 	if appendMode {
-		result, err = db.Exec(
+		result, err = db.sqlDB.Exec(
 			`UPDATE task_steps
 			 SET context = CASE
 			     WHEN context IS NULL OR context = '' THEN ?
@@ -84,7 +84,7 @@ func (db *DB) updateStepContextWithStatus(taskID int64, stepName, value string, 
 			value, value, taskID, stepName, status,
 		)
 	} else {
-		result, err = db.Exec(
+		result, err = db.sqlDB.Exec(
 			`UPDATE task_steps SET context = ?
 			 WHERE task_id = ? AND step_name = ? AND status = ?`,
 			value, taskID, stepName, status,
@@ -102,7 +102,7 @@ func (db *DB) updateStepContextWithStatus(taskID int64, stepName, value string, 
 // empty string (no error) when no running row exists or its context is NULL.
 func (db *DB) GetRunningTaskStepContext(taskID int64, stepName string) (string, error) {
 	var context sql.NullString
-	err := db.QueryRow(
+	err := db.sqlDB.QueryRow(
 		`SELECT context FROM task_steps WHERE task_id = ? AND step_name = ? AND status = 'running'`,
 		taskID, stepName,
 	).Scan(&context)
@@ -121,7 +121,7 @@ func (db *DB) GetRunningTaskStepContext(taskID int64, stepName string) (string, 
 // GetTaskStepContext returns the context for a single completed step.
 func (db *DB) GetTaskStepContext(taskID int64, stepName string) (string, error) {
 	var context sql.NullString
-	err := db.QueryRow(
+	err := db.sqlDB.QueryRow(
 		`SELECT context FROM task_steps WHERE task_id = ? AND step_name = ? AND status = 'completed'`,
 		taskID, stepName,
 	).Scan(&context)
@@ -157,7 +157,7 @@ func (db *DB) GetTaskStepContexts(taskID int64, stepNames []string) (map[string]
 		strings.Join(placeholders, ","),
 	)
 
-	rows, err := db.Query(query, args...)
+	rows, err := db.sqlDB.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func (db *DB) GetTaskStepContexts(taskID int64, stepNames []string) (map[string]
 
 // GetAllTaskStepContexts returns all completed step contexts for a task.
 func (db *DB) GetAllTaskStepContexts(taskID int64) (map[string]string, error) {
-	rows, err := db.Query(
+	rows, err := db.sqlDB.Query(
 		`SELECT step_name, context FROM task_steps
 		 WHERE task_id = ? AND status = 'completed' AND context IS NOT NULL AND context != ''`,
 		taskID,
@@ -209,7 +209,7 @@ type TaskStepRow struct {
 // Includes running and completed steps; the caller is expected to overlay
 // these onto the workflow's configured step list.
 func (db *DB) GetTaskStepRows(taskID int64) (map[string]TaskStepRow, error) {
-	rows, err := db.Query(
+	rows, err := db.sqlDB.Query(
 		`SELECT step_name, status, context, completed_at FROM task_steps WHERE task_id = ?`,
 		taskID,
 	)
@@ -235,7 +235,7 @@ func (db *DB) GetTaskStepRows(taskID int64) (map[string]TaskStepRow, error) {
 
 // DeleteTaskSteps deletes all step records for a task (used on full retry/reset).
 func (db *DB) DeleteTaskSteps(taskID int64) error {
-	_, err := db.Exec(`DELETE FROM task_steps WHERE task_id = ?`, taskID)
+	_, err := db.sqlDB.Exec(`DELETE FROM task_steps WHERE task_id = ?`, taskID)
 	return err
 }
 
@@ -255,6 +255,6 @@ func (db *DB) DeleteTaskStepsFrom(taskID int64, stepNames []string) error {
 		`DELETE FROM task_steps WHERE task_id = ? AND step_name IN (%s)`,
 		strings.Join(placeholders, ","),
 	)
-	_, err := db.Exec(query, args...)
+	_, err := db.sqlDB.Exec(query, args...)
 	return err
 }

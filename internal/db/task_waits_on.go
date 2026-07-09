@@ -14,13 +14,13 @@ func (db *DB) AddTaskWaitsOn(taskID, waitsOnID int64) error {
 	if taskID == waitsOnID {
 		return fmt.Errorf("task cannot wait on itself (task #%d)", taskID)
 	}
-	_, err := db.Exec(`INSERT OR IGNORE INTO task_waits_on (task_id, waits_on_id) VALUES (?, ?)`, taskID, waitsOnID)
+	_, err := db.sqlDB.Exec(`INSERT OR IGNORE INTO task_waits_on (task_id, waits_on_id) VALUES (?, ?)`, taskID, waitsOnID)
 	return err
 }
 
 // RemoveTaskWaitsOn drops a single wait-on edge. Idempotent.
 func (db *DB) RemoveTaskWaitsOn(taskID, waitsOnID int64) error {
-	_, err := db.Exec(`DELETE FROM task_waits_on WHERE task_id = ? AND waits_on_id = ?`, taskID, waitsOnID)
+	_, err := db.sqlDB.Exec(`DELETE FROM task_waits_on WHERE task_id = ? AND waits_on_id = ?`, taskID, waitsOnID)
 	return err
 }
 
@@ -28,14 +28,14 @@ func (db *DB) RemoveTaskWaitsOn(taskID, waitsOnID int64) error {
 // parent resumes — the wait-on edges are an ephemeral lifecycle, not a
 // historical record.
 func (db *DB) RemoveAllTaskWaitsOn(taskID int64) error {
-	_, err := db.Exec(`DELETE FROM task_waits_on WHERE task_id = ?`, taskID)
+	_, err := db.sqlDB.Exec(`DELETE FROM task_waits_on WHERE task_id = ?`, taskID)
 	return err
 }
 
 // GetTaskWaitsOn returns the IDs of children that taskID is currently waiting
 // on. Order is unspecified.
 func (db *DB) GetTaskWaitsOn(taskID int64) ([]int64, error) {
-	rows, err := db.Query(`SELECT waits_on_id FROM task_waits_on WHERE task_id = ? ORDER BY waits_on_id ASC`, taskID)
+	rows, err := db.sqlDB.Query(`SELECT waits_on_id FROM task_waits_on WHERE task_id = ? ORDER BY waits_on_id ASC`, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -56,7 +56,7 @@ func (db *DB) GetTaskWaitsOn(taskID int64) ([]int64, error) {
 // used by the engine pause branch.
 func (db *DB) HasAnyWaitsOn(taskID int64) (bool, error) {
 	var count int
-	err := db.QueryRow(`SELECT COUNT(*) FROM task_waits_on WHERE task_id = ?`, taskID).Scan(&count)
+	err := db.sqlDB.QueryRow(`SELECT COUNT(*) FROM task_waits_on WHERE task_id = ?`, taskID).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -67,7 +67,7 @@ func (db *DB) HasAnyWaitsOn(taskID int64) (bool, error) {
 // terminal status (completed or failed). Empty wait set returns true (the
 // parent is not waiting on anyone, so it is trivially unblocked).
 func (db *DB) AllWaitsOnTerminal(taskID int64) (bool, error) {
-	rows, err := db.Query(`
+	rows, err := db.sqlDB.Query(`
 		SELECT t.status FROM task_waits_on w
 		JOIN tasks t ON t.id = w.waits_on_id
 		WHERE w.task_id = ?`, taskID)
@@ -100,7 +100,7 @@ func (db *DB) GetTasksAwaitingChildren() ([]*task.Task, error) {
 // GetWaitsOnChildren returns the full Task structs for every child taskID is
 // waiting on. Used to build {{children.*}} template variables on resume.
 func (db *DB) GetWaitsOnChildren(taskID int64) ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`
+	rows, err := db.sqlDB.Query(fmt.Sprintf(`
 		SELECT %s FROM tasks
 		WHERE id IN (SELECT waits_on_id FROM task_waits_on WHERE task_id = ?)
 		ORDER BY id ASC`, taskColumns), taskID)
@@ -130,7 +130,7 @@ func (db *DB) HasCircularWaitsOn(taskID, newWaitsOnID int64) (bool, error) {
 		queue = queue[1:]
 
 		// Walk waits_on edges (current waits on what?).
-		rows, err := db.Query(`SELECT waits_on_id FROM task_waits_on WHERE task_id = ?`, current)
+		rows, err := db.sqlDB.Query(`SELECT waits_on_id FROM task_waits_on WHERE task_id = ?`, current)
 		if err != nil {
 			return false, err
 		}
@@ -156,7 +156,7 @@ func (db *DB) HasCircularWaitsOn(taskID, newWaitsOnID int64) (bool, error) {
 
 		// Also walk task_dependencies (current blocked_by what?) — a cycle
 		// across both graphs is still a cycle in the unified blocking order.
-		depRows, err := db.Query(`SELECT blocked_by FROM task_dependencies WHERE task_id = ?`, current)
+		depRows, err := db.sqlDB.Query(`SELECT blocked_by FROM task_dependencies WHERE task_id = ?`, current)
 		if err != nil {
 			return false, err
 		}

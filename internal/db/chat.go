@@ -20,7 +20,7 @@ type Chat struct {
 // If a chat for this task/step combination already exists, it updates the session_id,
 // tmux_session_name, and created_at.
 func (db *DB) UpsertChat(taskID int64, stepName, sessionID, tmuxSessionName string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`INSERT INTO chats (task_id, step_name, session_id, tmux_session_name)
 		 VALUES (?, ?, ?, ?)
 		 ON CONFLICT(task_id, step_name) DO UPDATE SET
@@ -40,7 +40,7 @@ func (db *DB) UpsertChat(taskID int64, stepName, sessionID, tmuxSessionName stri
 // touch tmux_session_name or created_at, so it never reorders chats or wipes
 // the recorded tmux session name.
 func (db *DB) SetChatSessionID(taskID int64, stepName, sessionID string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`INSERT INTO chats (task_id, step_name, session_id)
 		 VALUES (?, ?, ?)
 		 ON CONFLICT(task_id, step_name) DO UPDATE SET
@@ -56,7 +56,7 @@ func (db *DB) GetLatestChat(taskID int64) (*Chat, error) {
 	var tmuxSessionName sql.NullString
 	var stepName sql.NullString
 
-	err := db.QueryRow(
+	err := db.sqlDB.QueryRow(
 		`SELECT id, task_id, session_id, tmux_session_name, step_name, created_at
 		 FROM chats WHERE task_id = ? ORDER BY created_at DESC LIMIT 1`,
 		taskID,
@@ -83,7 +83,7 @@ func (db *DB) GetChatByStep(taskID int64, stepName string) (*Chat, error) {
 	var tmuxSessionName sql.NullString
 	var sn sql.NullString
 
-	err := db.QueryRow(
+	err := db.sqlDB.QueryRow(
 		`SELECT id, task_id, session_id, tmux_session_name, step_name, created_at
 		 FROM chats WHERE task_id = ? AND step_name = ?`,
 		taskID, stepName,
@@ -106,7 +106,7 @@ func (db *DB) GetChatByStep(taskID int64, stepName string) (*Chat, error) {
 
 // GetChatsByTask returns all chats for a task ordered by creation time ascending.
 func (db *DB) GetChatsByTask(taskID int64) ([]*Chat, error) {
-	rows, err := db.Query(
+	rows, err := db.sqlDB.Query(
 		`SELECT id, task_id, session_id, tmux_session_name, step_name, created_at
 		 FROM chats WHERE task_id = ? ORDER BY created_at ASC`,
 		taskID,
@@ -138,7 +138,7 @@ func (db *DB) GetChatsByTask(taskID int64) ([]*Chat, error) {
 
 // DeleteChatsForTask deletes all chat records for a task.
 func (db *DB) DeleteChatsForTask(taskID int64) error {
-	_, err := db.Exec(`DELETE FROM chats WHERE task_id = ?`, taskID)
+	_, err := db.sqlDB.Exec(`DELETE FROM chats WHERE task_id = ?`, taskID)
 	return err
 }
 
@@ -158,6 +158,6 @@ func (db *DB) DeleteChatsForSteps(taskID int64, stepNames []string) error {
 		args = append(args, name)
 	}
 	query := `DELETE FROM chats WHERE task_id = ? AND step_name IN (` + strings.Join(placeholders, ",") + `)`
-	_, err := db.Exec(query, args...)
+	_, err := db.sqlDB.Exec(query, args...)
 	return err
 }

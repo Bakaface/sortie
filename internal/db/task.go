@@ -29,7 +29,7 @@ func (db *DB) CreateTaskWithPriority(projectID int64, title, description, slug, 
 		worktreeInt = 1
 	}
 
-	result, err := db.Exec(
+	result, err := db.sqlDB.Exec(
 		`INSERT INTO tasks (project_id, title, description, slug, workflow, branch_name, branch, target_branch, checkout_branch, status, priority, worktree, images) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		projectID, title, description, slug, workflow, branchName, branch, targetBranch, checkoutBranch, status, priority, worktreeInt, imagesJSON,
 	)
@@ -50,7 +50,7 @@ const taskColumns = `id, project_id, title, description, slug, workflow, status,
 	created_at, started_at, completed_at, updated_at`
 
 func (db *DB) GetTask(id int64) (*task.Task, error) {
-	row := db.QueryRow(fmt.Sprintf(`SELECT %s FROM tasks WHERE id = ?`, taskColumns), id)
+	row := db.sqlDB.QueryRow(fmt.Sprintf(`SELECT %s FROM tasks WHERE id = ?`, taskColumns), id)
 	t, err := scanTask(row)
 	if err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func (db *DB) GetTask(id int64) (*task.Task, error) {
 }
 
 func (db *DB) getBlockedBy(taskID int64) ([]int64, error) {
-	rows, err := db.Query(`SELECT blocked_by FROM task_dependencies WHERE task_id = ?`, taskID)
+	rows, err := db.sqlDB.Query(`SELECT blocked_by FROM task_dependencies WHERE task_id = ?`, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +92,7 @@ func (db *DB) GetRunningTasks() ([]*task.Task, error) {
 }
 
 func (db *DB) GetClaimableTasks() ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`
+	rows, err := db.sqlDB.Query(fmt.Sprintf(`
 		SELECT %s FROM tasks
 		WHERE status = ?
 		AND id NOT IN (
@@ -119,7 +119,7 @@ func (db *DB) GetClaimableTasks() ([]*task.Task, error) {
 }
 
 func (db *DB) GetAllTasks() ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns))
+	rows, err := db.sqlDB.Query(fmt.Sprintf(`SELECT %s FROM tasks ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns))
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (db *DB) GetAllTasks() ([]*task.Task, error) {
 
 // GetTasksByProject returns all tasks for a specific project.
 func (db *DB) GetTasksByProject(projectID int64) ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id = ? ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns), projectID)
+	rows, err := db.sqlDB.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id = ? ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns), projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -168,7 +168,7 @@ func (db *DB) GetTasksByProject(projectID int64) ([]*task.Task, error) {
 
 // GetTasksByProjectName returns all tasks for projects matching the given name.
 func (db *DB) GetTasksByProjectName(name string) ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name = ?) ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns), name)
+	rows, err := db.sqlDB.Query(fmt.Sprintf(`SELECT %s FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE name = ?) ORDER BY (status = 'tmux') DESC, id DESC`, taskColumns), name)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (db *DB) GetTasksByProjectName(name string) ([]*task.Task, error) {
 }
 
 func (db *DB) getTasksByStatus(status task.Status) ([]*task.Task, error) {
-	rows, err := db.Query(fmt.Sprintf(`
+	rows, err := db.sqlDB.Query(fmt.Sprintf(`
 		SELECT %s FROM tasks WHERE status = ? ORDER BY id ASC
 	`, taskColumns), status)
 	if err != nil {
@@ -206,7 +206,7 @@ func (db *DB) getTasksByStatus(status task.Status) ([]*task.Task, error) {
 // Returns true if the claim succeeded, false if the task was not in pending state.
 func (db *DB) ClaimTask(id int64) (bool, error) {
 	now := time.Now()
-	result, err := db.Exec(
+	result, err := db.sqlDB.Exec(
 		"UPDATE tasks SET status = ?, started_at = ?, updated_at = ? WHERE id = ? AND status = ?",
 		task.StatusRunning, now, now, id, task.StatusPending,
 	)
@@ -237,12 +237,12 @@ func (db *DB) UpdateTaskStatus(id int64, status task.Status) error {
 		args = []interface{}{status, now, id}
 	}
 
-	_, err := db.Exec(query, args...)
+	_, err := db.sqlDB.Exec(query, args...)
 	return err
 }
 
 func (db *DB) UpdateTaskWorktreePath(id int64, worktreePath string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET worktree_path = ?, updated_at = ? WHERE id = ?",
 		worktreePath, time.Now(), id,
 	)
@@ -250,7 +250,7 @@ func (db *DB) UpdateTaskWorktreePath(id int64, worktreePath string) error {
 }
 
 func (db *DB) UpdateTaskBranch(id int64, branch string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET branch = ?, updated_at = ? WHERE id = ?",
 		branch, time.Now(), id,
 	)
@@ -258,7 +258,7 @@ func (db *DB) UpdateTaskBranch(id int64, branch string) error {
 }
 
 func (db *DB) ClearWorktreePath(id int64) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET worktree_path = NULL, updated_at = ? WHERE id = ?",
 		time.Now(), id,
 	)
@@ -266,7 +266,7 @@ func (db *DB) ClearWorktreePath(id int64) error {
 }
 
 func (db *DB) UpdateTaskStep(id int64, stepIndex int, currentStep string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET step_index = ?, current_step = ?, updated_at = ? WHERE id = ?",
 		stepIndex, currentStep, time.Now(), id,
 	)
@@ -274,7 +274,7 @@ func (db *DB) UpdateTaskStep(id int64, stepIndex int, currentStep string) error 
 }
 
 func (db *DB) UpdateTaskExitCode(id int64, exitCode int, errorMessage string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET exit_code = ?, error_message = ?, updated_at = ? WHERE id = ?",
 		exitCode, errorMessage, time.Now(), id,
 	)
@@ -282,7 +282,7 @@ func (db *DB) UpdateTaskExitCode(id int64, exitCode int, errorMessage string) er
 }
 
 func (db *DB) UpdateTaskError(id int64, errMsg string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET error_message = ?, status = ?, updated_at = ? WHERE id = ?",
 		errMsg, task.StatusFailed, time.Now(), id,
 	)
@@ -290,7 +290,7 @@ func (db *DB) UpdateTaskError(id int64, errMsg string) error {
 }
 
 func (db *DB) UpdateTaskPriority(id int64, priority task.Priority) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET priority = ?, updated_at = ? WHERE id = ?",
 		priority, time.Now(), id,
 	)
@@ -298,7 +298,7 @@ func (db *DB) UpdateTaskPriority(id int64, priority task.Priority) error {
 }
 
 func (db *DB) UpdateTaskContext(id int64, taskContext string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET context = ?, updated_at = ? WHERE id = ?",
 		taskContext, time.Now(), id,
 	)
@@ -306,7 +306,7 @@ func (db *DB) UpdateTaskContext(id int64, taskContext string) error {
 }
 
 func (db *DB) UpdateTaskTitle(id int64, title string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?",
 		title, time.Now(), id,
 	)
@@ -314,7 +314,7 @@ func (db *DB) UpdateTaskTitle(id int64, title string) error {
 }
 
 func (db *DB) UpdateTaskDescription(id int64, description string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET description = ?, updated_at = ? WHERE id = ?",
 		description, time.Now(), id,
 	)
@@ -322,7 +322,7 @@ func (db *DB) UpdateTaskDescription(id int64, description string) error {
 }
 
 func (db *DB) FinalizeTaskIdentity(id int64, title, slug, branch string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET title = ?, slug = ?, branch = ?, updated_at = ? WHERE id = ?",
 		title, slug, branch, time.Now(), id,
 	)
@@ -330,7 +330,7 @@ func (db *DB) FinalizeTaskIdentity(id int64, title, slug, branch string) error {
 }
 
 func (db *DB) UpdateTaskLoopIteration(id int64, iteration int) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET loop_iteration = ?, updated_at = ? WHERE id = ?",
 		iteration, time.Now(), id,
 	)
@@ -338,7 +338,7 @@ func (db *DB) UpdateTaskLoopIteration(id int64, iteration int) error {
 }
 
 func (db *DB) ResetTaskForRetry(id int64) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`UPDATE tasks SET status = ?, step_index = 0, current_step = NULL, loop_iteration = 0,
 		 exit_code = NULL, error_message = NULL, started_at = NULL,
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
@@ -354,7 +354,7 @@ func (db *DB) ResetTaskForRetry(id int64) error {
 }
 
 func (db *DB) ResetTaskForRetryFromStep(id int64) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`UPDATE tasks SET status = ?, current_step = NULL,
 		 exit_code = NULL, error_message = NULL, started_at = NULL,
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
@@ -378,7 +378,7 @@ func (db *DB) ResetTaskForRetryFromStep(id int64) error {
 // stepNames (which should be the step at stepIdx and all later steps) are
 // deleted so they will be regenerated by the engine.
 func (db *DB) ResetTaskForRetryAtStep(id int64, stepIdx int, stepNames []string) error {
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`UPDATE tasks SET status = ?, step_index = ?, current_step = NULL, loop_iteration = 0,
 		 exit_code = NULL, error_message = NULL, started_at = NULL,
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
@@ -395,7 +395,7 @@ func (db *DB) ResetTaskForRetryAtStep(id int64, stepIdx int, stepNames []string)
 
 func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
 	if prompt != "" {
-		_, err := db.Exec(
+		_, err := db.sqlDB.Exec(
 			`UPDATE tasks SET status = ?, workflow = ?, description = ?, step_index = 0, current_step = NULL, loop_iteration = 0,
 			 exit_code = NULL, error_message = NULL, started_at = NULL,
 			 completed_at = NULL, updated_at = ? WHERE id = ?`,
@@ -409,7 +409,7 @@ func (db *DB) ResetTaskForContinue(id int64, workflow, prompt string) error {
 		}
 		return db.DeleteChatsForTask(id)
 	}
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		`UPDATE tasks SET status = ?, workflow = ?, step_index = 0, current_step = NULL, loop_iteration = 0,
 		 exit_code = NULL, error_message = NULL, started_at = NULL,
 		 completed_at = NULL, updated_at = ? WHERE id = ?`,
@@ -434,7 +434,7 @@ func (db *DB) AppendTaskCommit(id int64, commitHash string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal commits: %w", err)
 	}
-	_, err = db.Exec(
+	_, err = db.sqlDB.Exec(
 		"UPDATE tasks SET commits = ?, updated_at = ? WHERE id = ?",
 		string(data), time.Now(), id,
 	)
@@ -443,7 +443,7 @@ func (db *DB) AppendTaskCommit(id int64, commitHash string) error {
 
 func (db *DB) GetTaskCommits(id int64) ([]string, error) {
 	var commitsJSON sql.NullString
-	err := db.QueryRow("SELECT commits FROM tasks WHERE id = ?", id).Scan(&commitsJSON)
+	err := db.sqlDB.QueryRow("SELECT commits FROM tasks WHERE id = ?", id).Scan(&commitsJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -459,19 +459,19 @@ func (db *DB) GetTaskCommits(id int64) ([]string, error) {
 
 // AddTaskDependency adds a dependency: taskID is blocked by blockedByID.
 func (db *DB) AddTaskDependency(taskID, blockedByID int64) error {
-	_, err := db.Exec(`INSERT OR IGNORE INTO task_dependencies (task_id, blocked_by) VALUES (?, ?)`, taskID, blockedByID)
+	_, err := db.sqlDB.Exec(`INSERT OR IGNORE INTO task_dependencies (task_id, blocked_by) VALUES (?, ?)`, taskID, blockedByID)
 	return err
 }
 
 // RemoveTaskDependency removes a dependency: taskID is no longer blocked by blockedByID.
 func (db *DB) RemoveTaskDependency(taskID, blockedByID int64) error {
-	_, err := db.Exec(`DELETE FROM task_dependencies WHERE task_id = ? AND blocked_by = ?`, taskID, blockedByID)
+	_, err := db.sqlDB.Exec(`DELETE FROM task_dependencies WHERE task_id = ? AND blocked_by = ?`, taskID, blockedByID)
 	return err
 }
 
 // SetTaskDependencies replaces all dependencies for a task with the given list.
 func (db *DB) SetTaskDependencies(taskID int64, blockedBy []int64) error {
-	tx, err := db.Begin()
+	tx, err := db.sqlDB.Begin()
 	if err != nil {
 		return err
 	}
@@ -509,7 +509,7 @@ func (db *DB) HasCircularDependency(taskID, newBlockedByID int64) (bool, error) 
 		current := queue[0]
 		queue = queue[1:]
 
-		rows, err := db.Query(`SELECT blocked_by FROM task_dependencies WHERE task_id = ?`, current)
+		rows, err := db.sqlDB.Query(`SELECT blocked_by FROM task_dependencies WHERE task_id = ?`, current)
 		if err != nil {
 			return false, err
 		}
@@ -539,19 +539,19 @@ func (db *DB) HasCircularDependency(taskID, newBlockedByID int64) (bool, error) 
 }
 
 func (db *DB) DeleteTask(id int64) error {
-	_, err := db.Exec("DELETE FROM chats WHERE task_id = ?", id)
+	_, err := db.sqlDB.Exec("DELETE FROM chats WHERE task_id = ?", id)
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec("DELETE FROM task_dependencies WHERE task_id = ? OR blocked_by = ?", id, id)
+	_, err = db.sqlDB.Exec("DELETE FROM task_dependencies WHERE task_id = ? OR blocked_by = ?", id, id)
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec("DELETE FROM task_waits_on WHERE task_id = ? OR waits_on_id = ?", id, id)
+	_, err = db.sqlDB.Exec("DELETE FROM task_waits_on WHERE task_id = ? OR waits_on_id = ?", id, id)
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec("DELETE FROM tasks WHERE id = ?", id)
+	_, err = db.sqlDB.Exec("DELETE FROM tasks WHERE id = ?", id)
 	return err
 }
 
@@ -677,7 +677,7 @@ func (db *DB) SetWorktreeDetached(id int64, detached bool) error {
 	if detached {
 		val = 1
 	}
-	_, err := db.Exec(
+	_, err := db.sqlDB.Exec(
 		"UPDATE tasks SET worktree_detached = ?, updated_at = ? WHERE id = ?",
 		val, time.Now(), id,
 	)
