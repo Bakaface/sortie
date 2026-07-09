@@ -3,7 +3,6 @@ package tui
 import (
 	"testing"
 
-	"github.com/Bakaface/sortie/internal/client"
 	"github.com/Bakaface/sortie/internal/daemon"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -11,7 +10,7 @@ import (
 func TestHandleConfirmKey_YConfirmsStop(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
-		client:        &client.Client{},
+		client:        &fakeTaskService{},
 		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		confirmAction: "stop",
@@ -36,7 +35,7 @@ func TestHandleConfirmKey_YConfirmsStop(t *testing.T) {
 func TestHandleConfirmKey_NCancelsStop(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
-		client:        &client.Client{},
+		client:        &fakeTaskService{},
 		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		confirmAction: "stop",
@@ -61,7 +60,7 @@ func TestHandleConfirmKey_NCancelsStop(t *testing.T) {
 func TestHandleConfirmKey_EscCancelsStop(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
-		client:        &client.Client{},
+		client:        &fakeTaskService{},
 		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		confirmAction: "stop",
@@ -83,7 +82,7 @@ func TestHandleConfirmKey_EscCancelsStop(t *testing.T) {
 func TestHandleConfirmKey_OtherKeyIgnored(t *testing.T) {
 	m := Model{
 		keys:          newKeyMap(),
-		client:        &client.Client{},
+		client:        &fakeTaskService{},
 		list:          newListView(false, ""),
 		detail:        newDetailView(),
 		confirmAction: "stop",
@@ -108,7 +107,7 @@ func TestHandleConfirmKey_OtherKeyIgnored(t *testing.T) {
 func TestHandleListKey_STriggersStopConfirmation(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		client: &client.Client{},
+		client: &fakeTaskService{},
 		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,

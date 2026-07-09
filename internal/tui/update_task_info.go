@@ -58,7 +58,9 @@ func (m Model) handleTaskInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.view = viewDetail
 			m.detail.SetTask(m.taskInfo.task)
 			m.detail.SetFollowMode(true)
-			return m, m.loadOutput(m.taskInfo.task.ID, 0)
+			m.logStream.reset(m.taskInfo.task.ID)
+			taskID, offset := m.logStream.nextRequest()
+			return m, m.loadOutput(taskID, offset)
 		}
 		return m, nil
 	case key.Matches(msg, tk.GotoBtm): // "G"

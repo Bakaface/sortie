@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/Bakaface/sortie/internal/task"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -44,22 +45,23 @@ var (
 	dimStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#6B6B6B"))
 
-	stateStyles = map[string]lipgloss.Style{
-		"pending":           lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B")),
-		"init":              lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")).Italic(true),
-		"starting":          lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")),
-		"running":           lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")),
-		"waiting_for_input": lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
-		"awaiting-approval": lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")).Bold(true),
-		"tmux":              lipgloss.NewStyle().Foreground(lipgloss.Color("#B07AAD")).Bold(true),
-		"finalizing":        lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
-		"summarizing":       lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
-		"summarizing_step":  lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
-		"merge-blocked":     lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
-		"resolving-conflicts": lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
-		"completed":         lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
-		"failed":            lipgloss.NewStyle().Foreground(lipgloss.Color("#D94F4F")),
-		"stopped":           lipgloss.NewStyle().Foreground(lipgloss.Color("#7A7A7A")),
+	// stateStyles is keyed by task.Status so adding a new status forces every
+	// caller (stateStyle, statusIconFor) to be reconsidered at compile time.
+	// task.StatusAwaitingChildren has no entry (falls back to normalStyle via
+	// stateStyle) — a pre-existing gap, preserved as-is rather than fixed here.
+	stateStyles = map[task.Status]lipgloss.Style{
+		task.StatusPending:            lipgloss.NewStyle().Foreground(lipgloss.Color("#6B6B6B")),
+		task.StatusInit:               lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")).Italic(true),
+		task.StatusRunning:            lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")),
+		task.StatusAwaitingApproval:   lipgloss.NewStyle().Foreground(lipgloss.Color("#D4A843")).Bold(true),
+		task.StatusTmux:               lipgloss.NewStyle().Foreground(lipgloss.Color("#B07AAD")).Bold(true),
+		task.StatusFinalizing:         lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
+		task.StatusSummarizing:        lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
+		task.StatusSummarizingStep:    lipgloss.NewStyle().Foreground(lipgloss.Color("#5F8AB3")),
+		task.StatusMergeBlocked:       lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
+		task.StatusResolvingConflicts: lipgloss.NewStyle().Foreground(lipgloss.Color("#C97054")).Bold(true),
+		task.StatusCompleted:          lipgloss.NewStyle().Foreground(lipgloss.Color("#5BA87A")),
+		task.StatusFailed:             lipgloss.NewStyle().Foreground(lipgloss.Color("#D94F4F")),
 	}
 
 	priorityStyles = map[string]lipgloss.Style{
@@ -94,7 +96,7 @@ var (
 	subHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#E8E8E8"))
 )
 
-func stateStyle(state string) lipgloss.Style {
+func stateStyle(state task.Status) lipgloss.Style {
 	if style, ok := stateStyles[state]; ok {
 		return style
 	}

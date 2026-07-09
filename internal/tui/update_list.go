@@ -10,6 +10,11 @@ import (
 
 	"github.com/Bakaface/sortie/internal/config"
 	"github.com/Bakaface/sortie/internal/daemon"
+	// Aliased: this file uses "task" as the local variable name for
+	// *daemon.TaskInfo throughout (e.g. "if task := m.list.Selected(); ...");
+	// the alias avoids that shadowing the package.
+	taskpkg "github.com/Bakaface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/workflow"
 )
 
 // tmuxContinueAction returns "advance" when the tmux step has more workflow
@@ -21,7 +26,12 @@ func tmuxContinueAction(cfg *config.Config, task *daemon.TaskInfo) string {
 		return "finalize"
 	}
 	wf := cfg.GetWorkflow(task.Workflow)
-	if wf != nil && task.StepIndex < len(wf.Steps) {
+	// Delegate to workflow.HasMoreSteps — the sanctioned StepIndex
+	// arithmetic (see internal/workflow/cursor.go) — instead of re-deriving
+	// "does this task have steps left" here. daemon.TaskInfo only carries
+	// the wire-level StepIndex, so wrap it in a minimal task.Task; the
+	// function only reads that one field.
+	if workflow.HasMoreSteps(&taskpkg.Task{StepIndex: task.StepIndex}, wf) {
 		return "advance"
 	}
 	return "finalize"
@@ -127,7 +137,9 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.view = viewDetail
 			m.detail.SetTask(task)
 			m.detail.SetFollowMode(true)
-			return m, m.loadOutput(task.ID, 0)
+			m.logStream.reset(task.ID)
+			taskID, offset := m.logStream.nextRequest()
+			return m, m.loadOutput(taskID, offset)
 		}
 		return m, nil
 
@@ -137,14 +149,15 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// pick which step to restart from. Single-step workflows skip the
 		// picker entirely (handled in the taskStepsLoadedMsg handler).
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "failed" || task.Status == "completed" || task.Status == "tmux" {
+			status := taskpkg.Status(task.Status)
+			if status == taskpkg.StatusFailed || status == taskpkg.StatusCompleted || status == taskpkg.StatusTmux {
 				return m.openRetryStepSelection(task)
 			}
 		}
 
 	case key.Matches(msg, m.keys.Revert):
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "completed" || task.Status == "failed" {
+			if taskpkg.Status(task.Status) == taskpkg.StatusCompleted || taskpkg.Status(task.Status) == taskpkg.StatusFailed {
 				m.confirmAction = "revert"
 				m.confirmTaskID = task.ID
 				return m, nil
@@ -168,12 +181,13 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, m.keys.Continue):
 		if task := m.list.Selected(); task != nil && m.client != nil {
-			if task.Status == "awaiting-approval" {
+			status := taskpkg.Status(task.Status)
+			if status == taskpkg.StatusAwaitingApproval {
 				m.confirmAction = "continue"
 				m.confirmTaskID = task.ID
 				return m, nil
 			}
-			if task.Status == "completed" || task.Status == "failed" {
+			if status == taskpkg.StatusCompleted || status == taskpkg.StatusFailed {
 				workflows := m.cfg.ListWorkflowNames()
 				m.continueTaskID = task.ID
 				m.continueSelectedWorkflow = ""
@@ -189,7 +203,7 @@ func (m Model) handleListKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.prompt.Focus()
 				return m, nil
 			}
-			if task.Status == "tmux" {
+			if status == taskpkg.StatusTmux {
 				m.confirmAction = tmuxContinueAction(m.cfg, task)
 				m.confirmTaskID = task.ID
 				return m, nil

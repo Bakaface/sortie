@@ -26,22 +26,23 @@ const (
 )
 
 type Model struct {
-	cfg         *config.Config
-	client      *client.Client
-	keys        keyMap
-	list        listView
-	detail      detailView
-	taskInfo    taskInfoView
-	prompt      promptView
-	view        view
-	width       int
-	height      int
-	err         error
-	quitting    bool
-	projectID   int64  // 0 = global mode (show all projects)
-	projectPath     string // project directory path, empty in global mode
-	projectName     string // repo basename for filtering in global mode
-	globalMode      bool
+	cfg               *config.Config
+	client            TaskService
+	logStream         logStream
+	keys              keyMap
+	list              listView
+	detail            detailView
+	taskInfo          taskInfoView
+	prompt            promptView
+	view              view
+	width             int
+	height            int
+	err               error
+	quitting          bool
+	projectID         int64  // 0 = global mode (show all projects)
+	projectPath       string // project directory path, empty in global mode
+	projectName       string // repo basename for filtering in global mode
+	globalMode        bool
 	defaultWorktree   bool   // per-project worktree preference
 	defaultBranchMode int    // per-project branch mode preference (0=new, 1=existing)
 	defaultWorkflow   string // per-project default workflow name
@@ -75,7 +76,6 @@ type Model struct {
 	branchFilter    string   // fuzzy search input
 	branchFiltered  []string // branches matching the filter
 
-
 	// Step context state (kept after selector closes)
 	taskSteps []daemon.TaskStepDetail // loaded step details for current selection
 
@@ -85,7 +85,6 @@ type Model struct {
 	// Sortie animation state
 	sortie    sortieAnimation
 	sortieCmd tea.Cmd // deferred command to run when animation completes
-
 
 	// Status message (flash message, auto-clears after a few ticks)
 	statusMessage    string
@@ -282,11 +281,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case taskFieldUpdatedMsg:
-		label := msg.field
-		if len(label) > 0 {
-			label = strings.ToUpper(label[:1]) + label[1:]
-		}
-		m.statusMessage = fmt.Sprintf("%s updated", label)
+		m.statusMessage = fmt.Sprintf("%s updated", capitalize(msg.field))
 		m.statusMessageTTL = 2
 		m.list.refreshing = true
 		return m, m.refreshTasks()
@@ -434,17 +429,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case outputLoadedMsg:
-		// Ignore stale results from a previously viewed task
-		if m.detail.task == nil || msg.taskID != m.detail.task.ID {
+		if m.detail.task == nil {
 			return m, nil
 		}
-		if msg.offset > 0 {
-			// Incremental update: only new lines since last fetch
-			m.detail.AppendNewLines(msg.lines)
-		} else {
-			// Full load (first fetch or task switch)
-			m.detail.SetOutput(msg.lines)
-		}
+		// logStream ignores stale results from a previously viewed task and
+		// picks AppendNewLines vs SetOutput based on the offset used for
+		// the request that produced this message.
+		m.logStream.apply(msg, &m.detail)
 		return m, nil
 
 	case tickMsg:
@@ -459,7 +450,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if m.view == viewDetail && m.detail.task != nil && m.client != nil {
-			cmds = append(cmds, m.loadOutput(m.detail.task.ID, m.detail.contentLineCount))
+			taskID, offset := m.logStream.nextRequest()
+			cmds = append(cmds, m.loadOutput(taskID, offset))
 		}
 
 		if m.client != nil && !m.list.refreshing {
@@ -807,4 +799,3 @@ func capitalize(s string) string {
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
 }
-

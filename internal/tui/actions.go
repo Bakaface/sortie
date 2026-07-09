@@ -35,7 +35,7 @@ func (m Model) actionCtx() action.Ctx {
 	return action.Ctx{Cfg: m.cfg, Client: m.client, Out: io.Discard}
 }
 
-func (m Model) listTasks(c *client.Client) ([]daemon.TaskInfo, error) {
+func (m Model) listTasks(c TaskService) ([]daemon.TaskInfo, error) {
 	if m.projectID > 0 {
 		return c.ListTasksFiltered(m.projectID)
 	}
@@ -108,12 +108,17 @@ func (m Model) loadOutput(taskID int64, offset int) tea.Cmd {
 	}
 }
 
-func (m Model) stopTask(taskID int64) tea.Cmd {
+// runTaskAction is the shared cmd factory for the eight near-identical
+// task-mutation verbs below (stop/retry/revert/detach/attach/continue/
+// priority/dependsOn): guard the nil-client case, run the verb through the
+// action package, and map the result to a tea.Msg exactly once. Each verb
+// method supplies only its typed action.RunX call.
+func (m Model) runTaskAction(fn func(action.Ctx) (action.Result, error)) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
-		res, err := action.RunStop(m.actionCtx(), action.StopArgs{ID: taskID})
+		res, err := fn(m.actionCtx())
 		if err != nil {
 			return errorMsg(err)
 		}
@@ -122,89 +127,45 @@ func (m Model) stopTask(taskID int64) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+func (m Model) stopTask(taskID int64) tea.Cmd {
+	return m.runTaskAction(func(ctx action.Ctx) (action.Result, error) {
+		return action.RunStop(ctx, action.StopArgs{ID: taskID})
+	})
 }
 
 // retryTask resets a task and asks the daemon to re-run it. When stepName is
 // empty, the workflow restarts from the first step. When non-empty, completed
 // work for earlier steps is preserved and the engine resumes from that step.
 func (m Model) retryTask(taskID int64, stepName string) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		res, err := action.RunRetry(m.actionCtx(), action.RetryArgs{ID: taskID, FromStep: stepName})
-		if err != nil {
-			return errorMsg(err)
-		}
-		if res.Task != nil {
-			return taskUpdatedMsg(*res.Task)
-		}
-		return nil
-	}
+	return m.runTaskAction(func(ctx action.Ctx) (action.Result, error) {
+		return action.RunRetry(ctx, action.RetryArgs{ID: taskID, FromStep: stepName})
+	})
 }
 
 func (m Model) revertTask(taskID int64) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		res, err := action.RunRevert(m.actionCtx(), action.RevertArgs{ID: taskID})
-		if err != nil {
-			return errorMsg(err)
-		}
-		if res.Task != nil {
-			return taskUpdatedMsg(*res.Task)
-		}
-		return nil
-	}
+	return m.runTaskAction(func(ctx action.Ctx) (action.Result, error) {
+		return action.RunRevert(ctx, action.RevertArgs{ID: taskID})
+	})
 }
 
 func (m Model) detachBranch(taskID int64) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		res, err := action.RunDetach(m.actionCtx(), action.DetachArgs{ID: taskID})
-		if err != nil {
-			return errorMsg(err)
-		}
-		if res.Task != nil {
-			return taskUpdatedMsg(*res.Task)
-		}
-		return nil
-	}
+	return m.runTaskAction(func(ctx action.Ctx) (action.Result, error) {
+		return action.RunDetach(ctx, action.DetachArgs{ID: taskID})
+	})
 }
 
 func (m Model) attachBranch(taskID int64) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		res, err := action.RunAttachBranch(m.actionCtx(), action.AttachBranchArgs{ID: taskID})
-		if err != nil {
-			return errorMsg(err)
-		}
-		if res.Task != nil {
-			return taskUpdatedMsg(*res.Task)
-		}
-		return nil
-	}
+	return m.runTaskAction(func(ctx action.Ctx) (action.Result, error) {
+		return action.RunAttachBranch(ctx, action.AttachBranchArgs{ID: taskID})
+	})
 }
 
 func (m Model) continueTask(taskID int64, wf, prompt string) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		res, err := action.RunContinue(m.actionCtx(), action.ContinueArgs{ID: taskID, Workflow: wf, Prompt: prompt})
-		if err != nil {
-			return errorMsg(err)
-		}
-		if res.Task != nil {
-			return taskUpdatedMsg(*res.Task)
-		}
-		return nil
-	}
+	return m.runTaskAction(func(ctx action.Ctx) (action.Result, error) {
+		return action.RunContinue(ctx, action.ContinueArgs{ID: taskID, Workflow: wf, Prompt: prompt})
+	})
 }
 
 func (m Model) finalizeTask(taskID int64) tea.Cmd {
@@ -232,36 +193,15 @@ func (m Model) deleteTask(taskID int64) tea.Cmd {
 }
 
 func (m Model) updateTaskPriority(taskID int64, priority string) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		p := priority
-		res, err := action.RunEdit(m.actionCtx(), action.EditArgs{ID: taskID, Priority: &p})
-		if err != nil {
-			return errorMsg(err)
-		}
-		if res.Task != nil {
-			return taskUpdatedMsg(*res.Task)
-		}
-		return nil
-	}
+	return m.runTaskAction(func(ctx action.Ctx) (action.Result, error) {
+		return action.RunEdit(ctx, action.EditArgs{ID: taskID, Priority: &priority})
+	})
 }
 
 func (m Model) addTaskDependency(taskID, blockedByID int64) tea.Cmd {
-	return func() tea.Msg {
-		if m.client == nil {
-			return nil
-		}
-		res, err := action.RunDependsOn(m.actionCtx(), action.DependsOnArgs{TaskID: taskID, BlockedByID: blockedByID, Direction: "add"})
-		if err != nil {
-			return errorMsg(err)
-		}
-		if res.Task != nil {
-			return taskUpdatedMsg(*res.Task)
-		}
-		return nil
-	}
+	return m.runTaskAction(func(ctx action.Ctx) (action.Result, error) {
+		return action.RunDependsOn(ctx, action.DependsOnArgs{TaskID: taskID, BlockedByID: blockedByID, Direction: "add"})
+	})
 }
 
 func (m Model) createTaskWithPrompt(title, description, branchName string, worktree bool, images []string, targetBranch, checkoutBranch string) tea.Cmd {
@@ -584,7 +524,7 @@ type branchesLoadedMsg []string
 
 func (m Model) loadLocalBranches() tea.Cmd {
 	return func() tea.Msg {
-		branches, err := gitpkg.ListLocalBranches(m.projectPath)
+		branches, err := gitpkg.NewRepo(m.projectPath).ListLocalBranches()
 		if err != nil {
 			return errorMsg(fmt.Errorf("failed to list branches: %w", err))
 		}

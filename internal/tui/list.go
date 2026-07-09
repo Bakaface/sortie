@@ -6,6 +6,10 @@ import (
 	"strings"
 
 	"github.com/Bakaface/sortie/internal/daemon"
+	// Aliased: this file uses "task" as the local parameter/variable name for
+	// daemon.TaskInfo throughout (statusText, effectiveStatusFor, renderTask,
+	// hasFailedBlocker, ...); the alias avoids that shadowing the package.
+	taskpkg "github.com/Bakaface/sortie/internal/task"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/table"
@@ -14,31 +18,31 @@ import (
 )
 
 type listView struct {
-	table           table.Model
-	tasks           []daemon.TaskInfo
-	allTasks        []daemon.TaskInfo // unfiltered tasks (used when showFinished is false)
-	width           int
-	height          int
-	showHelp        bool
-	showLineNumbers bool
-	showBranch      bool
-	showTarget      bool
-	showFinished    bool
-	globalMode      bool
-	projectName     string
-	tmuxSessions    map[int64]bool
-	branchView     bool
-	treeEntries    []treeEntry
-	matchedIndices  []int // indices of tasks matching current search
-	currentMatchIdx int   // index within matchedIndices
-	scrollOffset       int  // index of first visible task row
-	extraLines         int    // extra lines reserved below the list (search bar, command bar, etc.)
-	helpOverride       string // when non-empty, replaces the help bar (e.g. command/search input)
-	hasScrollIndicator bool // true when not all tasks fit in the visible window
-	loading            bool           // true before the first successful task load
-	refreshing         bool           // true while a background refresh is in-flight
-	spinner            spinner.Model  // loading spinner for initial load
-	cw                 colWidths      // computed column widths
+	table              table.Model
+	tasks              []daemon.TaskInfo
+	allTasks           []daemon.TaskInfo // unfiltered tasks (used when showFinished is false)
+	width              int
+	height             int
+	showHelp           bool
+	showLineNumbers    bool
+	showBranch         bool
+	showTarget         bool
+	showFinished       bool
+	globalMode         bool
+	projectName        string
+	tmuxSessions       map[int64]bool
+	branchView         bool
+	treeEntries        []treeEntry
+	matchedIndices     []int         // indices of tasks matching current search
+	currentMatchIdx    int           // index within matchedIndices
+	scrollOffset       int           // index of first visible task row
+	extraLines         int           // extra lines reserved below the list (search bar, command bar, etc.)
+	helpOverride       string        // when non-empty, replaces the help bar (e.g. command/search input)
+	hasScrollIndicator bool          // true when not all tasks fit in the visible window
+	loading            bool          // true before the first successful task load
+	refreshing         bool          // true while a background refresh is in-flight
+	spinner            spinner.Model // loading spinner for initial load
+	cw                 colWidths     // computed column widths
 }
 
 type colWidths struct {
@@ -107,7 +111,6 @@ func newListView(globalMode bool, projectName string) listView {
 		cw:              colWidths{id: 5, pri: 2, status: 18, project: 14, branch: 20, target: 14, title: 40},
 	}
 }
-
 
 // lineNumWidthForCount returns the gutter width for a given task count.
 func lineNumWidthForCount(n int) int {
@@ -293,7 +296,7 @@ func (l *listView) filterTasks(tasks []daemon.TaskInfo) []daemon.TaskInfo {
 	} else {
 		filtered = make([]daemon.TaskInfo, 0, len(tasks))
 		for _, t := range tasks {
-			if t.Status != "completed" && t.Status != "failed" {
+			if !taskpkg.Status(t.Status).IsTerminal() {
 				filtered = append(filtered, t)
 			}
 		}
@@ -301,8 +304,8 @@ func (l *listView) filterTasks(tasks []daemon.TaskInfo) []daemon.TaskInfo {
 	// Stable sort to preserve incoming order (ID desc) within each group,
 	// while floating tmux tasks to the top.
 	sort.SliceStable(filtered, func(i, j int) bool {
-		iTmux := filtered[i].Status == "tmux"
-		jTmux := filtered[j].Status == "tmux"
+		iTmux := taskpkg.Status(filtered[i].Status) == taskpkg.StatusTmux
+		jTmux := taskpkg.Status(filtered[j].Status) == taskpkg.StatusTmux
 		if iTmux != jTmux {
 			return iTmux
 		}
@@ -606,23 +609,23 @@ func (l *listView) renderHeader() string {
 func (l *listView) statusText(task daemon.TaskInfo) string {
 	effectiveStatus := effectiveStatusFor(task)
 	statusIcon := statusIconFor(effectiveStatus)
-	statusLabel := effectiveStatus
+	statusLabel := string(effectiveStatus)
 	switch effectiveStatus {
-	case "running", "awaiting-approval", "failed", "stopped":
+	case taskpkg.StatusRunning, taskpkg.StatusAwaitingApproval, taskpkg.StatusFailed:
 		if task.CurrentStep != "" {
 			statusLabel = task.CurrentStep
 		}
-	case "summarizing_step":
+	case taskpkg.StatusSummarizingStep:
 		if task.CurrentStep != "" {
 			statusLabel = "summarizing " + task.CurrentStep
 		} else {
 			statusLabel = "summarizing step"
 		}
-	case "merge-blocked":
-		statusLabel = "merge-blocked"
-	case "resolving-conflicts":
-		statusLabel = "resolving-conflicts"
-	case "pending":
+	case taskpkg.StatusMergeBlocked:
+		statusLabel = string(taskpkg.StatusMergeBlocked)
+	case taskpkg.StatusResolvingConflicts:
+		statusLabel = string(taskpkg.StatusResolvingConflicts)
+	case taskpkg.StatusPending:
 		if len(task.BlockedBy) > 0 {
 			if l.hasFailedBlocker(task) {
 				statusLabel = "pending (deadlocked)"
@@ -636,11 +639,11 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 	}
 	if task.WorktreeDetached {
 		statusLabel += " [detached]"
-	} else if task.Status == "resolving-conflicts" {
+	} else if taskpkg.Status(task.Status) == taskpkg.StatusResolvingConflicts {
 		// Don't apply the tmux postfix: conflict resolution runs in a fresh
 		// non-tmux Claude process even though a stale tmux session for the
 		// previous step may still be visible to ListSessions for a beat.
-	} else if task.Status == "tmux" || l.tmuxSessions[task.ID] {
+	} else if taskpkg.Status(task.Status) == taskpkg.StatusTmux || l.tmuxSessions[task.ID] {
 		switch task.TmuxActivity {
 		case "wip":
 			statusLabel += " [wip]"
@@ -661,18 +664,26 @@ func (l *listView) statusText(task daemon.TaskInfo) string {
 	return fmt.Sprintf("%s %s", statusIcon, statusLabel)
 }
 
-// effectiveStatusFor maps a task's stored status to the status it should
-// render as. The only mapping today is tmux → awaiting-approval/running
-// (driven by StepHuman) so the icon and label reflect what the workflow
-// engine is actually doing rather than the transport-level "tmux".
-func effectiveStatusFor(task daemon.TaskInfo) string {
-	if task.Status != "tmux" {
-		return task.Status
+// effectiveStatusFor returns the status a task should render as. The daemon
+// precomputes this in TaskInfo.EffectiveStatus (see taskToInfo) — tmux tasks
+// resolve to awaiting-approval (human steps) or running (non-human steps)
+// based on StepHuman, since "tmux" is a transport-level detail rather than a
+// real workflow-engine state. This falls back to deriving the mapping
+// locally when EffectiveStatus hasn't been populated (a TaskInfo built
+// directly, as in tests, or the CLI's offline TaskInfoFromTask fallback
+// where live StepHuman data isn't available).
+func effectiveStatusFor(task daemon.TaskInfo) taskpkg.Status {
+	if task.EffectiveStatus != "" {
+		return taskpkg.Status(task.EffectiveStatus)
+	}
+	status := taskpkg.Status(task.Status)
+	if status != taskpkg.StatusTmux {
+		return status
 	}
 	if task.StepHuman {
-		return "awaiting-approval"
+		return taskpkg.StatusAwaitingApproval
 	}
-	return "running"
+	return taskpkg.StatusRunning
 }
 
 func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) string {
@@ -752,7 +763,7 @@ func (l *listView) renderTask(task daemon.TaskInfo, index int, selected bool) st
 	// awaiting-approval palette that matches their rendered icon and label.
 	statusSt := stateStyle(effectiveStatusFor(task))
 	if strings.Contains(status, "(deadlocked)") {
-		statusSt = stateStyle("failed")
+		statusSt = stateStyle(taskpkg.StatusFailed)
 	}
 	statusCol := statusSt.Render(truncateOrPad(status, l.cw.status))
 
@@ -822,7 +833,7 @@ func (l *listView) renderHelp() string {
 func (l *listView) hasFailedBlocker(task daemon.TaskInfo) bool {
 	for _, blockerID := range task.BlockedBy {
 		for _, t := range l.tasks {
-			if t.ID == blockerID && t.Status == "failed" {
+			if t.ID == blockerID && taskpkg.Status(t.Status) == taskpkg.StatusFailed {
 				return true
 			}
 		}
@@ -851,32 +862,32 @@ func (l *listView) projectNameFor(task daemon.TaskInfo) string {
 	return name
 }
 
-// statusIconFor returns the status icon for a given task status.
-func statusIconFor(status string) string {
+// statusIconFor returns the status icon for a given task status. Statuses
+// with no case (e.g. taskpkg.StatusInit, taskpkg.StatusAwaitingChildren)
+// fall through to the default icon — a pre-existing gap, preserved as-is.
+func statusIconFor(status taskpkg.Status) string {
 	switch status {
-	case "completed":
+	case taskpkg.StatusCompleted:
 		return "✓"
-	case "running":
+	case taskpkg.StatusRunning:
 		return "●"
-	case "awaiting-approval":
+	case taskpkg.StatusAwaitingApproval:
 		return "◷"
-	case "tmux":
+	case taskpkg.StatusTmux:
 		return "▣"
-	case "pending":
+	case taskpkg.StatusPending:
 		return "○"
-	case "failed":
+	case taskpkg.StatusFailed:
 		return "✗"
-	case "finalizing":
+	case taskpkg.StatusFinalizing:
 		return "◉"
-	case "summarizing":
+	case taskpkg.StatusSummarizing:
 		return "◉"
-	case "summarizing_step":
+	case taskpkg.StatusSummarizingStep:
 		return "◉"
-	case "stopped":
-		return "■"
-	case "merge-blocked":
+	case taskpkg.StatusMergeBlocked:
 		return "⊘"
-	case "resolving-conflicts":
+	case taskpkg.StatusResolvingConflicts:
 		return "◉"
 	default:
 		return "○"

@@ -4,7 +4,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Bakaface/sortie/internal/client"
 	"github.com/Bakaface/sortie/internal/daemon"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -16,7 +15,7 @@ import (
 func TestRetryFlow_OpensStepPickerForFailedTask(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		client: &client.Client{},
+		client: &fakeTaskService{},
 		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
@@ -43,7 +42,7 @@ func TestRetryFlow_OpensStepPickerForFailedTask(t *testing.T) {
 func TestRetryFlow_TaskStepsLoaded_SingleStepSkipsPicker(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		client: &client.Client{},
+		client: &fakeTaskService{},
 		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
@@ -74,7 +73,7 @@ func TestRetryFlow_TaskStepsLoaded_MultiStepShowsPicker(t *testing.T) {
 	completedAt := time.Now()
 	m := Model{
 		keys:   newKeyMap(),
-		client: &client.Client{},
+		client: &fakeTaskService{},
 		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,
@@ -121,7 +120,7 @@ func TestRetryFlow_TaskStepsLoaded_MultiStepShowsPicker(t *testing.T) {
 func TestRetryFlow_SelectorChoiceFiresRetry(t *testing.T) {
 	m := Model{
 		keys:   newKeyMap(),
-		client: &client.Client{},
+		client: &fakeTaskService{},
 		list:   newListView(false, ""),
 		detail: newDetailView(),
 		view:   viewList,

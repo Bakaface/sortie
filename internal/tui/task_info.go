@@ -6,6 +6,7 @@ import (
 
 	"github.com/Bakaface/sortie/internal/config"
 	"github.com/Bakaface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/task"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -78,6 +79,7 @@ func (v *taskInfoView) updateContent() {
 
 func (v *taskInfoView) renderMetadata() string {
 	t := v.task
+	status := task.Status(t.Status)
 	var b strings.Builder
 
 	labelStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
@@ -94,7 +96,7 @@ func (v *taskInfoView) renderMetadata() string {
 
 	// Status
 	b.WriteString(labelStyle.Render("Status:    "))
-	b.WriteString(stateStyle(t.Status).Render(t.Status))
+	b.WriteString(stateStyle(status).Render(t.Status))
 	b.WriteString("\n")
 
 	// Priority
@@ -153,7 +155,7 @@ func (v *taskInfoView) renderMetadata() string {
 	// Error message
 	if t.ErrorMessage != "" {
 		b.WriteString(labelStyle.Render("Error:     "))
-		b.WriteString(stateStyle("failed").Render(t.ErrorMessage))
+		b.WriteString(stateStyle(task.StatusFailed).Render(t.ErrorMessage))
 		b.WriteString("\n")
 	}
 
@@ -206,20 +208,20 @@ func (v *taskInfoView) renderMetadata() string {
 		b.WriteString("\n")
 
 		for i, step := range v.workflow.Steps {
-			icon := "○"  // pending
+			icon := "○" // pending
 			style := dimStyle
 			if i < t.StepIndex {
-				icon = "✓"  // completed
-				style = stateStyle("completed")
-			} else if i == t.StepIndex && (t.Status == "running" || t.Status == "awaiting-approval" || t.Status == "summarizing_step") {
-				icon = "●"  // active
-				style = stateStyle(t.Status)
-			} else if t.Status == "completed" || t.Status == "finalizing" || t.Status == "summarizing" || t.Status == "merge-blocked" || t.Status == "resolving-conflicts" {
+				icon = "✓" // completed
+				style = stateStyle(task.StatusCompleted)
+			} else if i == t.StepIndex && (status == task.StatusRunning || status == task.StatusAwaitingApproval || status == task.StatusSummarizingStep) {
+				icon = "●" // active
+				style = stateStyle(status)
+			} else if status == task.StatusCompleted || status == task.StatusFinalizing || status == task.StatusSummarizing || status == task.StatusMergeBlocked || status == task.StatusResolvingConflicts {
 				icon = "✓"
-				style = stateStyle("completed")
-			} else if t.Status == "failed" && i == t.StepIndex {
+				style = stateStyle(task.StatusCompleted)
+			} else if status == task.StatusFailed && i == t.StepIndex {
 				icon = "✗"
-				style = stateStyle("failed")
+				style = stateStyle(task.StatusFailed)
 			}
 
 			suffix := ""

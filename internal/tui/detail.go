@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Bakaface/sortie/internal/daemon"
+	"github.com/Bakaface/sortie/internal/task"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	"github.com/charmbracelet/lipgloss"
@@ -273,9 +274,9 @@ func (d *detailView) renderHelp() string {
 
 	// Mode indicator
 	if d.followMode {
-		help.WriteString(stateStyle("running").Render("FOLLOW"))
+		help.WriteString(stateStyle(task.StatusRunning).Render("FOLLOW"))
 	} else {
-		help.WriteString(stateStyle("pending").Render("NORMAL"))
+		help.WriteString(stateStyle(task.StatusPending).Render("NORMAL"))
 	}
 	help.WriteString(helpStyle.Render(" "))
 
