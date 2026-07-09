@@ -17,7 +17,7 @@ import (
 func (s *Server) taskPollerLoop() {
 	defer s.wg.Done()
 
-	ticker := time.NewTicker(s.cfg.Daemon.PollInterval)
+	ticker := time.NewTicker(s.cfg.PollInterval)
 	defer ticker.Stop()
 
 	s.checkPendingTasks()
@@ -158,9 +158,7 @@ func (s *Server) recoverOrphanedTasks() error {
 	// restarts touch the repo.
 	cleanedRepos := make(map[string]bool)
 	for _, t := range allTasks {
-		switch t.Status {
-		case task.StatusRunning, task.StatusSummarizingStep, task.StatusFinalizing, task.StatusMergeBlocked, task.StatusResolvingConflicts:
-		default:
+		if !t.Status.MayHaveDirtyRepoState() {
 			continue
 		}
 		repoRoot := s.getProjectRepoRoot(t)
@@ -168,9 +166,10 @@ func (s *Server) recoverOrphanedTasks() error {
 			continue
 		}
 		cleanedRepos[repoRoot] = true
-		if dirty, err := gitpkg.HasChanges(repoRoot); err == nil && dirty {
+		repo := gitpkg.NewRepo(repoRoot)
+		if dirty, err := repo.HasChanges(); err == nil && dirty {
 			log.Printf("Cleaning up dirty repo state at %s from previous run", repoRoot)
-			if err := gitpkg.CleanRepoState(repoRoot); err != nil {
+			if err := repo.CleanRepoState(); err != nil {
 				log.Printf("Warning: failed to clean repo state at %s: %v", repoRoot, err)
 			}
 		}

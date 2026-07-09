@@ -259,12 +259,10 @@ func (s *Server) advanceTmuxTask(t *task.Task) (tmuxAdvanceOutcome, error) {
 		log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 	}
 
-	// Determine whether the workflow has more steps to run.
-	// The engine increments t.StepIndex to i+1 before pausing at the tmux gate,
-	// so t.StepIndex already points at the next step. If t.StepIndex < len(steps)
-	// there is more work to do; advance to the next step instead of finalizing.
+	// Determine whether the workflow has more steps to run after the one the
+	// task is paused on. See workflow.HasMoreSteps for the cursor invariant.
 	wf := pc.cfg.GetWorkflow(t.Workflow)
-	hasMoreSteps := wf != nil && t.StepIndex < len(wf.Steps)
+	hasMoreSteps := workflow.HasMoreSteps(t, wf)
 
 	if hasMoreSteps {
 		// Advance to the next step: resume the engine. ResumeAfterApproval will
@@ -297,20 +295,12 @@ func (s *Server) advanceTmuxTask(t *task.Task) (tmuxAdvanceOutcome, error) {
 	// Last step: run full finalization (on_complete merge + summarizer + cleanup).
 
 	// Fast-track: if no meaningful changes were made, skip full finalization
-	// and go straight to completed, cleaning up worktree and branch.
-	if t.WorktreePath != "" && t.Worktree {
-		hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
-		if err != nil {
-			log.Printf("%sWarning: failed to check for meaningful changes for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-		} else if !hasChanges {
-			log.Printf("%sTask #%d: no meaningful changes detected, fast-tracking to completed", s.projectLogPrefix(t.ProjectID), t.ID)
-			s.cleanupWorktreeAndBranch(pc, t)
-			if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
-				log.Printf("%sError: failed to mark task #%d as completed: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-			}
-			s.broadcastTaskUpdate(t.ID)
-			return tmuxAdvanceOutcome{message: fmt.Sprintf("task #%d fast-tracked to completed (no changes)", t.ID)}, nil
-		}
+	// and go straight to completed, cleaning up worktree and branch. See
+	// maybeFastTrackCompletion (broadcast.go) for the shared decision + side
+	// effects — this is the tmux-advance twin of finalizeCompletedTask's use
+	// of the same helper.
+	if s.maybeFastTrackCompletion(pc, t) {
+		return tmuxAdvanceOutcome{message: fmt.Sprintf("task #%d fast-tracked to completed (no changes)", t.ID)}, nil
 	}
 
 	// Set finalizing status while we run summarizer + on_complete
@@ -356,50 +346,25 @@ func (s *Server) runFinalization(t *task.Task, pc *projectContext) {
 	log.Printf("%sTask #%d finalized from tmux continue session", s.projectLogPrefix(t.ProjectID), t.ID)
 }
 
-// ensureWorktree ensures a task's worktree exists, creating it if needed.
-// It resolves the branch name, creates the worktree, updates the DB, and runs the setup command.
-// Returns an error if worktree creation fails.
+// ensureWorktree ensures a task's worktree exists, creating it if needed —
+// e.g. because it was cleaned up (cleanupWorktreeAndBranch) since it was last
+// recorded and the task is now being resumed. The create/checkout + branch
+// resolution + DB persistence sequence lives once in
+// workflow.Engine.EnsureWorktree (shared with Engine.RunTask's first-run
+// provisioning); this wrapper only adds the daemon-specific setup-command
+// run, which — unlike RunTask — fires ONLY when EnsureWorktree actually
+// (re)created the worktree (checkDisk=true below), not on every call, and
+// deliberately does not run worktree-sync-paths or resolve a workflow-level
+// setup-command override (nil workflow): both are pre-existing daemon
+// behaviors preserved as-is by this refactor, not something this phase
+// changed. Returns an error if worktree creation fails.
 func (s *Server) ensureWorktree(t *task.Task, pc *projectContext) error {
-	if !t.Worktree {
+	_, provisioned, err := pc.engine.EnsureWorktree(t, true)
+	if err != nil {
+		return fmt.Errorf("failed to ensure worktree for task #%d: %v", t.ID, err)
+	}
+	if !provisioned {
 		return nil
-	}
-	if t.WorktreePath != "" && dirExists(t.WorktreePath) {
-		return nil
-	}
-
-	if t.CheckoutBranch != "" {
-		// Checkout existing branch mode
-		if t.Branch == "" {
-			t.Branch = t.CheckoutBranch
-			if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
-				log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-			}
-		}
-		worktree, err := gitpkg.CheckoutWorktree(pc.repoRoot, t.ID, t.CheckoutBranch)
-		if err != nil {
-			return fmt.Errorf("failed to checkout worktree for task #%d: %v", t.ID, err)
-		}
-		t.WorktreePath = worktree.Path
-	} else {
-		if t.Branch == "" {
-			t.Branch = pc.cfg.ResolveBranchForTask(t.ID, t.Title, t.Slug, t.BranchName)
-			if err := s.database.UpdateTaskBranch(t.ID, t.Branch); err != nil {
-				log.Printf("%sWarning: failed to persist branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-			}
-		}
-
-		baseBranch := pc.cfg.Git.BaseBranch
-		if t.TargetBranch != "" {
-			baseBranch = t.TargetBranch
-		}
-		worktree, err := gitpkg.CreateWorktree(pc.repoRoot, t.ID, baseBranch, t.Branch)
-		if err != nil {
-			return fmt.Errorf("failed to create worktree for task #%d: %v", t.ID, err)
-		}
-		t.WorktreePath = worktree.Path
-	}
-	if err := s.database.UpdateTaskWorktreePath(t.ID, t.WorktreePath); err != nil {
-		log.Printf("%sWarning: failed to update worktree path for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 	}
 	log.Printf("%sRecreated worktree for task #%d at %s", s.projectLogPrefix(t.ProjectID), t.ID, t.WorktreePath)
 
@@ -424,14 +389,14 @@ func (s *Server) ensureWorktree(t *task.Task, pc *projectContext) error {
 func (s *Server) cleanupWorktreeAndBranch(pc *projectContext, t *task.Task) {
 	pc.engine.Coord().Lock().WithLock(func() {
 		if t.WorktreePath != "" {
-			if err := gitpkg.RemoveWorktree(pc.repoRoot, t.WorktreePath); err != nil {
+			if err := pc.repo.RemoveWorktree(t.WorktreePath); err != nil {
 				log.Printf("%sWarning: failed to remove worktree for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			}
-			gitpkg.CleanupWorktrees(pc.repoRoot)
+			pc.repo.CleanupWorktrees()
 		}
 		// Only delete branches that sortie created; preserve user-provided branches
 		if t.Branch != "" && t.CheckoutBranch == "" {
-			if err := gitpkg.ForceDeleteBranch(pc.repoRoot, t.Branch); err != nil {
+			if err := pc.repo.ForceDeleteBranch(t.Branch); err != nil {
 				log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			}
 		}
@@ -617,8 +582,9 @@ func (s *Server) handleAttachBranch(conn net.Conn, req AttachBranchRequest) {
 	// Auto-checkout the default branch on root repo before reattaching,
 	// in case root is currently on the task's branch (which would prevent reattach)
 	if repoRoot := s.getProjectRepoRoot(t); repoRoot != "" {
-		defaultBranch := gitpkg.GetDefaultBranch(repoRoot)
-		if err := gitpkg.CheckoutBranch(repoRoot, defaultBranch); err != nil {
+		repo := gitpkg.NewRepo(repoRoot)
+		defaultBranch := repo.GetDefaultBranch()
+		if err := repo.CheckoutBranch(defaultBranch); err != nil {
 			log.Printf("%sWarning: failed to checkout %s on root before reattach: %v", s.projectLogPrefix(t.ProjectID), defaultBranch, err)
 		}
 	}

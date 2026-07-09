@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/Bakaface/sortie/internal/agent"
-	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
 	"github.com/Bakaface/sortie/internal/tmux"
+	"github.com/Bakaface/sortie/internal/workflow"
 )
 
 // broadcastWriteTimeout bounds how long the daemon will wait when pushing a
@@ -76,12 +76,40 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		}
 
 		s.checkProjectTasksDone(a.Task.ProjectID)
-
-	case agent.StateWaitingForInput:
-		if err := s.notifier.AgentWaitingForInput(a.ID, taskTitle); err != nil {
-			log.Printf("%sWarning: notification failed: %v", prefix, err)
-		}
 	}
+}
+
+// maybeFastTrackCompletion is the daemon-side counterpart to
+// workflow.Engine.CheckFastTrackCompletion: it owns the side effects (cleanup,
+// status, broadcast) for the no-meaningful-changes fast-track path so
+// finalizeCompletedTask (agent-completion) and advanceTmuxTask (tmux-advance
+// / Finalize-request) don't each duplicate them. The decision itself —
+// whether t's worktree has no meaningful changes — is made exactly once in
+// CheckFastTrackCompletion; this helper only reacts to it.
+//
+// Returns true when the task was fast-tracked to StatusCompleted (the caller
+// must skip full finalization and perform its own post-completion side
+// effects — notifications, checkProjectTasksDone, or building its own
+// response message). Returns false when full finalization should proceed,
+// including when the meaningful-changes check itself failed (logged here;
+// callers fall through to the safe default of full finalization).
+func (s *Server) maybeFastTrackCompletion(pc *projectContext, t *task.Task) bool {
+	prefix := s.projectLogPrefix(t.ProjectID)
+	fastTrack, err := pc.engine.CheckFastTrackCompletion(t, noiseFiles)
+	if err != nil {
+		log.Printf("%sWarning: failed to check for meaningful changes for task #%d: %v", prefix, t.ID, err)
+		return false
+	}
+	if !fastTrack {
+		return false
+	}
+	log.Printf("%sTask #%d: no meaningful changes detected, fast-tracking to completed", prefix, t.ID)
+	s.cleanupWorktreeAndBranch(pc, t)
+	if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
+		log.Printf("%sError: failed to mark task #%d as completed: %v", prefix, t.ID, err)
+	}
+	s.broadcastTaskUpdate(t.ID)
+	return true
 }
 
 // finalizeCompletedTask handles merge, summarization, and completion for a
@@ -104,23 +132,12 @@ func (s *Server) finalizeCompletedTask(t *task.Task, agentID string, taskTitle s
 	}
 
 	// Fast-track: if no meaningful changes, skip finalization
-	if t.WorktreePath != "" && t.Worktree {
-		hasChanges, err := gitpkg.HasMeaningfulChanges(t.WorktreePath, noiseFiles)
-		if err != nil {
-			log.Printf("%sWarning: failed to check for meaningful changes for task #%d: %v", prefix, t.ID, err)
-		} else if !hasChanges {
-			log.Printf("%sTask #%d: no meaningful changes detected, fast-tracking to completed", prefix, t.ID)
-			s.cleanupWorktreeAndBranch(pc, t)
-			if err := s.database.UpdateTaskStatus(t.ID, task.StatusCompleted); err != nil {
-				log.Printf("%sError: failed to mark task #%d as completed: %v", prefix, t.ID, err)
-			}
-			s.broadcastTaskUpdate(t.ID)
-			if err := s.notifier.AgentCompleted(agentID, taskTitle); err != nil {
-				log.Printf("%sWarning: notification failed: %v", prefix, err)
-			}
-			s.checkProjectTasksDone(t.ProjectID)
-			return
+	if s.maybeFastTrackCompletion(pc, t) {
+		if err := s.notifier.AgentCompleted(agentID, taskTitle); err != nil {
+			log.Printf("%sWarning: notification failed: %v", prefix, err)
 		}
+		s.checkProjectTasksDone(t.ProjectID)
+		return
 	}
 
 	// Set finalizing status
@@ -145,8 +162,7 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 		return
 	}
 	for _, t := range tasks {
-		switch t.Status {
-		case task.StatusPending, task.StatusRunning, task.StatusAwaitingApproval, task.StatusAwaitingChildren, task.StatusTmux, task.StatusFinalizing, task.StatusSummarizing, task.StatusSummarizingStep, task.StatusMergeBlocked, task.StatusResolvingConflicts, task.StatusInit:
+		if !t.Status.IsTerminal() {
 			return
 		}
 	}
@@ -156,7 +172,17 @@ func (s *Server) checkProjectTasksDone(projectID int64) {
 	}
 }
 
+// broadcastToSubscribers pushes msgType to every subscribed connection.
+// msgType must be classified as a broadcast by IsBroadcast — that function is
+// the single source of truth clients rely on to route this message onto their
+// subscription channel rather than their RPC response channel. A mismatch
+// here would silently desync every client's routing logic, so it is asserted
+// rather than left implicit.
 func (s *Server) broadcastToSubscribers(msgType MessageType, payload any) {
+	if !IsBroadcast(msgType) {
+		log.Printf("daemon: BUG: broadcastToSubscribers called with non-broadcast type %s", msgType)
+	}
+
 	s.mu.RLock()
 	subs := make([]net.Conn, 0, len(s.subscribers))
 	for conn := range s.subscribers {
@@ -272,8 +298,19 @@ func agentToInfo(a *agent.Agent) AgentInfo {
 	}
 }
 
-func (s *Server) taskToInfo(t *task.Task) TaskInfo {
-	info := TaskInfo{
+// TaskInfoFromTask converts a *task.Task into the wire-format TaskInfo using
+// only fields available directly on the DB row. It is the single source of
+// truth for that pure mapping, shared by the daemon (taskToInfo, below) and
+// the CLI's offline fallback (cmd/sortie/tasks.go) when the daemon is
+// unreachable.
+//
+// It deliberately does NOT populate fields that require extra state beyond
+// the task row itself — ProjectName/ProjectPath (DB lookup), WaitsOn (DB
+// lookup), TmuxActivity/StepHuman (live in-memory daemon state), and
+// LatestChat (DB lookup). Callers with access to that extra state enrich the
+// returned TaskInfo themselves; see taskToInfo for the daemon's enrichment.
+func TaskInfoFromTask(t *task.Task) TaskInfo {
+	return TaskInfo{
 		ID:               t.ID,
 		ProjectID:        t.ProjectID,
 		Title:            t.Title,
@@ -281,6 +318,7 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		Slug:             t.Slug,
 		Workflow:         t.Workflow,
 		Status:           string(t.Status),
+		EffectiveStatus:  string(t.Status),
 		Priority:         string(t.Priority),
 		StepIndex:        t.StepIndex,
 		CurrentStep:      t.CurrentStep,
@@ -301,6 +339,25 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 		StartedAt:        t.StartedAt,
 		CompletedAt:      t.CompletedAt,
 	}
+}
+
+// effectiveStatus maps a task's stored status to the status clients should
+// render. The only mapping is tmux → awaiting-approval/running, driven by
+// stepHuman, so the icon/label a client shows reflects what the workflow
+// engine is actually doing rather than the transport-level "tmux" status.
+// All other statuses pass through unchanged.
+func effectiveStatus(status task.Status, stepHuman bool) task.Status {
+	if status != task.StatusTmux {
+		return status
+	}
+	if stepHuman {
+		return task.StatusAwaitingApproval
+	}
+	return task.StatusRunning
+}
+
+func (s *Server) taskToInfo(t *task.Task) TaskInfo {
+	info := TaskInfoFromTask(t)
 
 	// Populate waits-on for tasks suspended on spawned children so the TUI
 	// (and other clients) can surface "task #N awaiting [#A, #B]".
@@ -328,12 +385,10 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 			}
 			if t.Status == task.StatusTmux && t.Workflow != "" {
 				if wf := pc.cfg.GetWorkflow(t.Workflow); wf != nil {
-					// The engine clears CurrentStep and bumps StepIndex past
-					// the tmux step before pausing, so the step that owns the
-					// tmux session is at StepIndex-1.
-					idx := t.StepIndex - 1
-					if idx >= 0 && idx < len(wf.Steps) {
-						step := wf.Steps[idx]
+					// The engine clears CurrentStep before pausing, so the
+					// step that owns the tmux session is the paused step;
+					// see workflow.PausedStep for the cursor invariant.
+					if step, ok := workflow.PausedStep(t, wf); ok {
 						info.StepHuman = step.Human
 						if info.CurrentStep == "" {
 							info.CurrentStep = step.Name
@@ -350,6 +405,11 @@ func (s *Server) taskToInfo(t *task.Task) TaskInfo {
 	if t.Status == task.StatusTmux && t.Workflow == "" {
 		info.StepHuman = true
 	}
+
+	// EffectiveStatus must be computed after StepHuman is fully resolved
+	// (both blocks above may set it) so the tmux → awaiting-approval/running
+	// mapping reflects the final value.
+	info.EffectiveStatus = string(effectiveStatus(t.Status, info.StepHuman))
 
 	s.mu.RLock()
 	if activity, ok := s.tmuxActivity[t.ID]; ok {

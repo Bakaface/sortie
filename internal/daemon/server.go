@@ -40,14 +40,15 @@ type projectContext struct {
 	cfg           *config.Config
 	engine        *workflow.Engine
 	repoRoot      string
-	configModTime time.Time // zero = no .sortie.yml at load time
+	repo          *gitpkg.Repo // git operations scoped to repoRoot / task worktrees
+	configModTime time.Time    // zero = no .sortie.yml at load time
 }
 
 type Server struct {
 	cfg      *config.Config
 	listener net.Listener
 	manager  *agent.Manager
-	database *db.DB
+	database taskStore
 	notifier *notify.Notifier
 
 	projectsMu sync.RWMutex
@@ -87,13 +88,13 @@ type tmuxAutoEntry struct {
 	advancing bool
 }
 
-func NewServer(cfg *config.Config, database *db.DB) *Server {
+func NewServer(cfg *config.Config, database taskStore) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	notifier := notify.New(&cfg.Notifications)
 	return &Server{
 		cfg:           cfg,
 		database:      database,
-		manager:       agent.NewManager(cfg.Agents.MaxConcurrent, cfg.Agents.OutputBufferLines),
+		manager:       agent.NewManager(cfg.MaxWorkers, config.DefaultOutputBufferLines),
 		notifier:      notifier,
 		projects:      make(map[int64]*projectContext),
 		mergeLocks:    merge.NewLocks(),
@@ -178,6 +179,7 @@ func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 		cfg:           projCfg,
 		engine:        engine,
 		repoRoot:      proj.Path,
+		repo:          gitpkg.NewRepo(proj.Path),
 		configModTime: modTime,
 	}
 
@@ -225,11 +227,11 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to write pid file: %w", err)
 	}
 
-	if err := os.RemoveAll(s.cfg.Daemon.SocketPath); err != nil {
+	if err := os.RemoveAll(s.cfg.SocketPath); err != nil {
 		return fmt.Errorf("failed to remove old socket: %w", err)
 	}
 
-	listener, err := net.Listen("unix", s.cfg.Daemon.SocketPath)
+	listener, err := net.Listen("unix", s.cfg.SocketPath)
 	if err != nil {
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}
@@ -259,7 +261,7 @@ func (s *Server) Start() error {
 	s.wg.Add(1)
 	go s.tmuxMonitorLoop()
 
-	log.Printf("Daemon started, listening on %s (pid=%d, ppid=%d)", s.cfg.Daemon.SocketPath, os.Getpid(), os.Getppid())
+	log.Printf("Daemon started, listening on %s (pid=%d, ppid=%d)", s.cfg.SocketPath, os.Getpid(), os.Getppid())
 
 	s.wg.Wait()
 
@@ -586,7 +588,7 @@ func (s *Server) shutdown() {
 			}
 			// Clean up any staged changes left by interrupted merges
 			for repoRoot := range dirtyRepoRoots {
-				if err := gitpkg.CleanRepoState(repoRoot); err != nil {
+				if err := gitpkg.NewRepo(repoRoot).CleanRepoState(); err != nil {
 					log.Printf("Warning: failed to clean repo state for %s on shutdown: %v", repoRoot, err)
 				} else {
 					log.Printf("Cleaned repo state for %s on shutdown", repoRoot)
@@ -619,14 +621,14 @@ func (s *Server) shutdown() {
 		s.database.Close()
 	}
 
-	os.Remove(s.cfg.Daemon.PidFile)
-	os.Remove(s.cfg.Daemon.SocketPath)
+	os.Remove(s.cfg.PidFile)
+	os.Remove(s.cfg.SocketPath)
 
 	log.Println("Daemon stopped")
 }
 
 func (s *Server) writePidFile() error {
-	return os.WriteFile(s.cfg.Daemon.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
+	return os.WriteFile(s.cfg.PidFile, []byte(strconv.Itoa(os.Getpid())), 0644)
 }
 
 func Start(cfg *config.Config) error {
@@ -641,7 +643,7 @@ func Start(cfg *config.Config) error {
 }
 
 func Stop(cfg *config.Config) error {
-	conn, err := net.Dial("unix", cfg.Daemon.SocketPath)
+	conn, err := net.Dial("unix", cfg.SocketPath)
 	if err != nil {
 		return fmt.Errorf("daemon not running or cannot connect: %w", err)
 	}
@@ -655,7 +657,7 @@ func Stop(cfg *config.Config) error {
 }
 
 func Status(cfg *config.Config) (bool, int, error) {
-	data, err := os.ReadFile(cfg.Daemon.PidFile)
+	data, err := os.ReadFile(cfg.PidFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, 0, nil
@@ -675,7 +677,7 @@ func Status(cfg *config.Config) (bool, int, error) {
 
 	err = process.Signal(syscall.Signal(0))
 	if err != nil {
-		os.Remove(cfg.Daemon.PidFile)
+		os.Remove(cfg.PidFile)
 		return false, 0, nil
 	}
 

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/Bakaface/sortie/internal/config"
-	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
 	"github.com/Bakaface/sortie/internal/tmux"
 	"github.com/Bakaface/sortie/internal/workflow"
@@ -479,7 +478,7 @@ func (s *Server) handleRevertTask(conn net.Conn, req RevertTaskRequest) {
 	// revert mutates the base repo so it must not race with MergeBranch.
 	var revertErr error
 	pc.engine.Coord().Lock().WithLock(func() {
-		revertErr = gitpkg.RevertCommits(pc.repoRoot, commits)
+		revertErr = pc.repo.RevertCommits(commits)
 	})
 	if revertErr != nil {
 		s.sendError(conn, fmt.Sprintf("failed to revert commits: %v", revertErr))
@@ -609,9 +608,12 @@ func (s *Server) handleUpdateStepContext(conn net.Conn, req UpdateStepContextReq
 // handleUpdateActiveStepContext writes context for the task's currently-active
 // (running) step. Used by the MCP update_step_context tool so an agent can
 // publish a canonical artifact mid-session instead of waiting for the post-
-// session summarizer. The handler enforces the safety invariants documented
-// on UpdateActiveStepContextRequest: the step must be the task's current step
-// AND its task_steps row must still be 'running'.
+// session summarizer. The handler enforces the safety invariant that the step
+// must be the task's current step; which task_steps row that write actually
+// targets (running vs. paused-tmux) is decided entirely inside the Engine —
+// see workflow.Engine.ResolveActiveStep / PublishManualStepContext in
+// internal/workflow/stepcontext.go. The daemon carries the resulting
+// pausedTmux flag through unchanged; it never branches on row status itself.
 func (s *Server) handleUpdateActiveStepContext(conn net.Conn, req UpdateActiveStepContextRequest) {
 	if strings.TrimSpace(req.StepName) == "" {
 		s.sendError(conn, "step_name is required")
@@ -637,7 +639,13 @@ func (s *Server) handleUpdateActiveStepContext(conn net.Conn, req UpdateActiveSt
 		return
 	}
 
-	activeStep, pausedTmux := s.resolveActiveStep(t)
+	pc, err := s.getProjectContext(t.ProjectID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to get project context for task #%d: %v", req.TaskID, err))
+		return
+	}
+
+	activeStep, pausedTmux := pc.engine.ResolveActiveStep(t)
 	if activeStep == "" {
 		s.sendError(conn, fmt.Sprintf("task #%d has no active step", req.TaskID))
 		return
@@ -647,16 +655,7 @@ func (s *Server) handleUpdateActiveStepContext(conn net.Conn, req UpdateActiveSt
 		return
 	}
 
-	// A running agent step's task_steps row is 'running'; a tmux/human step
-	// paused at its approval gate is 'completed' (the engine marks it so and
-	// clears current_step the moment it spawns the session). Pick the writer
-	// that matches the resolved step's row status.
-	var rows int64
-	if pausedTmux {
-		rows, err = s.database.UpdatePausedTmuxStepContext(req.TaskID, req.StepName, req.Context, mode == "append")
-	} else {
-		rows, err = s.database.UpdateRunningTaskStepContext(req.TaskID, req.StepName, req.Context, mode == "append")
-	}
+	rows, err := pc.engine.PublishManualStepContext(req.TaskID, req.StepName, req.Context, mode == "append", pausedTmux)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to update step context: %v", err))
 		return
@@ -670,41 +669,6 @@ func (s *Server) handleUpdateActiveStepContext(conn net.Conn, req UpdateActiveSt
 
 	s.broadcastTaskUpdate(req.TaskID)
 	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("step %q context updated (%s)", req.StepName, mode)})
-}
-
-// resolveActiveStep returns the name of the step a task is currently "in" for
-// the purposes of update_step_context, and whether that step is a tmux/human
-// step paused at its approval gate (whose task_steps row is 'completed' rather
-// than 'running').
-//
-// For a running agent step the active step is tasks.current_step. For a tmux/
-// human step the engine has already marked the step's row 'completed' and
-// cleared current_step the instant it spawned the session — so the task can
-// pause — even though the agent inside that session is still live and may want
-// to fold its chat into the step context. In that case the active step is the
-// one that owns the session, at StepIndex-1, matching how taskToInfo
-// reconstructs CurrentStep for paused tmux tasks. Returns ("", false) when no
-// step can be resolved.
-func (s *Server) resolveActiveStep(t *task.Task) (stepName string, pausedTmux bool) {
-	if t.CurrentStep != "" {
-		return t.CurrentStep, false
-	}
-	if t.Status != task.StatusTmux || t.Workflow == "" {
-		return "", false
-	}
-	pc, err := s.getProjectContext(t.ProjectID)
-	if err != nil {
-		return "", false
-	}
-	wf := pc.cfg.GetWorkflow(t.Workflow)
-	if wf == nil {
-		return "", false
-	}
-	idx := t.StepIndex - 1
-	if idx < 0 || idx >= len(wf.Steps) {
-		return "", false
-	}
-	return wf.Steps[idx].Name, true
 }
 
 func (s *Server) refineTaskTitle(taskID, projectID int64, branchName string, worktree bool, checkoutBranch string, description string, initialTitle string, manualTitle string) {

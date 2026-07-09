@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 
-	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
 	"github.com/Bakaface/sortie/internal/workflow"
 )
@@ -74,7 +73,7 @@ func (s *Server) cleanupTask(t *task.Task) (bool, error) {
 	} else if t.Worktree && t.Branch != "" && t.CheckoutBranch == "" {
 		// No worktree path but a sortie-created branch remains — remove it.
 		pc.engine.Coord().Lock().WithLock(func() {
-			if err := gitpkg.ForceDeleteBranch(pc.repoRoot, t.Branch); err != nil {
+			if err := pc.repo.ForceDeleteBranch(t.Branch); err != nil {
 				log.Printf("%sWarning: failed to delete branch for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 			} else {
 				cleaned = true

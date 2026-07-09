@@ -139,14 +139,13 @@ func (s *Server) maybeAutoAdvance(t *task.Task) {
 		return
 	}
 
-	// Figure out which step just finished. The engine bumps StepIndex to i+1
-	// before pausing at the tmux gate, so the just-finished step is at
-	// StepIndex-1.
+	// Figure out which step just finished: the one the task is paused on.
+	// See workflow.PausedStep for the cursor invariant.
 	wf := pc.cfg.GetWorkflow(t.Workflow)
-	if wf == nil || t.StepIndex <= 0 || t.StepIndex > len(wf.Steps) {
+	justFinished, ok := workflow.PausedStep(t, wf)
+	if !ok {
 		return
 	}
-	justFinished := wf.Steps[t.StepIndex-1]
 
 	// Capture the authoritative session id from the Stop-hook sentinel payload
 	// before anything consumes it. The cwd-matched async finder that records the
@@ -155,7 +154,7 @@ func (s *Server) maybeAutoAdvance(t *task.Task) {
 	// the agent that actually ran THIS step, so its session_id is correct. Done
 	// for human steps too — they summarize their chat on user finalize — and is
 	// idempotent across the multiple turn-end sentinels a single session emits.
-	s.captureSentinelSession(t, justFinished.Name)
+	s.captureSentinelSession(pc, t, justFinished.Name)
 
 	// Steps that the user explicitly wants to approve are out of scope for
 	// auto-advance. Consume any stray sentinel so it doesn't trigger advance
@@ -207,24 +206,11 @@ func (s *Server) maybeAutoAdvance(t *task.Task) {
 // just-finished tmux step from its Stop-hook sentinel payload, if one is
 // present. This corrects the session captured at launch by the cwd-matched
 // async finder, which can record an unrelated session when several agents share
-// a working directory. No-op when there is no sentinel, it carries no session
-// id, or the recorded session already matches.
-func (s *Server) captureSentinelSession(t *task.Task, stepName string) {
-	sentinel, ok := workflow.LatestStepSentinel(t.WorktreePath, stepName)
-	if !ok || sentinel.SessionID == "" {
-		return
-	}
-	existing, err := s.database.GetChatByStep(t.ID, stepName)
-	if err == nil && existing != nil && existing.SessionID == sentinel.SessionID {
-		return // already correct
-	}
-	if err := s.database.SetChatSessionID(t.ID, stepName, sentinel.SessionID); err != nil {
-		log.Printf("%sWarning: failed to record sentinel session for task #%d step %q: %v",
-			s.projectLogPrefix(t.ProjectID), t.ID, stepName, err)
-		return
-	}
-	if existing != nil && existing.SessionID != "" && existing.SessionID != sentinel.SessionID {
-		log.Printf("%sTask #%d step %q: corrected chat session %q -> %q from Stop-hook sentinel",
-			s.projectLogPrefix(t.ProjectID), t.ID, stepName, existing.SessionID, sentinel.SessionID)
-	}
+// a working directory. Delegates to workflow.Engine.RecordTmuxStepSentinelSession
+// (see internal/workflow/stepcontext.go) — the session id gates which chat
+// transcript summarize_chat capture reads later, so this is part of the
+// step-context lifecycle the Engine owns even though it never touches
+// task_steps.context directly.
+func (s *Server) captureSentinelSession(pc *projectContext, t *task.Task, stepName string) {
+	pc.engine.RecordTmuxStepSentinelSession(t, stepName)
 }

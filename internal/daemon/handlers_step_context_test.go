@@ -9,6 +9,7 @@ import (
 
 	"github.com/Bakaface/sortie/internal/config"
 	"github.com/Bakaface/sortie/internal/task"
+	"github.com/Bakaface/sortie/internal/workflow"
 )
 
 // readOneMessage reads a single line-framed Message off the given conn and
@@ -65,20 +66,26 @@ func createRunningStep(t *testing.T, s *Server, projID int64, stepName string) *
 // createPausedTmuxStep builds the exact on-disk state of a tmux/human step
 // paused at its approval gate: status 'tmux', current_step cleared, StepIndex
 // bumped one past the step, and the step's task_steps row 'completed' — plus a
-// cached project workflow so the handler can resolve the step at StepIndex-1.
-// stepName is placed at workflow index 1 (StepIndex 2 -> StepIndex-1 = 1).
+// cached project workflow (and a real Engine bound to it, mirroring
+// getProjectContext's construction — the handler now resolves and writes the
+// paused step entirely through workflow.Engine) so the handler can resolve the
+// paused step (see workflow.PausedStep). stepName is placed at workflow index
+// 1 (StepIndex 2 resolves to the paused step at index 1).
 func createPausedTmuxStep(t *testing.T, s *Server, projID int64, stepName string) *task.Task {
 	t.Helper()
+	cfg := &config.Config{Workflows: []config.WorkflowConfig{{
+		Name: "wf",
+		Steps: []config.StepConfig{
+			{Name: "initial_planning"},
+			{Name: stepName, Human: true},
+		},
+	}}}
+	repoRoot := "/tmp/sortie-test"
 	s.projectsMu.Lock()
 	s.projects[projID] = &projectContext{
-		cfg: &config.Config{Workflows: []config.WorkflowConfig{{
-			Name: "wf",
-			Steps: []config.StepConfig{
-				{Name: "initial_planning"},
-				{Name: stepName, Human: true},
-			},
-		}}},
-		repoRoot: "/tmp/sortie-test",
+		cfg:      cfg,
+		engine:   workflow.NewEngine(cfg, s.database, s.notifier, repoRoot),
+		repoRoot: repoRoot,
 	}
 	s.projectsMu.Unlock()
 
@@ -141,7 +148,8 @@ func TestHandleUpdateActiveStepContext_TmuxPausedStep(t *testing.T) {
 
 // TestHandleUpdateActiveStepContext_TmuxRejectsNonActiveStep verifies the
 // safety boundary still holds for paused tmux tasks: only the step that owns
-// the live session (StepIndex-1) is writable, not some other completed step.
+// the live session (the paused step) is writable, not some other completed
+// step.
 func TestHandleUpdateActiveStepContext_TmuxRejectsNonActiveStep(t *testing.T) {
 	s, projID := setupServerWithProject(t)
 	tk := createPausedTmuxStep(t, s, projID, "grilling")

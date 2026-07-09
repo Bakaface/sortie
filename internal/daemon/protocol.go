@@ -52,6 +52,21 @@ const (
 	MsgWaitForTasks            MessageType = "wait_for_tasks"
 )
 
+// IsBroadcast reports whether t is a message type the daemon pushes to
+// subscribers unprompted (as opposed to a response to a client request).
+// This is the single source of truth for the protocol's broadcast/response
+// classification — both the daemon's broadcaster (broadcastToSubscribers)
+// and client-side readers (which must route broadcasts to a separate
+// channel from RPC responses) rely on it.
+func IsBroadcast(t MessageType) bool {
+	switch t {
+	case MsgAgentUpdate, MsgTaskUpdate, MsgTmuxActivity:
+		return true
+	default:
+		return false
+	}
+}
+
 type Message struct {
 	Type    MessageType     `json:"type"`
 	Payload json.RawMessage `json:"payload,omitempty"`
@@ -393,15 +408,21 @@ type ChatInfo struct {
 }
 
 type TaskInfo struct {
-	ID               int64    `json:"id"`
-	ProjectID        int64    `json:"project_id"`
-	ProjectName      string   `json:"project_name,omitempty"`
-	ProjectPath      string   `json:"project_path,omitempty"`
-	Title            string   `json:"title"`
-	Description      string   `json:"description"`
-	Slug             string   `json:"slug"`
-	Workflow         string   `json:"workflow,omitempty"`
-	Status           string   `json:"status"`
+	ID          int64  `json:"id"`
+	ProjectID   int64  `json:"project_id"`
+	ProjectName string `json:"project_name,omitempty"`
+	ProjectPath string `json:"project_path,omitempty"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Slug        string `json:"slug"`
+	Workflow    string `json:"workflow,omitempty"`
+	Status      string `json:"status"`
+	// EffectiveStatus is the status clients should render, mapping the
+	// transport-level "tmux" status to what the workflow engine is actually
+	// doing (awaiting-approval / running) based on StepHuman — see taskToInfo.
+	// TaskInfoFromTask (no live daemon state available) sets it to a plain
+	// copy of Status, matching what a tmux-unaware caller would show.
+	EffectiveStatus  string   `json:"effective_status"`
 	Priority         string   `json:"priority"`
 	StepIndex        int      `json:"step_index"`
 	CurrentStep      string   `json:"current_step"`

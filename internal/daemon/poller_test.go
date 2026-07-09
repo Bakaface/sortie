@@ -66,7 +66,7 @@ func TestRecoverOrphanedTasks_FinalizingRestartsAgent(t *testing.T) {
 	if out, err := stage.CombinedOutput(); err != nil {
 		t.Fatalf("git add: %v\n%s", err, out)
 	}
-	if dirty, err := gitpkg.HasChanges(repoDir); err != nil || !dirty {
+	if dirty, err := gitpkg.NewRepo(repoDir).HasChanges(); err != nil || !dirty {
 		t.Fatalf("expected dirty repo before recovery (dirty=%v err=%v)", dirty, err)
 	}
 
@@ -101,7 +101,7 @@ func TestRecoverOrphanedTasks_FinalizingRestartsAgent(t *testing.T) {
 	// Fix #2: the repo cleanup pass must have run for the Finalizing task's
 	// project. Previously it only iterated GetRunningTasks() and missed
 	// repos whose only mid-flight task was Finalizing or MergeBlocked.
-	if dirty, err := gitpkg.HasChanges(repoDir); err != nil {
+	if dirty, err := gitpkg.NewRepo(repoDir).HasChanges(); err != nil {
 		t.Fatalf("failed to check repo state: %v", err)
 	} else if dirty {
 		t.Errorf("expected repo cleanup to reset staged changes for Finalizing task; repo still dirty")
