@@ -147,25 +147,7 @@ func showTaskDetailFromDB(taskID int64, jsonOut bool) error {
 		return fmt.Errorf("failed to get task: %w", err)
 	}
 
-	info := daemon.TaskInfo{
-		ID:           t.ID,
-		ProjectID:    t.ProjectID,
-		Title:        t.Title,
-		Description:  t.Description,
-		Slug:         t.Slug,
-		Status:       string(t.Status),
-		StepIndex:    t.StepIndex,
-		CurrentStep:  t.CurrentStep,
-		BranchName:   t.BranchName,
-		Branch:       t.Branch,
-		Worktree:     t.Worktree,
-		WorktreePath: t.WorktreePath,
-		ErrorMessage: t.ErrorMessage,
-		BlockedBy:    t.BlockedBy,
-		CreatedAt:    t.CreatedAt,
-		StartedAt:    t.StartedAt,
-		CompletedAt:  t.CompletedAt,
-	}
+	info := daemon.TaskInfoFromTask(t)
 	if proj, err := database.GetProject(t.ProjectID); err == nil {
 		info.ProjectName = proj.Name
 		info.ProjectPath = proj.Path
