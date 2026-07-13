@@ -58,6 +58,18 @@ type promptPins struct {
 	target      bool // pinned by wf.Target
 }
 
+// promptSaved holds user-entered field values displaced by workflow pins, so
+// switching to another workflow restores them instead of losing typed input.
+// Each entry is only meaningful while the corresponding pin flag is set.
+type promptSaved struct {
+	description string
+	worktree    bool
+	branchMode  branchMode
+	branch      string
+	checkout    string
+	target      string
+}
+
 type promptView struct {
 	textarea          textarea.Model
 	titleInput        textinput.Model
@@ -84,6 +96,10 @@ type promptView struct {
 	// pins records which fields the active workflow pre-pins. Pinned fields are
 	// hidden from the form and supplied by the workflow at submit time.
 	pins promptPins
+
+	// saved holds user-typed values displaced by the currently-applied pins;
+	// applyPins restores them when the pin is lifted (e.g. cycling workflows).
+	saved promptSaved
 
 	// preselectedWorkflow, when non-empty, indicates the workflow was picked
 	// up-front by :RunTask. The workflows slice is sized to 1 (just this name),
@@ -234,6 +250,7 @@ func (p *promptView) Reset() {
 	p.blockingTaskTitle = ""
 	p.validationError = ""
 	p.pins = promptPins{}
+	p.saved = promptSaved{}
 	// Restore workflowCursor to the saved default workflow position
 	p.workflowCursor = p.defaultWorkflowCursor()
 	p.focusInput(promptFieldDescription)
@@ -244,47 +261,81 @@ func (p *promptView) Reset() {
 // pinnable fields. Each pinned field is hidden by visibleFields() and rendered
 // read-only (or omitted) by View(); its value is supplied to the daemon at
 // submit time. Call after Reset() and after assigning p.workflows/workflowName.
+//
+// applyPins never discards user input: a pin displacing a typed value saves it
+// in p.saved, and lifting that pin (cycling to a workflow that pins fewer
+// fields) restores the saved value. Fields the previous workflow didn't pin
+// are left untouched.
 func (p *promptView) applyPins(wf *config.WorkflowConfig) {
-	p.pins = promptPins{}
-	// Clear pinnable text inputs first so a previously-pinned workflow's literal
-	// values don't leak when applyPins runs on cycle (no preceding Reset) and the
-	// newly-selected workflow pins fewer fields. Harmless after Reset() too.
-	p.textarea.Reset()
-	p.branchInput.Reset()
-	p.checkoutInput.Reset()
-	p.targetBranchInput.Reset()
-	if wf == nil {
-		return
-	}
-	if wf.Description != "" {
-		p.textarea.SetValue(wf.Description)
-		p.pins.description = true
-	}
-	if wf.Worktree != nil {
-		p.worktree = *wf.Worktree
-		p.pins.worktree = true
-	}
-	switch {
-	case wf.Branch != "":
-		p.branchMode = branchModeNew
-		p.branchInput.SetValue(wf.Branch)
-		p.pins.branch = true
-	case wf.Checkout != "":
-		p.branchMode = branchModeExisting
-		p.checkoutInput.SetValue(wf.Checkout)
-		p.pins.checkout = true
-	}
-	if wf.Target != "" {
-		p.targetBranchInput.SetValue(wf.Target)
-		p.pins.target = true
-	}
-	// Keep focus on an unpinned, visible field.
-	p.focusInput(promptFieldDescription)
+	// Undo the previous workflow's pins: restore each displaced user value so
+	// only pin-supplied literals are replaced, never typed input.
 	if p.pins.description {
-		fields := p.visibleFields()
-		if len(fields) > 0 {
-			p.focusInput(fields[0])
+		p.textarea.SetValue(p.saved.description)
+	}
+	if p.pins.worktree {
+		p.worktree = p.saved.worktree
+	}
+	if p.pins.branch || p.pins.checkout {
+		p.branchMode = p.saved.branchMode
+	}
+	if p.pins.branch {
+		p.branchInput.SetValue(p.saved.branch)
+	}
+	if p.pins.checkout {
+		p.checkoutInput.SetValue(p.saved.checkout)
+	}
+	if p.pins.target {
+		p.targetBranchInput.SetValue(p.saved.target)
+	}
+	p.pins = promptPins{}
+	p.saved = promptSaved{}
+
+	if wf != nil {
+		if wf.Description != "" {
+			p.saved.description = p.textarea.Value()
+			p.textarea.SetValue(wf.Description)
+			p.pins.description = true
 		}
+		if wf.Worktree != nil {
+			p.saved.worktree = p.worktree
+			p.worktree = *wf.Worktree
+			p.pins.worktree = true
+		}
+		switch {
+		case wf.Branch != "":
+			p.saved.branchMode = p.branchMode
+			p.saved.branch = p.branchInput.Value()
+			p.branchMode = branchModeNew
+			p.branchInput.SetValue(wf.Branch)
+			p.pins.branch = true
+		case wf.Checkout != "":
+			p.saved.branchMode = p.branchMode
+			p.saved.checkout = p.checkoutInput.Value()
+			p.branchMode = branchModeExisting
+			p.checkoutInput.SetValue(wf.Checkout)
+			p.pins.checkout = true
+		}
+		if wf.Target != "" {
+			p.saved.target = p.targetBranchInput.Value()
+			p.targetBranchInput.SetValue(wf.Target)
+			p.pins.target = true
+		}
+	}
+
+	// Keep focus where it is when the field is still visible; otherwise (the
+	// focused field got pinned away or hidden) move to the first visible field.
+	fields := p.visibleFields()
+	focusVisible := false
+	for _, f := range fields {
+		if f == p.focusField {
+			focusVisible = true
+			break
+		}
+	}
+	if focusVisible {
+		p.focusInput(p.focusField)
+	} else if len(fields) > 0 {
+		p.focusInput(fields[0])
 	}
 	p.recalcHeight()
 }

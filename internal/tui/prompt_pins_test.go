@@ -9,9 +9,11 @@ import (
 )
 
 // TestApplyPins_CycleClearsStaleValues guards the cross-workflow leak fix:
-// applyPins must clear pinnable inputs so a previously-pinned workflow's literal
-// values don't survive when the next workflow pins fewer fields (the case that
-// arises when cycling between workflows mid-prompt, where no Reset() runs first).
+// applyPins must undo pin-supplied values so a previously-pinned workflow's
+// literal values don't survive when the next workflow pins fewer fields (the
+// case that arises when cycling between workflows mid-prompt, where no Reset()
+// runs first). Here the user typed nothing before the pins, so undoing the
+// pins restores every input to empty.
 func TestApplyPins_CycleClearsStaleValues(t *testing.T) {
 	p := newPromptView(true, branchModeNew, "")
 	p.SetSize(80, 24)
@@ -48,6 +50,134 @@ func TestApplyPins_CycleClearsStaleValues(t *testing.T) {
 	if p.pins != (promptPins{}) {
 		t.Errorf("after applyPins(B): expected no pins, got %+v", p.pins)
 	}
+}
+
+// TestApplyPins_PreservesUserTypedValues guards the workflow-switch data-loss
+// fix: cycling to another workflow must never wipe fields the user filled in.
+// Only pin-supplied values are replaced; typed input survives the switch.
+func TestApplyPins_PreservesUserTypedValues(t *testing.T) {
+	t.Run("unpinned fields survive a switch", func(t *testing.T) {
+		p := newPromptView(true, branchModeNew, "")
+		p.SetSize(80, 24)
+
+		// User fills in the form.
+		p.titleInput.SetValue("my title")
+		p.textarea.SetValue("my prompt text")
+		p.branchInput.SetValue("feat/mine")
+		p.targetBranchInput.SetValue("develop")
+
+		// Switch to a workflow that pins nothing (the reported bug: this used
+		// to clear the description, branch, and target).
+		p.applyPins(&config.WorkflowConfig{Name: "plain"})
+
+		if got := p.titleInput.Value(); got != "my title" {
+			t.Errorf("title = %q, want %q", got, "my title")
+		}
+		if got := p.textarea.Value(); got != "my prompt text" {
+			t.Errorf("description = %q, want %q", got, "my prompt text")
+		}
+		if got := p.branchInput.Value(); got != "feat/mine" {
+			t.Errorf("branch = %q, want %q", got, "feat/mine")
+		}
+		if got := p.targetBranchInput.Value(); got != "develop" {
+			t.Errorf("target = %q, want %q", got, "develop")
+		}
+	})
+
+	t.Run("pin displaces then restores typed value", func(t *testing.T) {
+		p := newPromptView(true, branchModeNew, "")
+		p.SetSize(80, 24)
+
+		p.textarea.SetValue("my prompt text")
+		p.branchInput.SetValue("feat/mine")
+		p.targetBranchInput.SetValue("develop")
+
+		// Workflow A pins description + branch + target: pinned literals take over.
+		wfA := &config.WorkflowConfig{Name: "a", Description: "descA", Branch: "feat/a", Target: "main"}
+		p.applyPins(wfA)
+		if got := p.textarea.Value(); got != "descA" {
+			t.Fatalf("after applyPins(A): description = %q, want %q", got, "descA")
+		}
+		if got := p.branchInput.Value(); got != "feat/a" {
+			t.Fatalf("after applyPins(A): branch = %q, want %q", got, "feat/a")
+		}
+		if got := p.targetBranchInput.Value(); got != "main" {
+			t.Fatalf("after applyPins(A): target = %q, want %q", got, "main")
+		}
+
+		// Switch to workflow B (no pins): the user's original values come back.
+		p.applyPins(&config.WorkflowConfig{Name: "b"})
+		if got := p.textarea.Value(); got != "my prompt text" {
+			t.Errorf("after applyPins(B): description = %q, want %q (typed value lost)", got, "my prompt text")
+		}
+		if got := p.branchInput.Value(); got != "feat/mine" {
+			t.Errorf("after applyPins(B): branch = %q, want %q (typed value lost)", got, "feat/mine")
+		}
+		if got := p.targetBranchInput.Value(); got != "develop" {
+			t.Errorf("after applyPins(B): target = %q, want %q (typed value lost)", got, "develop")
+		}
+		if p.pins != (promptPins{}) {
+			t.Errorf("after applyPins(B): expected no pins, got %+v", p.pins)
+		}
+	})
+
+	t.Run("typed value survives a chain of pinning workflows", func(t *testing.T) {
+		p := newPromptView(true, branchModeNew, "")
+		p.SetSize(80, 24)
+
+		p.textarea.SetValue("my prompt text")
+
+		p.applyPins(&config.WorkflowConfig{Name: "a", Description: "descA"})
+		p.applyPins(&config.WorkflowConfig{Name: "b", Description: "descB"})
+		if got := p.textarea.Value(); got != "descB" {
+			t.Fatalf("after applyPins(B): description = %q, want %q", got, "descB")
+		}
+		p.applyPins(&config.WorkflowConfig{Name: "c"})
+		if got := p.textarea.Value(); got != "my prompt text" {
+			t.Errorf("after A→B→C: description = %q, want %q (typed value lost)", got, "my prompt text")
+		}
+	})
+
+	t.Run("worktree and branch mode restore after pin lifts", func(t *testing.T) {
+		p := newPromptView(true, branchModeExisting, "")
+		p.SetSize(80, 24)
+		p.checkoutInput.SetValue("my-existing")
+
+		worktreeFalse := false
+		p.applyPins(&config.WorkflowConfig{Name: "a", Worktree: &worktreeFalse, Branch: "feat/a"})
+		if p.worktree || p.branchMode != branchModeNew {
+			t.Fatalf("after applyPins(A): worktree=%v mode=%v, want pinned false/new", p.worktree, p.branchMode)
+		}
+
+		p.applyPins(&config.WorkflowConfig{Name: "b"})
+		if !p.worktree {
+			t.Error("after applyPins(B): worktree = false, want true (user setting lost)")
+		}
+		if p.branchMode != branchModeExisting {
+			t.Errorf("after applyPins(B): branchMode = %v, want branchModeExisting (user setting lost)", p.branchMode)
+		}
+		if got := p.checkoutInput.Value(); got != "my-existing" {
+			t.Errorf("after applyPins(B): checkout = %q, want %q (typed value lost)", got, "my-existing")
+		}
+	})
+
+	t.Run("focus stays on the focused field when still visible", func(t *testing.T) {
+		p := newPromptView(true, branchModeNew, "")
+		p.SetSize(80, 24)
+		p.focusInput(promptFieldTitle)
+
+		p.applyPins(&config.WorkflowConfig{Name: "a", Branch: "feat/a"})
+		if p.focusField != promptFieldTitle {
+			t.Errorf("focusField = %v, want promptFieldTitle (focus reset by workflow switch)", p.focusField)
+		}
+
+		// Focused field pinned away → focus moves to the first visible field.
+		p.focusInput(promptFieldDescription)
+		p.applyPins(&config.WorkflowConfig{Name: "b", Description: "pinned"})
+		if p.focusField == promptFieldDescription {
+			t.Error("focusField still promptFieldDescription after it was pinned away")
+		}
+	})
 }
 
 // TestCyclePane_ReachesWorkflowWhenGitFullyPinned guards the navigation fix:

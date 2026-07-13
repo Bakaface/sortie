@@ -297,11 +297,9 @@ func (m Model) cycleToWorkflow(idx int) Model {
 	m.prompt.workflowCursor = idx
 	m.prompt.workflowName = m.prompt.workflows[idx]
 	m.selectedWorkflow = m.prompt.workflowName
-	if wf := m.cfg.GetTaskWorkflow(m.selectedWorkflow); wf != nil {
-		m.prompt.applyPins(wf)
-	} else {
-		m.prompt.pins = promptPins{}
-	}
+	// applyPins(nil) still restores any values displaced by the previous
+	// workflow's pins before clearing the pin flags.
+	m.prompt.applyPins(m.cfg.GetTaskWorkflow(m.selectedWorkflow))
 	// applyPins moves focus into the task pane; restore the workflow pane so the
 	// user can keep cycling, and resize because hidden fields change the layout.
 	m.prompt.blurAll()
