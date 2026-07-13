@@ -1,9 +1,13 @@
 package daemon
 
 import (
+	"bufio"
+	"encoding/json"
+	"net"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Bakaface/sortie/internal/config"
 	"github.com/Bakaface/sortie/internal/db"
@@ -339,6 +343,53 @@ func setupServerWithPinnedWorkflow(t *testing.T, projectPath string, wf config.W
 	s.projectsMu.Unlock()
 
 	return s, proj.ID
+}
+
+// TestHandleDeleteTask_DeletesRowAndRespondsOK guards the delete handler's
+// ordering: the DB row must be gone and the OK response sent by the time the
+// handler returns. Resource teardown (worktree removal can take ~10s on large
+// repos) happens in a background goroutine and must never gate the response —
+// the TUI keeps the task on the list until the reply arrives.
+func TestHandleDeleteTask_DeletesRowAndRespondsOK(t *testing.T) {
+	s, projID := setupServerWithProject(t)
+	tk, err := s.database.CreateTask(projID, "doomed", "", "doomed", "default", "main", task.StatusPending, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	// net.Pipe writes are synchronous, so the response must be drained
+	// concurrently with the handler call.
+	respCh := make(chan Message, 1)
+	go func() {
+		scanner := bufio.NewScanner(client)
+		if scanner.Scan() {
+			var m Message
+			if err := json.Unmarshal(scanner.Bytes(), &m); err == nil {
+				respCh <- m
+			}
+		}
+	}()
+
+	s.handleDeleteTask(server, DeleteTaskRequest{TaskID: tk.ID})
+
+	// The row must already be deleted when the handler returns; cleanup runs
+	// afterwards in the background and must not be what removes visibility.
+	if _, err := s.database.GetTask(tk.ID); err == nil {
+		t.Fatal("task row still present after handleDeleteTask returned")
+	}
+
+	select {
+	case m := <-respCh:
+		if m.Type != MsgOK {
+			t.Fatalf("expected %s response, got %s", MsgOK, m.Type)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("no response received from handleDeleteTask")
+	}
 }
 
 // TestCreateTaskFromRequest_WorkflowPinsFallback verifies that workflow pin

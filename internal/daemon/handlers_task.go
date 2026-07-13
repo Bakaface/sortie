@@ -248,6 +248,30 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 	agentID := fmt.Sprintf("%d", t.ID)
 	_ = s.manager.StopAgent(agentID)
 
+	// Delete the DB row first and respond immediately: this is the
+	// authoritative state change and takes milliseconds. The heavyweight
+	// resource teardown (removing a large worktree can take ~10s) runs in
+	// the background — it is best-effort and only needs the task snapshot
+	// already loaded above, not the row.
+	if err := s.database.DeleteTask(t.ID); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to delete task: %v", err))
+		return
+	}
+
+	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d deleted", t.ID)})
+
+	go s.cleanupDeletedTaskResources(t)
+}
+
+// cleanupDeletedTaskResources tears down the runtime resources of an
+// already-deleted task: tmux sessions, git worktree + branch, and the log
+// directory. It runs after the task row is gone so slow filesystem work never
+// delays the delete response. Every step is best-effort (logged, not
+// returned); the ClearWorktreePath call inside cleanupWorktreeAndBranch is a
+// harmless no-op UPDATE once the row has been removed.
+func (s *Server) cleanupDeletedTaskResources(t *task.Task) {
+	agentID := fmt.Sprintf("%d", t.ID)
+
 	if pc, err := s.getProjectContext(t.ProjectID); err == nil {
 		if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
 			log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
@@ -267,13 +291,6 @@ func (s *Server) handleDeleteTask(conn net.Conn, req DeleteTaskRequest) {
 	if err := os.RemoveAll(logDir); err != nil {
 		log.Printf("%sWarning: failed to remove log dir for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 	}
-
-	if err := s.database.DeleteTask(t.ID); err != nil {
-		s.sendError(conn, fmt.Sprintf("failed to delete task: %v", err))
-		return
-	}
-
-	s.sendMessage(conn, MsgOK, OKResponse{Message: fmt.Sprintf("task #%d deleted", t.ID)})
 }
 
 func (s *Server) handleRetryTask(conn net.Conn, req RetryTaskRequest) {
