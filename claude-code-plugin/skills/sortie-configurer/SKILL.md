@@ -7,7 +7,6 @@ description: >
   workflows, (3) configuring git, tmux, notifications, or verification settings,
   (4) user mentions "sortie config", ".sortie.yml", or asks about sortie workflow/task
   configuration, (5) troubleshooting sortie config issues.
-user_invocable: true
 ---
 
 # Sortie Configuration Skill
@@ -22,7 +21,7 @@ Sortie is a daemon that orchestrates multiple Claude Code agents working on task
 
 1. Built-in defaults (hardcoded)
 2. Global daemon config: `~/.config/sortie/config.yaml` (subset of fields, no workflows)
-3. Global sortie config: `~/.sortie.yml`
+3. Global sortie config: `$XDG_CONFIG_HOME/sortie/config.yml` if present, else `~/.sortie.yml`
 4. **Project config: `.sortie.yml`** (this is what you generate)
 
 ## Quick Start
@@ -50,7 +49,7 @@ workflows:
 | `default_priority` | string | `"medium"` | `low`, `medium`, `high`, `urgent` |
 | `yolo` | bool | `false` | Pass `--dangerously-skip-permissions` to Claude |
 | `poll_interval` | string | `"5s"` | Daemon task-polling cadence (Go duration string). Rarely overridden per-project. |
-| `system_prompt` | string | minimal default | Preamble written to each worktree's `CLAUDE.md` |
+| `system_prompt` | string | minimal default | Preamble of the system prompt passed to every spawned agent via `--system-prompt`. Sortie always appends a fixed verification footer ("run the project's own test/lint commands") and the resolved step prompt — you only control the preamble. |
 | `verification` | object | — | Summarizer verification settings (`max_retries`, `verify_summarizer`) |
 | `git` | object | — | Branch naming, base branch, completion action |
 | `workflows` | list | — | **Primary config block** — flat list of workflow pipelines |
@@ -62,9 +61,9 @@ workflows:
 | `worktree-sync-paths` | object | — | Hard-link or copy paths from main checkout into each worktree (e.g., `.docs`, `.env`). Also settable per-workflow. See [Sharing files into worktrees](#sharing-files-into-worktrees). |
 | `worktree-setup-command` | string | — | Single shell command run after worktree creation (`{{worktree_path}}` available). Also settable per-workflow. |
 | `worktree-setup-commands` | list[string] | — | Multiple setup commands run in order; preferred over the singular form when more than one step is needed. Also settable per-workflow. |
-| `tmux-setup-command` | string | — | Shell command run when launching a tmux step. Variables: `{{session_name}}`, `{{worktree_path}}`, `{{run_agent}}`. Also settable per-workflow. |
+| `tmux-setup-command` | string | — | Shell command run when launching a tmux step. Variables: `{{session_name}}`, `{{worktree_path}}`, `{{run_agent}}`, `{{claude_command}}`. Also settable per-workflow. |
 
-> **Per-workflow overrides:** `worktree-sync-paths`, `worktree-setup-command`, `worktree-setup-commands`, and `tmux-setup-command` may be set on an individual workflow (inside a `workflows.<category>` entry). A non-empty workflow-level value fully overrides the project-level one for tasks running that workflow.
+> **Per-workflow overrides:** `worktree-sync-paths`, `worktree-setup-command`, `worktree-setup-commands`, and `tmux-setup-command` may be set on an individual workflow (an entry in the flat `workflows:` list). A non-empty workflow-level value fully overrides the project-level one for tasks running that workflow.
 
 ### Field-name convention
 
@@ -117,7 +116,7 @@ workflows:
         print: true
 ```
 
-"Kind" is an emergent property of pinning: the `n` key (and `:RunTask`) operates over the single flat list. Workflows that have all fields pinned (`description` + `worktree` + `branch`/`checkout` + `target`) create a task immediately without showing the New Task form.
+"Kind" is an emergent property of pinning: the `n` key (and `:RunTask`) operates over the single flat list. Workflows that have all fields pinned (`description` + `worktree` + `branch`/`checkout` + `target`) create a task immediately without showing the New Task form. Two shortcuts: when `worktree: false` is pinned, `description` alone suffices (the git fields are N/A); workflows whose **first step runs in tmux** may be created without a description at all — the user drives the session interactively.
 
 ### Pinnable fields
 
@@ -135,10 +134,12 @@ Validation: `branch` and `checkout` are mutually exclusive; `branch`/`checkout`/
 
 ### Inline vs. File-Based Workflows
 
-- **String refs** → resolved against `.sortie/workflows/<name>.yml` (local first, then global pool under `~/.sortie/workflows/<name>.yml`)
+- **String refs** → resolved against `.sortie/workflows/<name>.yml` first, then the **global pool** — every workflow resolved from the global `~/.sortie.yml` (inline or file-based under `~/.sortie/workflows/`, referenced or hidden alike)
 - **Inline maps** → full workflow definition embedded directly in `.sortie.yml`
 
-A workflow file at `.sortie/workflows/<name>.yml` contains the same fields as an inline workflow body — minus the `name:` field, which is always the filename. Use kebab-case filenames (`[a-z0-9-]+\.yml`). Subdirectories are not supported.
+A project definition (inline or local file) with the same name as a global workflow legally **overrides** it — the inline-vs-file collision error applies only within a single config scope.
+
+A workflow file at `.sortie/workflows/<name>.yml` contains the same fields as an inline workflow body — minus the `name:` field, which is always the filename. Use kebab-case filenames starting with a letter or digit (`[a-z0-9][a-z0-9-]*`, extension `.yml` or `.yaml`). Subdirectories are not supported.
 
 **Files not referenced from `.sortie.yml` are loaded as hidden.** Hidden workflows are:
 
@@ -185,6 +186,7 @@ Splitting trades single-file readability for per-workflow editability. For tiny 
       summarization_strategy: summarize_chat   # how this step's context is captured (see below)
       summarization_prompt: "..."              # prompt fed to the summarizer for THIS step's context
       allowed_summarization_models: [haiku]    # optional per-step summarizer model allowlist
+      require_context: false   # true = fail the task if this step's summarize_chat context can't be captured
       loop:                  # optional: jump back to earlier step
         goto: "step-name"    # must reference an earlier step
         max_iterations: 3    # >= 1
@@ -220,6 +222,8 @@ Set `summarization_strategy: none` to skip context capture entirely for the step
 
 The summarizer auto-selects the cheapest model (`haiku` < `sonnet` < `opus`) whose prompt-size ceiling fits the transcript. Restrict the candidate set with `allowed_summarization_models` at project level or per-step (step-level overrides project-level).
 
+**`require_context: true`** makes a failure to capture a step's `summarize_chat` context **fail the task** instead of silently advancing with an empty context (the default is best-effort: warn and proceed). Set it on steps whose output later steps template via `{{steps.<name>.context}}` — e.g. a grilling/interview step feeding an implementing step. Only meaningful for tmux steps with `summarize_chat`; ignored otherwise.
+
 ### Prompt formatting
 
 Prompt fields (`prompt`, `summarization_prompt`, `summarizer_prompt`, `system_prompt`) are LLM input, not human reading. Do not hard-wrap prose at ~80 columns — block scalars (`|`) preserve every newline as a token. Keep only the structural newlines: blank lines between paragraphs, one line per list item (continuation text stays on the item line), code fences verbatim. Reflow on contact when editing existing prompts.
@@ -248,12 +252,17 @@ Canonical tag for each multi-line variable:
 | Variable | Wrapping tag |
 |---|---|
 | `{{task.description}}` | `<task-description>...</task-description>` |
+| `{{task.context}}` | `<task-context>...</task-context>` |
 | `{{task.images}}` | `<task-images>...</task-images>` |
 | `{{steps.<name>.context}}` | `<step-context name="<name>">...</step-context>` |
 | `{{artifacts.<name>}}` | `<step-context name="<name>">...</step-context>` (alias of the above) |
+| `{{tasks.<id>.description}}` | `<task-description id="<id>">...</task-description>` |
+| `{{tasks.<id>.context}}` | `<task-context id="<id>">...</task-context>` |
+| `{{children.summary}}` | `<children-summary>...</children-summary>` |
+| `{{children.<id>.context}}` | `<child-context id="<id>">...</child-context>` |
 | `{{chat}}` | `<chat>...</chat>` |
 
-Single-line variables (`{{task.id}}`, `{{task.title}}`, `{{task.slug}}`, `{{task.branch}}`, `{{git.base_branch}}`, `{{git.repo_root}}`, `{{loop.iteration}}`, `{{loop.max_iterations}}`) are inlined into surrounding prose **without** wrapping — they fit on one line and a tag would only add noise.
+Single-line variables (`{{task.id}}`, `{{task.title}}`, `{{task.slug}}`, `{{task.branch}}`, `{{git.base_branch}}`, `{{git.target_branch}}`, `{{git.repo_root}}`, `{{loop.iteration}}`, `{{loop.max_iterations}}`, `{{tasks.<id>.title}}`, `{{tasks.<id>.branch}}`, `{{children.<id>.status}}`, `{{children.<id>.title}}`) are inlined into surrounding prose **without** wrapping — they fit on one line and a tag would only add noise.
 
 Do **not** use triple-backtick fences for this. Interpolated content (especially `{{chat}}` and summarized step contexts) routinely contains its own code fences, which would break the outer fence. XML-style tags survive arbitrary nested content.
 
@@ -268,21 +277,28 @@ Variables marked **multi-line** must be wrapped in a semantic tag — see [Wrapp
 | `{{task.id}}` | Numeric task ID |
 | `{{task.title}}` | Task title |
 | `{{task.description}}` | Full task description **(multi-line — wrap in `<task-description>`)** |
+| `{{task.context}}` | Task's accumulated context summary (from a prior run / continuation) **(multi-line — wrap in `<task-context>`)** |
 | `{{task.slug}}` | URL-safe slug from title |
 | `{{task.branch}}` | Resolved branch name |
 | `{{task.images}}` | Newline-joined attached image paths **(multi-line — wrap in `<task-images>`)** |
 | `{{git.base_branch}}` | Configured base branch |
+| `{{git.target_branch}}` | Task's target/merge branch |
 | `{{git.repo_root}}` | Repository root path |
 | `{{loop.iteration}}` | Current loop iteration (in loops) |
 | `{{loop.max_iterations}}` | Max loop iterations (in loops) |
 | `{{steps.<step_name>.context}}` | Context captured from a prior step's result **(multi-line — wrap in `<step-context name="<step_name>">`)** |
 | `{{artifacts.<step_name>}}` | Backward compat alias for `{{steps.<step_name>.context}}` **(multi-line — same wrapping)** |
+| `{{tasks.<id>.<field>}}` | Field of **another task** by numeric ID. Fields: `title`, `branch`, `description`, `context`. Missing task / lookup error resolves to empty. See reference: Cross-Task References. |
+| `{{children.summary}}` | Digest of all child tasks after a `create_tasks_and_wait` resume **(multi-line — wrap in `<children-summary>`)** |
+| `{{children.<id>.<field>}}` | Field of a specific child task. Fields: `id`, `title`, `status` (`completed`/`failed`), `context`. See reference: Child Task Orchestration. |
 
 **Step `summarization_prompt:`** — same variables as above, plus:
 
 | Variable | Description |
 |---|---|
 | `{{chat}}` | Full transcript of the step being summarized **(multi-line — wrap in `<chat>`)**. Only valid inside `summarization_prompt`. |
+
+**`worktree-setup-command` / `worktree-setup-commands:`** — only `{{worktree_path}}` is available. Commands run with the **project root** (not the worktree) as cwd; a non-zero exit **fails the task**.
 
 **`tmux-setup-command:`**:
 
@@ -291,6 +307,11 @@ Variables marked **multi-line** must be wrapped in a semantic tag — see [Wrapp
 | `{{session_name}}` | Tmux session name created for the task |
 | `{{worktree_path}}` | Absolute path to the task's worktree |
 | `{{run_agent}}` | Pre-built command string that launches the Claude agent inside the worktree |
+| `{{claude_command}}` | Raw claude CLI invocation (prefer `{{run_agent}}`) |
+
+If the command contains `{{run_agent}}` or `{{claude_command}}`, **you control where the agent runs** — Sortie will not auto-start it in window 0. Omit both and Sortie launches the agent itself after your layout command runs.
+
+**Environment variables** — every step's Claude process (and anything it spawns) gets: `SORTIE_TASK_ID`, `SORTIE_STEP`, `SORTIE_WORKTREE`, `SORTIE_PROJECT_PATH` (repo root, not the worktree), `SORTIE_PURPOSE=step`. Useful in prompts that shell out or call sortie MCP tools.
 
 ## Decision Tree
 
@@ -306,6 +327,9 @@ When the user describes what they want, follow this:
 8. **"Share files/dirs across worktrees"** ("symlink X into worktrees", ".env should be available", "docs/configs visible to agents") → Use `worktree-sync-paths` (`link:` for shared/synced files, `copy:` for per-worktree isolated copies). Note this is hard-link, not symlink.
 9. **"Run something after worktree creation"** (install deps, generate files, create symlinks) → Use `worktree-setup-command` (single) or `worktree-setup-commands` (multiple)
 10. **"Summarize a tmux/conversational step"** → Set `summarization_strategy: summarize_chat` and provide a `summarization_prompt` using `{{chat}}`
+11. **"Fan out subtasks / orchestrate child tasks from a step"** → Prompt the step's agent to call the sortie MCP tool `create_tasks_and_wait` (or `wait_for_tasks` for pre-existing tasks). The step suspends at `awaiting-children` and re-runs with `{{children.summary}}` / `{{children.<id>.<field>}}` populated — see reference: Child Task Orchestration
+12. **"Later steps depend on this step's output"** (grilling/planning feeding implementation) → Set `require_context: true` on the producing step so a failed context capture fails the task loudly
+13. **"Reference another task's output"** ("build on task 42", "after #17 merges") → Use `{{tasks.<id>.<field>}}` in the task description — active refs auto-block until the referenced task completes
 
 For complete field reference with validation rules and examples, read `references/config-reference.md`.
 
@@ -330,6 +354,7 @@ This lists every YAML field name the binary will accept. Cross-reference unknown
 - `git.branch_template` supports: `{{task_id}}`, `{{task_slug}}`, `{{task.id}}`, `{{task.title}}`, `{{task.slug}}`
 - The file goes at the project root as `.sortie.yml`
 - The `description` pin doubles as the task description when the New Task screen is skipped
+- If both `worktree-setup-command` and `worktree-setup-commands` are set, **both run** (singular first, then the list, in order); any non-zero exit fails the task. `worktree-sync-paths` failures, by contrast, only log a warning.
 
 ## Validating a config
 

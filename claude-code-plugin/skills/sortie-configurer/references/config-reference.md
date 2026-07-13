@@ -1,5 +1,28 @@
 # Sortie Configuration Complete Reference
 
+## Contents
+
+- [System Prompt](#system-prompt)
+- [Git Section](#git-section)
+- [Finalization (`on_complete`)](#finalization-on_complete)
+- [Verification Section](#verification-section)
+- [Claude Binary Override](#claude-binary-override)
+- [Poll Interval](#poll-interval)
+- [Summarization Model Allowlist](#summarization-model-allowlist)
+- [Options (TUI Display)](#options-tui-display)
+- [Notifications Section](#notifications-section)
+- [Worktree Sync Paths](#worktree-sync-paths)
+- [Worktree Setup Commands](#worktree-setup-commands)
+- [Tmux Setup Command](#tmux-setup-command)
+- [Step Configuration Details](#step-configuration-details) — timeout, step context, summarization, require_context, human approval, tmux vs print, loops
+- [Cross-Task References (`{{tasks.<id>.<field>}}`)](#cross-task-references-tasksidfield)
+- [Child Task Orchestration (`{{children.*}}`)](#child-task-orchestration-children)
+- [Task States](#task-states)
+- [Task Priorities](#task-priorities)
+- [Continue Workflow](#continue-workflow)
+- [Legacy Config Formats (Removed)](#legacy-config-formats-removed)
+- [Complete Example](#complete-example)
+
 ## System Prompt
 
 ```yaml
@@ -8,7 +31,9 @@ system_prompt: |
   Make decisions and implement them directly. If something is ambiguous, pick the best option and proceed.
 ```
 
-Controls the preamble written to each task worktree's `CLAUDE.md`. When omitted, a minimal default is used that instructs Claude to work autonomously. Override this to customize agent behavior across all tasks.
+Controls the **preamble** of the system prompt passed to every spawned agent via `--system-prompt`. When omitted, a minimal default is used that instructs Claude to work autonomously. Override this to customize agent behavior across all tasks.
+
+The full system prompt is assembled as: your preamble (or the default) → a fixed **verification footer** (always appended — it instructs agents to find and run the project's own test/lint commands from CLAUDE.md/README instead of inventing them) → `# Task` → the resolved step prompt → an attached-images section when the task has images. You cannot suppress the footer.
 
 ---
 
@@ -112,7 +137,7 @@ options:
   branchview: false          # Group the list by branch
   animation:
     enabled: true            # Sortie (airplane) animation on task submission
-    duration: 800            # Animation duration in milliseconds
+    duration: 800            # Animation duration in milliseconds (default: 1500)
 ```
 
 Cosmetic-only; does not affect task execution.
@@ -145,6 +170,8 @@ worktree-sync-paths:
 
 Files and directories listed here are populated into each new worktree before any setup commands run. Paths are relative to the project root.
 
+A legacy plain-list form is also accepted and treated as `copy:` paths: `worktree-sync-paths: [".claude", ".env"]`. Prefer the structured form in new configs.
+
 ### `link:` vs `copy:`
 
 | Mode | Mechanism | When edits sync | Cross-filesystem | Best for |
@@ -154,7 +181,7 @@ Files and directories listed here are populated into each new worktree before an
 
 ### Symlinks are not supported
 
-`link:` performs **hard-links**, not symbolic links. The Sortie binary's code path is `linkPath` → `hardLinkDir`. If you need a true symlink (e.g., to a path outside the project root, or across filesystems), create it from a setup command:
+`link:` performs **hard-links**, not symbolic links. The Sortie binary's code path is `linkPath` → `hardLinkDir`. (One nuance: when the *source* path is itself a symlink, it is replicated as a symlink in the worktree — macOS `link(2)` refuses to hard-link symlinks.) If you need a true symlink (e.g., to a path outside the project root, or across filesystems), create it from a setup command:
 
 ```yaml
 worktree-setup-commands:
@@ -165,7 +192,7 @@ worktree-setup-commands:
 
 Each `copy:` / `link:` entry is a **string path relative to the project root** — the destination inside the worktree always mirrors the source path. There is no per-entry `target`/rename form (the schema is `copy: []string` and `link: []string`). To place a synced file at a different path, use a `worktree-setup-command` to move or symlink it after sync.
 
-A missing source path is skipped silently. A `link:` failure (e.g. cross-filesystem) is collected and reported but does not abort the other entries.
+A missing source path is skipped silently. A `link:` failure (e.g. cross-filesystem) is collected and reported but does not abort the other entries — and sync failures overall only log a warning; the task proceeds. If a synced file is a hard requirement, verify it in a `worktree-setup-command` instead (those DO fail the task on non-zero exit).
 
 ### Per-workflow override
 
@@ -173,40 +200,39 @@ A missing source path is skipped silently. A `link:` failure (e.g. cross-filesys
 
 ```yaml
 workflows:
-  tasks:
-    - name: heavy
-      worktree-sync-paths:
-        link: [.docs, vendor/cache]
-      steps:
-        - name: implementing
-          prompt: "..."
+  - name: heavy
+    worktree-sync-paths:
+      link: [.docs, vendor/cache]
+    steps:
+      - name: implementing
+        prompt: "..."
 ```
 
 ---
 
 ## Worktree Setup Commands
 
-Run shell commands inside each worktree after creation (and after `worktree-sync-paths` is applied). Use for: installing dependencies, generating files, creating real symlinks, copying secrets from a vault, etc.
+Run shell commands after worktree creation (and after `worktree-sync-paths` is applied). Use for: installing dependencies, generating files, creating real symlinks, copying secrets from a vault, etc.
 
 Two forms:
 
 ```yaml
 # Single command
 worktree-setup-command: |
-  pnpm install --frozen-lockfile
+  pnpm install --frozen-lockfile --dir {{worktree_path}}
 
 # Multiple commands (run in order; preferred when more than one step is needed)
 worktree-setup-commands:
-  - pnpm install --frozen-lockfile
+  - pnpm install --frozen-lockfile --dir {{worktree_path}}
   - cp ~/.config/myproject/.env.local {{worktree_path}}/.env.local
   - mkdir -p {{worktree_path}}/.cache
 ```
 
-If both are set, `worktree-setup-commands` takes precedence. Each command runs with the worktree as `cwd`.
+If both are set, **both run** — the singular command first, then the list in order.
 
-Available variables: `{{worktree_path}}`, `{{session_name}}` (tmux only), `{{run_agent}}` (tmux only).
+Each command runs via `sh -c` with the **project root** (not the worktree) as `cwd` — always use `{{worktree_path}}` to address the worktree. `{{worktree_path}}` is the **only** template variable available here (`{{session_name}}` / `{{run_agent}}` exist only in `tmux-setup-command`).
 
-A non-zero exit from any command logs a warning but does not abort the task.
+A non-zero exit from any command **fails the task** ("worktree setup failed") and stops the remaining commands. This is the opposite of `worktree-sync-paths`, whose per-path failures only log a warning.
 
 ---
 
@@ -229,9 +255,12 @@ Variables:
 |---|---|
 | `{{session_name}}` | Tmux session created for the task |
 | `{{worktree_path}}` | Absolute path to the task's worktree |
-| `{{run_agent}}` | Pre-built command string that launches the Claude agent |
+| `{{run_agent}}` | Pre-built command string that launches the Claude agent (wrapper script) |
+| `{{claude_command}}` | Raw claude CLI invocation string (prefer `{{run_agent}}`) |
 
-If you do not set `tmux-setup-command`, Sortie uses a minimal default that just starts the agent.
+The command runs via `sh -c` with the **worktree** as `cwd`; a non-zero exit fails the session launch.
+
+**Agent-launch control:** when the command contains `{{run_agent}}` or `{{claude_command}}`, Sortie assumes *you* place the agent (as in the example above) and does not auto-start it. When neither appears, Sortie starts the agent itself in window 0 after your command runs. If you do not set `tmux-setup-command` at all, Sortie uses a minimal default that just starts the agent.
 
 ---
 
@@ -277,6 +306,17 @@ By default (`summarization_strategy` unset), the step's context is produced by *
 `summarize_chat` is essential for tmux steps (`print: false`) where the meaningful output is the dialogue, not a final message. The summarizer step also unlocks the `step_context_empty` loop exit pattern: instruct the summarizer to emit empty output when "no issues found", and the loop will terminate.
 
 Inside `summarization_prompt`, the variable `{{chat}}` expands to the full transcript. All standard task variables (`{{task.id}}`, `{{steps.<name>.context}}`, etc.) are also available.
+
+### Require Context
+
+```yaml
+- name: grilling
+  require_context: true
+  summarization_prompt: "..."
+  prompt: "..."
+```
+
+By default, context capture is best-effort: if the chat transcript can't be loaded or summarized, Sortie logs a warning and advances with an **empty** step context. `require_context: true` makes that failure **block the task** instead. Set it on steps whose output later steps template via `{{steps.<name>.context}}` (e.g. a grilling step feeding an implementing step) so the pipeline fails loudly rather than silently running the next step with no plan. Only meaningful for tmux steps with `summarize_chat`; ignored otherwise.
 
 Example multi-step with step context:
 
@@ -365,6 +405,42 @@ steps:
 
 ---
 
+## Cross-Task References (`{{tasks.<id>.<field>}}`)
+
+Reference another task's fields anywhere templates resolve. Supported fields: `title`, `branch`, `description`, `context`.
+
+Two places they work, with different semantics:
+
+1. **In a task's description or context** (entered at create/edit time): the daemon validates each ref — missing task, cross-project ref, or ref to a `failed` task is a create/edit **error**. Refs to still-active tasks are **auto-added as `blocked_by` dependencies**, so the referencing task won't start until they finish. Refs are pre-resolved (single-pass, no recursive expansion) before the description/context is inlined into step prompts.
+2. **In workflow step prompts**: resolved at render time with no validation or auto-blocking — a missing task resolves to empty string with a warning log.
+
+`description` and `context` fields are multi-line — wrap them in semantic tags (see SKILL.md).
+
+---
+
+## Child Task Orchestration (`{{children.*}}`)
+
+A step's agent can fan out child tasks via the sortie MCP tools:
+
+- **`create_tasks_and_wait`** — spawn one or more child tasks and suspend the calling step until ALL reach a terminal status (`completed` or `failed`). The parent task shows `awaiting-children`.
+- **`wait_for_tasks`** — same suspension, but for pre-existing task IDs (already-terminal tasks are skipped).
+
+Both default `parent_task_id` to the `SORTIE_TASK_ID` env var the engine injects into every step, so agents don't need to pass it. When all children finish, **the calling step re-runs from the same step index** with these variables populated:
+
+| Variable | Description |
+|---|---|
+| `{{children.summary}}` | Formatted digest of every child (ID, status, title, context), sorted by ID — multi-line |
+| `{{children.<id>.id}}` | Child task ID |
+| `{{children.<id>.title}}` | Child task title |
+| `{{children.<id>.status}}` | Terminal status: `completed` or `failed` |
+| `{{children.<id>.context}}` | Child's final task context (its synthesized output) — multi-line |
+
+Unknown IDs and unsupported fields resolve to empty. On the first (pre-spawn) run of the step these are all empty — a typical orchestrator prompt branches: "If `<children-summary>` below is empty, break the task into subtasks and call `create_tasks_and_wait`. Otherwise, review the child results, check every `{{children.<id>.status}}` for failures, and integrate."
+
+Since the meaningful state usually lives in the conversation, orchestrator steps pair well with `summarize_chat` (the default) and `require_context: true`.
+
+---
+
 ## Task States
 
 | Status | Description |
@@ -373,10 +449,13 @@ steps:
 | `init` | Initializing worktree and environment |
 | `running` | Claude agent is executing |
 | `awaiting-approval` | Paused at a `human: true` step |
+| `awaiting-children` | Step suspended on child tasks (`create_tasks_and_wait` / `wait_for_tasks`) |
 | `tmux` | Running in interactive tmux session |
 | `finalizing` | Running post-completion steps |
-| `summarizing` | Generating task context summary |
+| `summarizing` | Generating task context summary (also used for the step summary of single-step workflows) |
+| `summarizing_step` | Summarizing a completed step's transcript (multi-step workflows) |
 | `merge-blocked` | Merge conflicts or merge failure |
+| `resolving-conflicts` | Agent resolving merge conflicts |
 | `completed` | Successfully finished |
 | `failed` | Execution failed |
 
