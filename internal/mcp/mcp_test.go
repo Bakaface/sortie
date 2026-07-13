@@ -169,7 +169,10 @@ func TestMCP_ListsToolsAdvertisedToClients(t *testing.T) {
 	for _, tool := range resp.Tools {
 		got[tool.Name] = true
 	}
-	for _, want := range []string{"create_task", "list_workflows", "get_task", "update_step_context"} {
+	for _, want := range []string{
+		"create_task", "list_workflows", "get_task", "update_step_context",
+		"list_tasks", "retry_task", "update_task_description", "update_task_dependencies",
+	} {
 		if !got[want] {
 			t.Errorf("tool %q not advertised; got %v", want, got)
 		}
@@ -692,6 +695,386 @@ func TestMCP_UpdateStepContext_DefaultsModeToReplace(t *testing.T) {
 
 	if captured.Mode != "replace" {
 		t.Errorf("expected default mode=replace, got %q", captured.Mode)
+	}
+}
+
+func TestMCP_RetryTask_ForwardsStepName(t *testing.T) {
+	fake := newFakeDaemon(t)
+
+	var captured daemon.RetryTaskRequest
+	fake.handle(daemon.MsgRetryTask, func(msg *daemon.Message) *daemon.Message {
+		_ = msg.DecodePayload(&captured)
+		resp, _ := daemon.NewMessage(daemon.MsgRetryTask, daemon.RetryTaskResponse{
+			Task: daemon.TaskInfo{ID: 42, Title: "demo", Status: "pending"},
+		})
+		return resp
+	})
+
+	c := startMCPServer(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "retry_task",
+			Arguments: map[string]any{"task_id": 42, "step_name": "implement"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", textOf(res))
+	}
+
+	if captured.TaskID != 42 {
+		t.Errorf("TaskID: %d, want 42", captured.TaskID)
+	}
+	if captured.StepName != "implement" {
+		t.Errorf("StepName: %q, want implement", captured.StepName)
+	}
+
+	var out daemon.TaskInfo
+	if err := json.Unmarshal([]byte(textOf(res)), &out); err != nil {
+		t.Fatalf("unmarshal task: %v", err)
+	}
+	if out.ID != 42 || out.Status != "pending" {
+		t.Errorf("returned task: %+v", out)
+	}
+}
+
+func TestMCP_RetryTask_RejectsInvalidID(t *testing.T) {
+	fake := newFakeDaemon(t)
+	c := startMCPServer(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "retry_task",
+			Arguments: map[string]any{"task_id": 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Errorf("expected error for task_id=0")
+	}
+	if len(fake.requestTypes()) != 0 {
+		t.Errorf("daemon should not be contacted for invalid id; got %v", fake.requestTypes())
+	}
+}
+
+func TestMCP_UpdateTaskDescription_ForwardsField(t *testing.T) {
+	fake := newFakeDaemon(t)
+
+	var captured daemon.UpdateFieldRequest
+	fake.handle(daemon.MsgUpdateField, func(msg *daemon.Message) *daemon.Message {
+		_ = msg.DecodePayload(&captured)
+		resp, _ := daemon.NewMessage(daemon.MsgUpdateField, daemon.UpdateFieldResponse{
+			Task: daemon.TaskInfo{ID: 7, Description: captured.Value},
+		})
+		return resp
+	})
+
+	c := startMCPServer(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "update_task_description",
+			Arguments: map[string]any{"task_id": 7, "description": "new body"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", textOf(res))
+	}
+
+	if captured.TaskID != 7 {
+		t.Errorf("TaskID: %d, want 7", captured.TaskID)
+	}
+	if captured.Field != "description" {
+		t.Errorf("Field: %q, want description", captured.Field)
+	}
+	if captured.Value != "new body" {
+		t.Errorf("Value: %q", captured.Value)
+	}
+}
+
+func TestMCP_UpdateTaskDescription_RejectsInvalidArgs(t *testing.T) {
+	fake := newFakeDaemon(t)
+	c := startMCPServer(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cases := []struct {
+		name      string
+		arguments map[string]any
+		wantErr   string
+	}{
+		{
+			name:      "task_id zero",
+			arguments: map[string]any{"task_id": 0, "description": "x"},
+			wantErr:   "task_id must be a positive integer",
+		},
+		{
+			name:      "blank description",
+			arguments: map[string]any{"task_id": 1, "description": "   "},
+			wantErr:   "description must not be empty",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := c.CallTool(ctx, mcp.CallToolRequest{
+				Params: mcp.CallToolParams{
+					Name:      "update_task_description",
+					Arguments: tc.arguments,
+				},
+			})
+			if err != nil {
+				t.Fatalf("CallTool: %v", err)
+			}
+			if !res.IsError {
+				t.Fatalf("expected tool error, got success: %s", textOf(res))
+			}
+			if !strings.Contains(textOf(res), tc.wantErr) {
+				t.Errorf("error should contain %q, got %q", tc.wantErr, textOf(res))
+			}
+		})
+	}
+
+	if len(fake.requestTypes()) != 0 {
+		t.Errorf("invalid arg calls leaked to daemon: %v", fake.requestTypes())
+	}
+}
+
+func TestMCP_ListTasks_Global(t *testing.T) {
+	fake := newFakeDaemon(t)
+	fake.handle(daemon.MsgListTasks, func(msg *daemon.Message) *daemon.Message {
+		var req daemon.ListTasksRequest
+		_ = msg.DecodePayload(&req)
+		if req.ProjectName != "" || req.ProjectID != 0 {
+			resp, _ := daemon.NewMessage(daemon.MsgError, daemon.ErrorResponse{
+				Message: fmt.Sprintf("expected unfiltered request, got %+v", req),
+			})
+			return resp
+		}
+		resp, _ := daemon.NewMessage(daemon.MsgTaskList, daemon.TaskListResponse{
+			Tasks: []daemon.TaskInfo{
+				{ID: 1, Title: "a", Status: "completed", ProjectName: "p1", ProjectPath: "/tmp/p1"},
+				{ID: 2, Title: "b", Status: "failed", ProjectName: "p2", ProjectPath: "/tmp/p2"},
+			},
+		})
+		return resp
+	})
+
+	c := startMCPServer(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "list_tasks",
+			Arguments: map[string]any{"all_projects": true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", textOf(res))
+	}
+
+	var out ListTasksResult
+	if err := json.Unmarshal([]byte(textOf(res)), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Count != 2 || len(out.Tasks) != 2 {
+		t.Fatalf("count: %d, tasks: %d, want 2/2", out.Count, len(out.Tasks))
+	}
+	if out.ProjectName != "" || out.ProjectPath != "" {
+		t.Errorf("global listing should not set project fields: %q %q", out.ProjectName, out.ProjectPath)
+	}
+	if out.Tasks[1].ID != 2 || out.Tasks[1].Status != "failed" {
+		t.Errorf("second task: %+v", out.Tasks[1])
+	}
+}
+
+func TestMCP_ListTasks_ProjectScopedWithStatusFilter(t *testing.T) {
+	fake := newFakeDaemon(t)
+	fake.handle(daemon.MsgListTasks, func(msg *daemon.Message) *daemon.Message {
+		var req daemon.ListTasksRequest
+		_ = msg.DecodePayload(&req)
+		if req.ProjectName != "some-repo" {
+			resp, _ := daemon.NewMessage(daemon.MsgError, daemon.ErrorResponse{
+				Message: fmt.Sprintf("expected project_name=some-repo, got %q", req.ProjectName),
+			})
+			return resp
+		}
+		resp, _ := daemon.NewMessage(daemon.MsgTaskList, daemon.TaskListResponse{
+			Tasks: []daemon.TaskInfo{
+				// Same basename, different repo — must be narrowed out.
+				{ID: 1, Title: "other", Status: "failed", ProjectName: "some-repo", ProjectPath: "/elsewhere/some-repo"},
+				{ID: 2, Title: "match-failed", Status: "failed", ProjectName: "some-repo", ProjectPath: "/tmp/some-repo"},
+				{ID: 3, Title: "match-done", Status: "completed", ProjectName: "some-repo", ProjectPath: "/tmp/some-repo"},
+			},
+		})
+		return resp
+	})
+
+	c := startMCPServer(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name:      "list_tasks",
+			Arguments: map[string]any{"project_path": "/tmp/some-repo", "status": "failed"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", textOf(res))
+	}
+
+	var out ListTasksResult
+	if err := json.Unmarshal([]byte(textOf(res)), &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.ProjectName != "some-repo" || out.ProjectPath != "/tmp/some-repo" {
+		t.Errorf("project fields: %q %q", out.ProjectName, out.ProjectPath)
+	}
+	if out.Count != 1 || len(out.Tasks) != 1 {
+		t.Fatalf("count: %d, tasks: %d, want 1/1 — got %+v", out.Count, len(out.Tasks), out.Tasks)
+	}
+	if out.Tasks[0].ID != 2 {
+		t.Errorf("expected task 2 (path+status match), got %+v", out.Tasks[0])
+	}
+}
+
+func TestMCP_UpdateTaskDependencies_RemovesBeforeAdds(t *testing.T) {
+	fake := newFakeDaemon(t)
+
+	var captured []daemon.UpdateDependencyRequest
+	fake.handle(daemon.MsgUpdateDependency, func(msg *daemon.Message) *daemon.Message {
+		var req daemon.UpdateDependencyRequest
+		_ = msg.DecodePayload(&req)
+		captured = append(captured, req)
+		resp, _ := daemon.NewMessage(daemon.MsgUpdateDependency, daemon.UpdateDependencyResponse{
+			Task: daemon.TaskInfo{ID: req.TaskID, BlockedBy: []int64{req.BlockedBy}},
+		})
+		return resp
+	})
+
+	c := startMCPServer(t, fake)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := c.CallTool(ctx, mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "update_task_dependencies",
+			Arguments: map[string]any{
+				"task_id": 10,
+				"add":     []int{5, 6},
+				"remove":  []int{7},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("tool returned error: %v", textOf(res))
+	}
+
+	want := []daemon.UpdateDependencyRequest{
+		{TaskID: 10, BlockedBy: 7, Action: "remove"},
+		{TaskID: 10, BlockedBy: 5, Action: "add"},
+		{TaskID: 10, BlockedBy: 6, Action: "add"},
+	}
+	if len(captured) != len(want) {
+		t.Fatalf("requests: got %d, want %d — %+v", len(captured), len(want), captured)
+	}
+	for i, w := range want {
+		if captured[i] != w {
+			t.Errorf("request[%d]: got %+v, want %+v", i, captured[i], w)
+		}
+	}
+
+	// The returned task must be the result of the LAST daemon call.
+	var out daemon.TaskInfo
+	if err := json.Unmarshal([]byte(textOf(res)), &out); err != nil {
+		t.Fatalf("unmarshal task: %v", err)
+	}
+	if len(out.BlockedBy) != 1 || out.BlockedBy[0] != 6 {
+		t.Errorf("returned task should reflect last update, got %+v", out)
+	}
+}
+
+func TestMCP_UpdateTaskDependencies_RejectsInvalidArgs(t *testing.T) {
+	fake := newFakeDaemon(t)
+	c := startMCPServer(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cases := []struct {
+		name      string
+		arguments map[string]any
+		wantErr   string
+	}{
+		{
+			name:      "task_id zero",
+			arguments: map[string]any{"task_id": 0, "add": []int{1}},
+			wantErr:   "task_id must be a positive integer",
+		},
+		{
+			name:      "both lists empty",
+			arguments: map[string]any{"task_id": 1},
+			wantErr:   "at least one of add or remove",
+		},
+		{
+			name:      "self dependency",
+			arguments: map[string]any{"task_id": 5, "add": []int{5}},
+			wantErr:   "cannot depend on itself",
+		},
+		{
+			name:      "non-positive dependency id",
+			arguments: map[string]any{"task_id": 5, "remove": []int{0}},
+			wantErr:   "must be positive integers",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := c.CallTool(ctx, mcp.CallToolRequest{
+				Params: mcp.CallToolParams{
+					Name:      "update_task_dependencies",
+					Arguments: tc.arguments,
+				},
+			})
+			if err != nil {
+				t.Fatalf("CallTool: %v", err)
+			}
+			if !res.IsError {
+				t.Fatalf("expected tool error, got success: %s", textOf(res))
+			}
+			if !strings.Contains(textOf(res), tc.wantErr) {
+				t.Errorf("error should contain %q, got %q", tc.wantErr, textOf(res))
+			}
+		})
+	}
+
+	if len(fake.requestTypes()) != 0 {
+		t.Errorf("invalid arg calls leaked to daemon: %v", fake.requestTypes())
 	}
 }
 

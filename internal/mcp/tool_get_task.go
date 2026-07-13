@@ -22,10 +22,10 @@ type GetTaskArgs struct {
 // sections stay nil when the caller doesn't ask for them so the response stays
 // compact.
 type GetTaskResult struct {
-	Task         *daemon.TaskInfo         `json:"task"`
-	Steps        []daemon.TaskStepDetail  `json:"steps,omitempty"`
-	StepContexts map[string]string        `json:"step_contexts,omitempty"`
-	Output       *taskOutput              `json:"output,omitempty"`
+	Task         *daemon.TaskInfo        `json:"task"`
+	Steps        []daemon.TaskStepDetail `json:"steps,omitempty"`
+	StepContexts map[string]string       `json:"step_contexts,omitempty"`
+	Output       *taskOutput             `json:"output,omitempty"`
 }
 
 type taskOutput struct {

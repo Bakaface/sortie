@@ -1,8 +1,9 @@
 // Package mcp implements a Model Context Protocol server that lets Claude Code
 // (or any MCP client) interact with a running sortie daemon over its Unix
-// socket. The server speaks MCP over stdio and exposes a safe-by-default
-// surface: creating tasks, listing workflows, and reading task state. No
-// destructive operations (delete, stop, retry) are exposed in this version.
+// socket. The server speaks MCP over stdio and exposes task lifecycle
+// management: creating, listing, retrying, and editing tasks, managing
+// dependencies, listing workflows, and reading task state. Irrecoverably
+// destructive operations (delete, revert, cleanup) are not exposed.
 package mcp
 
 import (
@@ -48,7 +49,8 @@ func Serve(cfg *config.Config) error {
 }
 
 // registerTools wires the public tool surface. Keep this list aligned with
-// the "Safe-by-default" promise: no destructive operations.
+// the package promise: no irrecoverably destructive operations (delete_task,
+// revert_task, cleanup).
 //
 // create_tasks_and_wait and wait_for_tasks are intentionally additive: they
 // spawn children and gate the caller's own step, but never delete, stop, or
@@ -61,10 +63,23 @@ func Serve(cfg *config.Config) error {
 // row status), and it cannot affect any other task. It cannot delete data,
 // stop agents, or retry/revert tasks. The worst-case is that an agent
 // overwrites its own in-flight context — recoverable by re-running the step.
+//
+// retry_task, update_task_description, list_tasks, and
+// update_task_dependencies were added as an explicit design decision
+// (task #217) to let orchestrating agents manage the task lifecycle. All are
+// recoverable mutations: retry_task stops the task's own agent and re-queues
+// it (no work is deleted — worktree and branch survive; a from-step retry
+// preserves earlier step contexts), description and dependency edits are
+// plain re-editable DB updates, and list_tasks is read-only. Task deletion,
+// revert, and worktree cleanup remain off the surface.
 func registerTools(s *server.MCPServer, c *client.Client) {
 	registerCreateTask(s, c)
 	registerListWorkflows(s, c)
 	registerGetTask(s, c)
+	registerListTasks(s, c)
+	registerRetryTask(s, c)
+	registerUpdateTaskDescription(s, c)
+	registerUpdateTaskDependencies(s, c)
 	registerCreateTasksAndWait(s, c)
 	registerWaitForTasks(s, c)
 	registerUpdateStepContext(s, c)
