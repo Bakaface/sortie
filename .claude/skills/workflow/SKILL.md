@@ -100,7 +100,7 @@ When `task.Worktree == false`:
 1. Runs `executeOnComplete` (commit/merge/none) — merges first to unblock user
 2. Sets `StatusSummarizing`, runs summarizer
 3. Cleans up worktree via `cleanupMergedWorktree` (if merge was performed)
-4. Called from `handleFinalizeTask` → `runFinalization` (async)
+4. Called from `handleAdvanceTask` → `runFinalization` (async)
 
 ## Key Mechanisms
 

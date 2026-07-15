@@ -112,7 +112,7 @@ type TaskInfo struct {
 - Handlers receive `(conn, payload)`, respond via `sendMessage()` or `sendError()`
 - `handleCreateTask`: creates task + async AI title refinement (haiku model, 30s timeout). For non-worktree tasks, branch resolution is skipped.
 - `handleContinueTask`: complex — resumes approval/tmux, or creates tmux for terminal tasks. Non-worktree tasks use project root as `WorktreePath`.
-- `handleFinalizeTask`: fast-tracks if no changes (worktree only), otherwise runs async summarizer (StatusSummarizing) + on_complete. Non-worktree tasks skip the fast-track check.
+- `handleAdvanceTask`: resumes the engine when more workflow steps remain; on the last step fast-tracks if no changes (worktree only), otherwise runs async summarizer (StatusSummarizing) + on_complete. Non-worktree tasks skip the fast-track check.
 
 ### Adding New Message Types
 

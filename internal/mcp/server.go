@@ -1,9 +1,10 @@
 // Package mcp implements a Model Context Protocol server that lets Claude Code
 // (or any MCP client) interact with a running sortie daemon over its Unix
 // socket. The server speaks MCP over stdio and exposes task lifecycle
-// management: creating, listing, retrying, and editing tasks, managing
-// dependencies, listing workflows, and reading task state. Irrecoverably
-// destructive operations (delete, revert, cleanup) are not exposed.
+// management: creating, listing, retrying, advancing, and editing tasks,
+// managing dependencies, listing workflows, and reading task state.
+// Irrecoverably destructive operations (delete, revert, cleanup) are not
+// exposed.
 package mcp
 
 import (
@@ -72,12 +73,20 @@ func Serve(cfg *config.Config) error {
 // preserves earlier step contexts), description and dependency edits are
 // plain re-editable DB updates, and list_tasks is read-only. Task deletion,
 // revert, and worktree cleanup remain off the surface.
+//
+// advance_task is an explicit design decision to let a Claude Code session
+// signal "this tmux step is done" from outside the tmux pane (the in-pane
+// signal is the step-done sentinel file). The daemon only accepts it for
+// tasks in tmux state, and no work is deleted: the workflow either resumes
+// at the next step or runs the same finalization the TUI's advance/finalize
+// keybind triggers. If it advanced too early, retry_task re-runs the step.
 func registerTools(s *server.MCPServer, c *client.Client) {
 	registerCreateTask(s, c)
 	registerListWorkflows(s, c)
 	registerGetTask(s, c)
 	registerListTasks(s, c)
 	registerRetryTask(s, c)
+	registerAdvanceTask(s, c)
 	registerUpdateTaskDescription(s, c)
 	registerUpdateTaskDependencies(s, c)
 	registerCreateTasksAndWait(s, c)

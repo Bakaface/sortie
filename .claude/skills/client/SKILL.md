@@ -60,7 +60,7 @@ CreateTaskWithOptions(req daemon.CreateTaskRequest) (*daemon.TaskInfo, error)
 RetryTask(id int64, stepName string) error  // stepName="" restarts from the beginning; non-empty restarts at that step preserving earlier contexts
 RevertTask(id int64) error
 ContinueTask(id int64, workflow, prompt string) error
-FinalizeTask(id int64) error
+AdvanceTask(id int64) (string, error)  // advance tmux-gated task; returns daemon outcome message
 UpdateTaskPriority(id int64, priority string) error
 UpdateTaskField(id int64, field, value string) error
 DeleteTask(id int64) error

@@ -22,7 +22,7 @@ type Message struct {
 | `delete_task` | `DeleteTaskRequest{TaskID}` | Delete task + cleanup |
 | `retry_task` | `RetryTaskRequest{TaskID, StepName}` | Reset task. `StepName` (optional) restarts from a specific workflow step, preserving earlier completed step contexts. Empty `StepName` restarts from the beginning. |
 | `continue_task` | `ContinueTaskRequest{TaskID, Workflow, Prompt}` | Resume/continue task |
-| `finalize_task` | `FinalizeTaskRequest{TaskID}` | Finalize tmux session |
+| `advance_task` | `AdvanceTaskRequest{TaskID}` | Advance tmux-gated task (next step or finalize) |
 | `get_output` | `GetOutputRequest{AgentID, FromLine}` | Agent output (paginated) |
 | `get_logs` | `GetLogsRequest{TaskID, Tail, Offset}` | Task logs. `Tail` = last N lines (0 = no tail), `Offset` skips the first N (for incremental loading). |
 | `send_input` | `SendInputRequest{AgentID, Input}` | Send input to agent |

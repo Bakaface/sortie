@@ -31,7 +31,7 @@ type TaskService interface {
 	// Tmux-gate completion. Not modeled as an action.Result-returning verb
 	// because the TUI doesn't need the returned TaskInfo (a refresh poll
 	// picks up the new state).
-	FinalizeTask(id int64) error
+	AdvanceTask(id int64) (string, error)
 
 	// Connection lifecycle.
 	Connect() error

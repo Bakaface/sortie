@@ -33,7 +33,7 @@ type fakeTaskService struct {
 	listTasksByProjectName func(string) ([]daemon.TaskInfo, error)
 	getTaskSteps           func(int64) ([]daemon.TaskStepDetail, error)
 	updateStepContext      func(int64, string, string) error
-	finalizeTask           func(int64) error
+	advanceTask            func(int64) (string, error)
 	connect                func() error
 	subscribe              func() error
 	messages               func() <-chan *daemon.Message
@@ -168,11 +168,11 @@ func (f *fakeTaskService) UpdateStepContext(taskID int64, stepName, context stri
 	return f.updateStepContext(taskID, stepName, context)
 }
 
-func (f *fakeTaskService) FinalizeTask(id int64) error {
-	if f.finalizeTask == nil {
-		return errNotStubbedTUI
+func (f *fakeTaskService) AdvanceTask(id int64) (string, error) {
+	if f.advanceTask == nil {
+		return "", errNotStubbedTUI
 	}
-	return f.finalizeTask(id)
+	return f.advanceTask(id)
 }
 
 func (f *fakeTaskService) Connect() error {

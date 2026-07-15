@@ -577,8 +577,20 @@ func (c *Client) ContinueTask(id int64, workflow, prompt string) (*daemon.TaskIn
 	return &resp.Task, nil
 }
 
-func (c *Client) FinalizeTask(id int64) error {
-	return c.requestOK(daemon.MsgFinalizeTask, daemon.FinalizeTaskRequest{TaskID: id})
+// AdvanceTask marks a tmux-gated task's current step as done: the daemon kills
+// the tmux session and either resumes the workflow at the next step or, when
+// the tmux step was the last one, runs full finalization. Returns the daemon's
+// outcome message (e.g. "task #5 advancing to next step").
+func (c *Client) AdvanceTask(id int64) (string, error) {
+	msg, err := c.request(daemon.MsgAdvanceTask, daemon.AdvanceTaskRequest{TaskID: id})
+	if err != nil {
+		return "", err
+	}
+	var resp daemon.OKResponse
+	if err := msg.DecodePayload(&resp); err != nil {
+		return "", err
+	}
+	return resp.Message, nil
 }
 
 func (c *Client) UpdateTaskPriority(id int64, priority string) (*daemon.TaskInfo, error) {

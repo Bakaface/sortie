@@ -210,7 +210,7 @@ func (s *Server) respondWithContinueTask(conn net.Conn, taskID int64) {
 	s.sendMessage(conn, MsgContinueTask, ContinueTaskResponse{Task: s.taskToInfo(refreshed)})
 }
 
-func (s *Server) handleFinalizeTask(conn net.Conn, req FinalizeTaskRequest) {
+func (s *Server) handleAdvanceTask(conn net.Conn, req AdvanceTaskRequest) {
 	t, err := s.database.GetTask(req.TaskID)
 	if err != nil {
 		s.sendError(conn, fmt.Sprintf("failed to get task: %v", err))

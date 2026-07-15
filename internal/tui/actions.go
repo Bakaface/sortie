@@ -168,12 +168,12 @@ func (m Model) continueTask(taskID int64, wf, prompt string) tea.Cmd {
 	})
 }
 
-func (m Model) finalizeTask(taskID int64) tea.Cmd {
+func (m Model) advanceTask(taskID int64) tea.Cmd {
 	return func() tea.Msg {
 		if m.client == nil {
 			return nil
 		}
-		if err := m.client.FinalizeTask(taskID); err != nil {
+		if _, err := m.client.AdvanceTask(taskID); err != nil {
 			return errorMsg(err)
 		}
 		return nil

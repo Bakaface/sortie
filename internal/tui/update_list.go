@@ -18,7 +18,7 @@ import (
 )
 
 // tmuxContinueAction returns "advance" when the tmux step has more workflow
-// steps after it, "finalize" otherwise. Both dispatch to the same FinalizeTask
+// steps after it, "finalize" otherwise. Both dispatch to the same AdvanceTask
 // RPC — the daemon does the smart routing. The label affects only the
 // confirmation prompt the user sees.
 func tmuxContinueAction(cfg *config.Config, task *daemon.TaskInfo) string {
@@ -636,7 +636,7 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "continue":
 			return m, m.continueTask(taskID, "", "")
 		case "advance", "finalize":
-			return m, m.finalizeTask(taskID)
+			return m, m.advanceTask(taskID)
 		case "delete":
 			return m, m.deleteTask(taskID)
 		case "revert":

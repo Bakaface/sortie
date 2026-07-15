@@ -411,13 +411,13 @@ func (s *Server) handleMessage(conn net.Conn, msg *Message) {
 		}
 		s.handleContinueTask(conn, req)
 
-	case MsgFinalizeTask:
-		var req FinalizeTaskRequest
+	case MsgAdvanceTask:
+		var req AdvanceTaskRequest
 		if err := msg.DecodePayload(&req); err != nil {
 			s.sendError(conn, "invalid payload")
 			return
 		}
-		s.handleFinalizeTask(conn, req)
+		s.handleAdvanceTask(conn, req)
 
 	case MsgDeleteTask:
 		var req DeleteTaskRequest

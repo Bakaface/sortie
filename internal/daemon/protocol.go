@@ -22,7 +22,7 @@ const (
 	MsgGetLogs                 MessageType = "get_logs"
 	MsgCreateTask              MessageType = "create_task"
 	MsgContinueTask            MessageType = "continue_task"
-	MsgFinalizeTask            MessageType = "finalize_task"
+	MsgAdvanceTask             MessageType = "advance_task"
 	MsgDeleteTask              MessageType = "delete_task"
 	MsgUpdatePriority          MessageType = "update_priority"
 	MsgUpdateField             MessageType = "update_field"
@@ -161,7 +161,7 @@ type ContinueTaskRequest struct {
 	Prompt   string `json:"prompt,omitempty"`
 }
 
-type FinalizeTaskRequest struct {
+type AdvanceTaskRequest struct {
 	TaskID int64 `json:"task_id"`
 }
 
