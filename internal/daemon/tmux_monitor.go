@@ -190,8 +190,10 @@ func (s *Server) maybeAutoAdvance(t *task.Task) {
 	outcome, err := s.advanceTmuxTask(t)
 	if err != nil {
 		log.Printf("%sTask #%d: auto-advance failed: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-		// Reset advancing so a future tick can retry. The step state in
-		// the DB is unchanged because advanceTmuxTask rolls back on error.
+		// Reset advancing so a future tick can retry. advanceTmuxTask rolls
+		// the DB status back on error — except when an agent is already
+		// running the task, in which case the task has left StatusTmux and
+		// the monitor's cleanup pass will drop this entry anyway.
 		s.mu.Lock()
 		if e, ok := s.tmuxAutoState[t.ID]; ok {
 			e.advancing = false

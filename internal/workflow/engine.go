@@ -40,6 +40,14 @@ type Engine struct {
 	// in fasttrack_test.go. The tmux path (runClaudeStepTmux) is NOT behind
 	// this seam; see agentRunner's doc comment in step.go for why.
 	runner agentRunner
+
+	// onPause, when set, is invoked from applyStepResult the moment the engine
+	// decides to pause a task at an approval gate (human step or tmux step),
+	// before the pause status lands in the DB. It gives the daemon an explicit
+	// "this run genuinely paused" signal so its agent-completion handler does
+	// not have to infer a pause from the task's DB status alone — a status that
+	// a concurrent request can overwrite (see SetPauseCallback).
+	onPause func(taskID int64)
 }
 
 // NewEngine creates a new workflow engine. It still accepts the full
@@ -83,6 +91,17 @@ func NewEngine(cfg *config.Config, database taskStore, notifier *notify.Notifier
 // per-repo lock for ad-hoc operations (revert, worktree teardown) that must
 // serialize against merges.
 func (e *Engine) Coord() *merge.Coordinator { return e.coord }
+
+// SetPauseCallback registers cb to be called with the task ID whenever the
+// engine pauses a task at an approval gate (see Engine.onPause). The callback
+// runs synchronously on the runner goroutine, before RunTask returns, so it
+// must not block. The registry the daemon keeps behind this callback must live
+// on the daemon side, not on the Engine: engines are reconstructed whenever a
+// project's .sortie.yml changes, which would silently drop any pause state
+// held here.
+func (e *Engine) SetPauseCallback(cb func(taskID int64)) {
+	e.onPause = cb
+}
 
 // buildTemplateContext constructs a TemplateContext wired to the engine's
 // database for {{tasks.X.field}} lookups. Centralised so engine + summarizer
@@ -624,6 +643,13 @@ func (e *Engine) applyStepResult(ctx context.Context, t *task.Task, wf *config.W
 	// Check if approval required before continuing
 	needsApproval := step.Human || result.useTmux
 	if needsApproval {
+		// Signal the pause explicitly BEFORE the status write: the daemon's
+		// agent-completion handler must not have to trust the DB status alone
+		// to distinguish "engine paused this run" from "a concurrent request
+		// overwrote the status while the agent ran".
+		if e.onPause != nil {
+			e.onPause(t.ID)
+		}
 		// Set status to pause the task. The daemon will wait for user action.
 		if err := e.database.UpdateTaskStep(t.ID, i+1, ""); err != nil {
 			log.Printf("Warning: failed to update task step: %v", err)

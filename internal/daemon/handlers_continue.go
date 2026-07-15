@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Bakaface/sortie/internal/agent"
 	"github.com/Bakaface/sortie/internal/claude"
 	gitpkg "github.com/Bakaface/sortie/internal/git"
 	"github.com/Bakaface/sortie/internal/task"
@@ -26,37 +27,7 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	}
 
 	if t.Status == task.StatusAwaitingApproval || t.Status == task.StatusTmux {
-		agentID := fmt.Sprintf("%d", t.ID)
-		pc, pcErr := s.getProjectContext(t.ProjectID)
-		if pcErr == nil {
-			if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
-				log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
-			}
-		}
-
-		// Ensure worktree exists for worktree tasks before continuing.
-		// The worktree may have been cleaned up after a previous completion/merge.
-		if pcErr == nil {
-			if err := s.ensureWorktree(t, pc); err != nil {
-				s.sendError(conn, err.Error())
-				return
-			}
-		}
-
-		origStatus := t.Status
-
-		if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
-			s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
-			return
-		}
-
-		if err := s.startTaskAgent(t); err != nil {
-			_ = s.database.UpdateTaskStatus(t.ID, origStatus)
-			s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
-			return
-		}
-
-		s.respondWithContinueTask(conn, req.TaskID)
+		s.continuePausedTask(conn, t)
 		return
 	}
 
@@ -196,6 +167,70 @@ func (s *Server) handleContinueTask(conn net.Conn, req ContinueTaskRequest) {
 	s.respondWithContinueTask(conn, req.TaskID)
 }
 
+// continuePausedTask resumes a task paused at an approval gate (awaiting
+// approval or tmux): kills the tmux session and restarts the workflow agent.
+// Serialized per task via taskFlowLock and re-validated under the lock so a
+// concurrent advance/continue can't double-start the agent or clobber each
+// other's status writes.
+func (s *Server) continuePausedTask(conn net.Conn, t *task.Task) {
+	mu := s.taskFlowLock(t.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Re-read under the lock: the caller's snapshot may predate a concurrent
+	// transition (another continue/advance may already have resumed the task).
+	t, err := s.database.GetTask(t.ID)
+	if err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to reload task: %v", err))
+		return
+	}
+	if t.Status != task.StatusAwaitingApproval && t.Status != task.StatusTmux {
+		s.sendError(conn, fmt.Sprintf("task is no longer paused (status: %s)", t.Status))
+		return
+	}
+
+	agentID := fmt.Sprintf("%d", t.ID)
+	pc, pcErr := s.getProjectContext(t.ProjectID)
+	if pcErr == nil {
+		if err := tmux.KillSessionsForTask(pc.cfg.Project.Name, agentID); err != nil {
+			log.Printf("%sWarning: failed to kill tmux sessions for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		}
+	}
+
+	// Ensure worktree exists for worktree tasks before continuing.
+	// The worktree may have been cleaned up after a previous completion/merge.
+	if pcErr == nil {
+		if err := s.ensureWorktree(t, pc); err != nil {
+			s.sendError(conn, err.Error())
+			return
+		}
+	}
+
+	origStatus := t.Status
+
+	if err := s.database.UpdateTaskStatus(t.ID, task.StatusRunning); err != nil {
+		s.sendError(conn, fmt.Sprintf("failed to update task status: %v", err))
+		return
+	}
+
+	if err := s.startTaskAgent(t); err != nil {
+		if errors.Is(err, agent.ErrTaskAlreadyTracked) {
+			// An agent is already running this task, so the StatusRunning we
+			// just wrote is accurate. Rolling back to the pause status here
+			// would mark a running task as paused, and its completion would
+			// then be misread as an approval pause (task #220, 2026-07-13).
+			log.Printf("%sContinue for task #%d found an agent already tracked; leaving status running", s.projectLogPrefix(t.ProjectID), t.ID)
+		} else if rbErr := s.database.UpdateTaskStatus(t.ID, origStatus); rbErr != nil {
+			log.Printf("%sWarning: failed to roll back task #%d status to %s: %v", s.projectLogPrefix(t.ProjectID), t.ID, origStatus, rbErr)
+		}
+		log.Printf("%sContinue failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
+		s.sendError(conn, fmt.Sprintf("failed to start agent: %v", err))
+		return
+	}
+
+	s.respondWithContinueTask(conn, t.ID)
+}
+
 // respondWithContinueTask refreshes the task from the DB, broadcasts the
 // update, and sends a ContinueTaskResponse to the caller. Used by every exit
 // path of handleContinueTask so callers receive a fresh TaskInfo without an
@@ -219,6 +254,10 @@ func (s *Server) handleAdvanceTask(conn net.Conn, req AdvanceTaskRequest) {
 
 	outcome, err := s.advanceTmuxTask(t)
 	if err != nil {
+		// Log daemon-side too: sendError only reaches the requesting client,
+		// and a failed advance with no trace in the daemon log made the #220
+		// incident (2026-07-13) nearly impossible to reconstruct.
+		log.Printf("%sAdvance failed for task #%d: %v", s.projectLogPrefix(t.ProjectID), t.ID, err)
 		s.sendError(conn, err.Error())
 		return
 	}
@@ -237,13 +276,26 @@ type tmuxAdvanceOutcome struct {
 // advanceTmuxTask kills the task's tmux session and either resumes the engine
 // (when more workflow steps remain) or kicks off the full finalization
 // pipeline (merge + summarizer + cleanup). It is the shared implementation for
-// both the user-driven Finalize/Continue handler and the daemon's
-// auto-advance pathway triggered by the Claude Stop hook sentinel.
+// both the user-driven AdvanceTask handler and the daemon's auto-advance
+// pathway triggered by the Claude Stop hook sentinel.
 //
-// The caller is responsible for verifying that t was loaded from the DB
-// recently enough that the status check is meaningful, and for surfacing the
+// Concurrent advance/continue attempts for the same task are serialized via
+// taskFlowLock, and the task is re-read from the DB under the lock, so callers
+// may pass a stale snapshot; only t.ID is trusted. The caller surfaces the
 // returned message to whoever requested the advance.
 func (s *Server) advanceTmuxTask(t *task.Task) (tmuxAdvanceOutcome, error) {
+	mu := s.taskFlowLock(t.ID)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Re-read under the lock: two requests racing here used to both observe
+	// StatusTmux and double-start the agent — the loser's error path then
+	// rolled the status back to tmux while the winner's agent was running,
+	// stranding the task at a finished step (task #220, 2026-07-13).
+	t, err := s.database.GetTask(t.ID)
+	if err != nil {
+		return tmuxAdvanceOutcome{}, fmt.Errorf("failed to reload task: %v", err)
+	}
 	if t.Status != task.StatusTmux {
 		return tmuxAdvanceOutcome{}, fmt.Errorf("task is not in tmux state (status: %s)", t.Status)
 	}
@@ -283,8 +335,16 @@ func (s *Server) advanceTmuxTask(t *task.Task) (tmuxAdvanceOutcome, error) {
 			return engine.ResumeAfterApproval(ctx, t, outputFn)
 		}
 		if _, err := s.manager.StartAgent(t, t.WorktreePath, runner); err != nil {
-			_ = s.database.UpdateTaskStatus(t.ID, origStatus)
-			return tmuxAdvanceOutcome{}, fmt.Errorf("failed to start agent: %v", err)
+			if errors.Is(err, agent.ErrTaskAlreadyTracked) {
+				// An agent is already running this task, so the StatusRunning
+				// we just wrote is accurate. Rolling back to tmux here would
+				// mark a running task as paused, and its completion would then
+				// be misread as an approval pause (task #220, 2026-07-13).
+				log.Printf("%sAdvance for task #%d found an agent already tracked; leaving status running", s.projectLogPrefix(t.ProjectID), t.ID)
+			} else if rbErr := s.database.UpdateTaskStatus(t.ID, origStatus); rbErr != nil {
+				log.Printf("%sWarning: failed to roll back task #%d status to %s: %v", s.projectLogPrefix(t.ProjectID), t.ID, origStatus, rbErr)
+			}
+			return tmuxAdvanceOutcome{}, fmt.Errorf("failed to start agent: %w", err)
 		}
 
 		s.broadcastTaskUpdate(t.ID)
@@ -651,7 +711,7 @@ func buildClaudeCommand(claudeBin string, yolo bool, resumeSessionID string, ini
 }
 
 // shellSingleQuote wraps s in POSIX-safe single quotes. Single quotes inside
-// the string are escaped via the standard '\'' trick so the result is safe to
+// the string are escaped via the standard '\” trick so the result is safe to
 // drop into a bash command line.
 func shellSingleQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"

@@ -34,11 +34,19 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 	case agent.StateCompleted:
 		refreshedTask, err := s.database.GetTask(a.Task.ID)
 		if err == nil && (refreshedTask.Status == task.StatusAwaitingApproval || refreshedTask.Status == task.StatusTmux) {
-			log.Printf("%sAgent %s paused task #%d for approval", prefix, a.ID, a.Task.ID)
-			if err := s.notifier.AgentWaitingForInput(a.ID, taskTitle); err != nil {
-				log.Printf("%sWarning: notification failed: %v", prefix, err)
+			// Only trust the pause-looking status when the engine explicitly
+			// signalled a pause during THIS run. Without the signal the status
+			// was overwritten by a concurrent request while the agent ran
+			// (e.g. a failed advance rolling it back) — skipping finalization
+			// on that would strand the task at a step it already finished.
+			if s.consumeEnginePaused(a.Task.ID) {
+				log.Printf("%sAgent %s paused task #%d for approval (status: %s)", prefix, a.ID, a.Task.ID, refreshedTask.Status)
+				if err := s.notifier.AgentWaitingForInput(a.ID, taskTitle); err != nil {
+					log.Printf("%sWarning: notification failed: %v", prefix, err)
+				}
+				return
 			}
-			return
+			log.Printf("%sWarning: task #%d has status %s at agent completion but the engine did not pause it this run — status was likely overwritten concurrently; proceeding with finalization", prefix, a.Task.ID, refreshedTask.Status)
 		}
 		// Mid-step suspend on spawned children: do NOT run finalization.
 		// The engine left task_waits_on edges behind; the poller will resume
@@ -62,6 +70,9 @@ func (s *Server) onAgentStateChange(a *agent.Agent, oldState, newState agent.Sta
 		go s.finalizeCompletedTask(a.Task, a.ID, taskTitle)
 
 	case agent.StateFailed:
+		// Drop any pause signal from this run so it can't be misattributed to
+		// a later run of the same task.
+		_ = s.consumeEnginePaused(a.Task.ID)
 		log.Printf("%sAgent %s failed task #%d: %s", prefix, a.ID, a.Task.ID, a.Error)
 		if err := s.database.UpdateTaskError(a.Task.ID, a.Error); err != nil {
 			log.Printf("%sFailed to update task error: %v", prefix, err)

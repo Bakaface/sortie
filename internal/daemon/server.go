@@ -71,6 +71,24 @@ type Server struct {
 	// finalizes the task manually).
 	tmuxAutoState map[int64]*tmuxAutoEntry
 
+	// enginePaused records tasks the workflow engine explicitly paused at an
+	// approval gate during their current agent run (set via the engine's pause
+	// callback, wired in getProjectContext). Lives behind mu. Consumed by
+	// onAgentStateChange when the agent completes: a pause-looking DB status
+	// WITHOUT this signal means the status was overwritten by a concurrent
+	// request while the agent ran, and finalization must proceed rather than
+	// stranding the task. Kept on the Server (not the Engine) because engines
+	// are reconstructed on .sortie.yml changes.
+	enginePaused map[int64]bool
+
+	// taskFlowLocks serializes user/daemon-driven lifecycle transitions
+	// (advance, continue-from-pause) per task. Guarded by taskFlowMu. Without
+	// it, two concurrent requests can both observe StatusTmux and race into
+	// StartAgent; the loser's error path then corrupts the task status (the
+	// 2026-07-13 task #220 incident).
+	taskFlowMu    sync.Mutex
+	taskFlowLocks map[int64]*sync.Mutex
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -102,9 +120,45 @@ func NewServer(cfg *config.Config, database taskStore) *Server {
 		subscribers:   make(map[net.Conn]bool),
 		tmuxActivity:  make(map[int64]string),
 		tmuxAutoState: make(map[int64]*tmuxAutoEntry),
+		enginePaused:  make(map[int64]bool),
+		taskFlowLocks: make(map[int64]*sync.Mutex),
 		ctx:           ctx,
 		cancel:        cancel,
 	}
+}
+
+// markEnginePaused is the Engine pause callback (see Server.enginePaused).
+// Runs synchronously on the runner goroutine right before the engine writes
+// the pause status, so by the time the agent completes the signal is in place.
+func (s *Server) markEnginePaused(taskID int64) {
+	s.mu.Lock()
+	s.enginePaused[taskID] = true
+	s.mu.Unlock()
+}
+
+// consumeEnginePaused reports whether the engine paused this task during its
+// current agent run, clearing the signal so it can't leak into a later run.
+func (s *Server) consumeEnginePaused(taskID int64) bool {
+	s.mu.Lock()
+	paused := s.enginePaused[taskID]
+	delete(s.enginePaused, taskID)
+	s.mu.Unlock()
+	return paused
+}
+
+// taskFlowLock returns the per-task mutex serializing lifecycle transitions
+// (see Server.taskFlowLocks). Locks are created on demand and never removed:
+// one mutex per task ever touched is negligible, and removal would reintroduce
+// the very race this exists to close.
+func (s *Server) taskFlowLock(taskID int64) *sync.Mutex {
+	s.taskFlowMu.Lock()
+	defer s.taskFlowMu.Unlock()
+	mu, ok := s.taskFlowLocks[taskID]
+	if !ok {
+		mu = &sync.Mutex{}
+		s.taskFlowLocks[taskID] = mu
+	}
+	return mu
 }
 
 // getProjectContext lazy-loads and caches per-project config (.sortie.yml) and
@@ -174,6 +228,11 @@ func (s *Server) getProjectContext(projectID int64) (*projectContext, error) {
 	}
 
 	engine := workflow.NewEngine(projCfg, s.database, s.notifier, proj.Path, s.mergeLocks.For(proj.Path))
+	// Wire the explicit pause signal so onAgentStateChange can distinguish a
+	// genuine engine pause from a pause-looking status left behind by a
+	// concurrent request. Re-wired here on every engine (re)construction so
+	// config reloads don't drop the signal path.
+	engine.SetPauseCallback(s.markEnginePaused)
 
 	pc := &projectContext{
 		cfg:           projCfg,
